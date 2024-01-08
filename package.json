@@ -1,28 +1,28 @@
 {
-  "name": "seeds-bot",
-  "module": "bot.ts",
-  "type": "module",
-  "scripts": {
-    "start": "bun --smol run bot.ts",
-    "dev": "bun run --watch bot.ts"
-  },
-  "devDependencies": {
-    "bun-types": "latest",
-    "eslint": "^8.51.0"
-  },
-  "peerDependencies": {
-    "typescript": "^5.0.0"
-  },
-  "dependencies": {
-    "@axiomhq/winston": "^1.0.0-rc.1",
-    "@planetscale/database": "^1.11.0",
-    "add": "^2.0.6",
-    "bun": "^1.0.4",
-    "discord.js": "^14.13.0",
-    "drizzle-orm": "^0.28.6",
-    "mongodb": "^6.1.0",
-    "redis": "^4.6.10",
-    "winston": "^3.11.0",
-    "winston-transport": "^4.5.0"
-  }
+    "name": "seeds-bot",
+    "module": "bot.ts",
+    "type": "module",
+    "scripts": {
+        "start": "pm2 start --interpreter ~/.bun/bin/bun bot.ts",
+        "dev": "bun run --watch bot.ts"
+    },
+    "devDependencies": {
+        "bun-types": "latest",
+        "eslint": "^8.51.0"
+    },
+    "peerDependencies": {
+        "typescript": "^5.0.0"
+    },
+    "dependencies": {
+        "@axiomhq/winston": "^1.0.0-rc.1",
+        "@planetscale/database": "^1.11.0",
+        "add": "^2.0.6",
+        "bun": "^1.0.4",
+        "discord.js": "^14.13.0",
+        "drizzle-orm": "^0.28.6",
+        "mongodb": "^6.1.0",
+        "redis": "^4.6.10",
+        "winston": "^3.11.0",
+        "winston-transport": "^4.5.0"
+    }
 }
