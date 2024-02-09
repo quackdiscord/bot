@@ -66,13 +66,6 @@ const client: MyClient = new MyClient({
 // register the commands
 await registerSlashCommands();
 
-// connect redis
-await redis.connect();
-
-redis.on("error", (error) => {
-    logger.error("Redis error: " + error);
-});
-
 // register the webhook client
 const webhookClient = new WebhookClient({ url: config.webhookUrl as string });
 client.webhookClient = webhookClient;

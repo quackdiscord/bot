@@ -1,6 +1,6 @@
 import { ChatInputCommandInteraction, SlashCommandBuilder } from "discord.js";
 import embedBuilder from "../../lib/embedBuilder";
-import { client } from "../../bot";
+import { client, redis } from "../../bot";
 import { heapStats } from "bun:jsc";
 
 // create the command
@@ -10,20 +10,24 @@ const command = new SlashCommandBuilder().setName("stats").setDescription("Get s
 async function execute(interaction: ChatInputCommandInteraction) {
     const heapstat = heapStats();
 
+    const allCmdData = await redis.hget("seeds:cmds", "total");
+    const allCmds = allCmdData ? parseInt(allCmdData as string) : 0;
+
     const embedData = {
         title: "Seeds Stats",
         description: `Some statistics about Seeds\`\`\`asciidoc
-Servers   ::   ${interaction.client.guilds.cache.size.toLocaleString("en-US")}
-Users     ::   ${interaction.client.users.cache.size.toLocaleString("en-US")} (in cache)
-CPU       ::   ${(process.cpuUsage().system / 1000000).toFixed(2)}%
-RAM       ::   ${(heapstat.heapSize / 1024 / 1024).toFixed(2)} MB (${(
+Servers      ::   ${interaction.client.guilds.cache.size.toLocaleString("en-US")}
+Users        ::   ${interaction.client.users.cache.size.toLocaleString("en-US")} (in cache)
+CPU          ::   ${(process.cpuUsage().system / 1000000).toFixed(2)}%
+RAM          ::   ${(heapstat.heapSize / 1024 / 1024).toFixed(2)} MB (${(
             (heapstat.heapSize / heapstat.heapCapacity) *
             100
         ).toFixed(2)}%)
-Ping      ::   ${Math.round(interaction.client.ws.ping)} ms
-Uptime    ::   ${Math.round(process.uptime() / 1000 / 60 / 60 / 24)} days
-Library   ::   Discord.js
-Runtime   ::   Bun\`\`\``,
+Ping         ::   ${Math.round(interaction.client.ws.ping)} ms
+Uptime       ::   ${Math.round(process.uptime() / 1000 / 60 / 60 / 24)} days
+Library      ::   Discord.js
+Runtime      ::   Bun
+Cmds. Run    ::   ${allCmds.toLocaleString("en-us")}\`\`\``,
         color: client.mainColor,
         fields: [
             {

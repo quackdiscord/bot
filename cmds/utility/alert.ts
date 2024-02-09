@@ -10,7 +10,7 @@ const command = new SlashCommandBuilder()
 // execute the command
 async function execute(interaction: ChatInputCommandInteraction) {
     // get the alert from redis
-    let alert: any = await redis.hGet("seeds:alerts", "active");
+    let alert: any = await redis.hget("seeds:alerts", "active");
 
     // if there is no alert, send an error message
     if (!alert) {
@@ -32,7 +32,9 @@ async function execute(interaction: ChatInputCommandInteraction) {
     }
 
     // update the alert in redis
-    await redis.hSet("seeds:alerts", "active", JSON.stringify(alert));
+    await redis.hset("seeds:alerts", {
+        active: JSON.stringify(alert)
+    });
 
     // create the embed data
     const embedData = {

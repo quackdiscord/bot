@@ -28,7 +28,7 @@ async function addCooldown(user: User, cmdName: string, guild: Guild, duration: 
     const durationSeconds: any = convertCooldown(duration);
 
     // add the user to redis cooldown
-    const addToRedis = await redis.setEx(`${user.id}-${cmdName}-${guild.id}`, durationSeconds, "cooldown");
+    const addToRedis = await redis.setex(`${user.id}-${cmdName}-${guild.id}`, durationSeconds, "cooldown");
     if (addToRedis == "OK") return true;
     return false;
 }

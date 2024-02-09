@@ -17,6 +17,7 @@
     "@axiomhq/winston": "^1.0.0-rc.1",
     "@kafkajs/confluent-schema-registry": "^3.3.0",
     "@planetscale/database": "^1.11.0",
+    "@upstash/redis": "^1.28.3",
     "add": "^2.0.6",
     "bun": "^1.0.4",
     "discord.js": "^14.13.0",

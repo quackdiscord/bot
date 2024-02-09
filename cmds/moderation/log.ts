@@ -171,7 +171,7 @@ async function executeSetChannel(interaction: ChatInputCommandInteraction) {
     // data is saved in the db and in redis. we need to first see if data exists for this guild in redis or db. If either of them exist, we need to upadte the data. If neither exist, we need to create the data. However, db will error if we try and update data that isnt there (if for some reason data is in redis but not db) so if we update we need to be sure that it is in both
 
     // check redis
-    const redisData = await redis.hGet("seeds:logsettings", interaction.guild?.id as string);
+    const redisData = await redis.hget("seeds:logsettings", interaction.guild?.id as string);
     // check db
     const dbData = await db
         .select()
@@ -229,14 +229,16 @@ async function executeSetChannel(interaction: ChatInputCommandInteraction) {
 
     // if data exists in redis, update it
     if (redisData) {
-        const parsedData = JSON.parse(redisData);
+        const parsedData = redisData as any;
         parsedData.types[type] = {
             channel_id: channel.id,
             webhook_url: webhook.url
         };
         try {
             await redis
-                .hSet("seeds:logsettings", interaction.guild?.id as string, JSON.stringify(parsedData))
+                .hset("seeds:logsettings", {
+                    [interaction.guild?.id as string]: JSON.stringify(parsedData)
+                })
                 .then(() => {
                     redisSaved = true;
                 });
@@ -256,9 +258,13 @@ async function executeSetChannel(interaction: ChatInputCommandInteraction) {
     } else {
         // data doesnt exist in redis, create it
         try {
-            await redis.hSet("seeds:logsettings", interaction.guild?.id as string, JSON.stringify(newData)).then(() => {
-                redisSaved = true;
-            });
+            await redis
+                .hset("seeds:logsettings", {
+                    [interaction.guild?.id as string]: JSON.stringify(newData)
+                })
+                .then(() => {
+                    redisSaved = true;
+                });
         } catch (error) {
             logger.error("Error saving data to redis", {
                 error
@@ -357,7 +363,7 @@ async function executeToggle(interaction: ChatInputCommandInteraction) {
 
     // get data from redis only, for this we don't care about the db toggles
     let data = null;
-    const redisData = await redis.hGet("seeds:logsettings", interaction.guild?.id as string);
+    const redisData = await redis.hget("seeds:logsettings", interaction.guild?.id as string);
 
     // if no data exists, then check the db
     if (!redisData) {
@@ -397,7 +403,7 @@ async function executeToggle(interaction: ChatInputCommandInteraction) {
     }
 
     // parse the data
-    data = JSON.parse(redisData as string);
+    data = redisData as any;
 
     if (!server && !members && !messages) {
         const embedData = {
@@ -432,7 +438,9 @@ async function executeToggle(interaction: ChatInputCommandInteraction) {
 
     // update redis
     try {
-        await redis.hSet("seeds:logsettings", interaction.guild?.id as string, JSON.stringify(data));
+        await redis.hset("seeds:logsettings", {
+            [interaction.guild?.id as string]: JSON.stringify(data)
+        });
     } catch (error) {
         logger.error(error);
         return await interaction.reply({

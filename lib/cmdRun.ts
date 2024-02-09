@@ -5,17 +5,19 @@ import { logger } from "./logger";
 
 export default async function cmdRun(cmdName: string, interaction: ChatInputCommandInteraction) {
     // get this commands count from the seeds:cmds redis hash
-    const cmdCount = await redis.hGet("seeds:cmds", cmdName);
+    const cmdCount = await redis.hget("seeds:cmds", cmdName);
 
     // if the command is not in the redis hash, add it
     if (!cmdCount) {
-        await redis.hSet("seeds:cmds", cmdName, 1);
+        await redis.hset("seeds:cmds", {
+            [cmdName]: 1
+        });
     } else {
         // if the command is in the redis hash, add 1 to it
-        await redis.hIncrBy("seeds:cmds", cmdName, 1);
+        await redis.hincrby("seeds:cmds", cmdName, 1);
     }
 
-    await redis.hIncrBy("seeds:cmds", "total", 1);
+    await redis.hincrby("seeds:cmds", "total", 1);
 
     logger.info({
         mesage: "Command executed",
@@ -28,7 +30,7 @@ export default async function cmdRun(cmdName: string, interaction: ChatInputComm
     });
 
     // check if there are any active alerts
-    let alert: any = await redis.hGet("seeds:alerts", "active");
+    let alert: any = await redis.hget("seeds:alerts", "active");
 
     if (alert) {
         alert = JSON.parse(alert);
