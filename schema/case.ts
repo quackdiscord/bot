@@ -7,5 +7,5 @@ export const cases = mysqlTable("cases", {
     guild_id: varchar("guild_id", { length: 255 }).notNull(),
     reason: varchar("reason", { length: 255 }).notNull(),
     type: smallint("type").notNull().default(0),
-    created_at: datetime("created_at").notNull().default(new Date()),
-})
+    created_at: datetime("created_at").notNull().default(new Date())
+});

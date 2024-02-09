@@ -4,8 +4,7 @@ import { client, db } from "../bot";
 import { guilds } from "../schema/guild";
 import { eq } from "drizzle-orm";
 
-async function execute(server:Guild) {
-
+async function execute(server: Guild) {
     if (!server) return;
     if (!server.name) return;
 
@@ -17,27 +16,24 @@ async function execute(server:Guild) {
         logger.info({
             message: `Left server ${server.name} (${server.id})`,
             server: {
-                member_count: server.memberCount,
+                member_count: server.memberCount
             }
         });
     } catch (error) {
         logger.error({
             message: `Failed to save server ${server.name} (${server.id}) to the database`,
-            error: error,
+            error: error
         });
     }
-    
-    let guildCountChannel:any = client.channels.cache.get('1123601662846714018')
-    guildCountChannel.setName(`${client.guilds.cache.size.toLocaleString()} servers`)
 
+    let guildCountChannel: any = client.channels.cache.get("1123601662846714018");
+    guildCountChannel.setName(`${client.guilds.cache.size.toLocaleString()} servers`);
 }
 
 const data = {
     name: Events.GuildDelete,
     once: false,
-    execute,
-}
+    execute
+};
 
-export { 
-    data,
-}
+export { data };

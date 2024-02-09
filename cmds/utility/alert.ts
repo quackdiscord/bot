@@ -4,14 +4,13 @@ import { client, redis } from "../../bot";
 
 // create the command
 const command = new SlashCommandBuilder()
-    .setName('alert')
-    .setDescription('Read the latest message from the developers');
+    .setName("alert")
+    .setDescription("Read the latest message from the developers");
 
 // execute the command
 async function execute(interaction: ChatInputCommandInteraction) {
-    
-    // get the alert from redis 
-    let alert:any = await redis.hGet("seeds:alerts", "active")
+    // get the alert from redis
+    let alert: any = await redis.hGet("seeds:alerts", "active");
 
     // if there is no alert, send an error message
     if (!alert) {
@@ -22,18 +21,18 @@ async function execute(interaction: ChatInputCommandInteraction) {
                 } as any)
             ],
             ephemeral: true
-        })
+        });
     }
 
-    alert = JSON.parse(alert)
+    alert = JSON.parse(alert);
 
     // add the user id to the viewers array
     if (!alert.viewers.includes(interaction.user.id)) {
-        alert.viewers.push(interaction.user.id)
+        alert.viewers.push(interaction.user.id);
     }
 
     // update the alert in redis
-    await redis.hSet("seeds:alerts", "active", JSON.stringify(alert))
+    await redis.hSet("seeds:alerts", "active", JSON.stringify(alert));
 
     // create the embed data
     const embedData = {
@@ -44,22 +43,19 @@ async function execute(interaction: ChatInputCommandInteraction) {
         footer: {
             text: `👀 by ${alert?.viewers.length.toLocaleString("en-US")} users`
         }
-    }
+    };
 
     // build the embed
     const embed = embedBuilder(embedData as any);
 
     // send the embed
     await interaction.reply({ embeds: [embed] });
-
 }
 
 // export the command
 const data = {
     data: command,
     execute: execute
-}
-
-export {
-    data
 };
+
+export { data };

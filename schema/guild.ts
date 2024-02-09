@@ -21,5 +21,5 @@ export const guilds = mysqlTable("guilds", {
     nsfw_level: smallint("nsfw_level").notNull().default(0),
     preferred_locale: varchar("preferred_locale", { length: 255 }).default("en-US"),
     rules_channel_id: varchar("rules_channel_id", { length: 255 }),
-    system_channel_id: varchar("system_channel_id", { length: 255 }),
-})
+    system_channel_id: varchar("system_channel_id", { length: 255 })
+});

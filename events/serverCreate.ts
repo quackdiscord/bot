@@ -1,15 +1,12 @@
-import { AuditLogEvent, Events, Guild, WebhookClient, time } from "discord.js";
-import { checkLogTypeEnabled } from "../lib/checkLogEnabled";
-import embedBuilder from "../lib/embedBuilder";
+import { Events, Guild } from "discord.js";
 import { logger } from "../lib/logger";
 import DBGuild from "../interfaces/DBGuild";
 import { client, db } from "../bot";
 import { guilds } from "../schema/guild";
 
-async function execute(server:Guild) {
-
+async function execute(server: Guild) {
     // form the data
-    const data:DBGuild = {
+    const data: DBGuild = {
         id: server.id,
         name: server.name,
         description: server.description || undefined,
@@ -30,8 +27,8 @@ async function execute(server:Guild) {
         nsfw_level: server.nsfwLevel,
         preferred_locale: server.preferredLocale,
         rules_channel_id: server.rulesChannelId || undefined,
-        system_channel_id: server.systemChannelId || undefined,
-    }
+        system_channel_id: server.systemChannelId || undefined
+    };
 
     // save the server to the database
     try {
@@ -41,27 +38,24 @@ async function execute(server:Guild) {
         logger.info({
             message: `Joined server ${server.name} (${server.id})`,
             server: {
-                member_count: server.memberCount,
+                member_count: server.memberCount
             }
         });
     } catch (error) {
         logger.error({
             message: `Failed to save server ${server.name} (${server.id}) to the database`,
-            error: error,
+            error: error
         });
     }
 
-    let guildCountChannel:any = client.channels.cache.get('1123601662846714018')
-    guildCountChannel.setName(`${client.guilds.cache.size.toLocaleString()} servers`)
- 
+    let guildCountChannel: any = client.channels.cache.get("1123601662846714018");
+    guildCountChannel.setName(`${client.guilds.cache.size.toLocaleString()} servers`);
 }
 
 const data = {
     name: Events.GuildCreate,
     once: false,
-    execute,
-}
+    execute
+};
 
-export { 
-    data,
-}
+export { data };

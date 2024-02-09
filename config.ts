@@ -35,6 +35,12 @@ const config = {
         dataset: process.env.AXIOM_DATASET,
         token: process.env.AXIOM_TOKEN as string,
         orgId: process.env.AXIOM_ORG_ID
+    },
+
+    kafka: {
+        brokers: [process.env.KAFKA_BROKER as string],
+        username: process.env.KAFKA_USERNAME as string,
+        password: process.env.KAFKA_PASSWORD as string
     }
 };
 

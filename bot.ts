@@ -6,10 +6,8 @@ import { redis } from "./lib/redis";
 import { logger } from "./lib/logger";
 import config from "./config";
 import embedBuilder from "./lib/embedBuilder";
-import { addCooldown, isOnCooldown, tellOnCooldown } from "./lib/cooldown";
-
-// import event handlers
-// import readyEvent from './events/ready';
+import { addCooldown } from "./lib/cooldown";
+import { kafka } from "./lib/kafka";
 
 // get the environment
 const env = config.env;
@@ -48,6 +46,7 @@ const intents = [
     GatewayIntentBits.GuildInvites,
     GatewayIntentBits.MessageContent
 ];
+
 // create the client
 const client: MyClient = new MyClient({
     intents: intents,
@@ -77,6 +76,12 @@ redis.on("error", (error) => {
 // register the webhook client
 const webhookClient = new WebhookClient({ url: config.webhookUrl as string });
 client.webhookClient = webhookClient;
+
+// connect to kafka
+const kfProducer = kafka.producer();
+await kfProducer.connect().then(() => {
+    logger.info("Connected to Kafka.");
+});
 
 // listen for interaction create events
 client.on(Events.InteractionCreate, async (interaction) => {
@@ -125,7 +130,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 });
 
 // export the client
-export { client, db, redis };
+export { client, db, redis, kfProducer };
 
 // start a small webserver for status page checks
 Bun.serve({

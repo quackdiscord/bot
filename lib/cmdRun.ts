@@ -1,10 +1,8 @@
 import { ChatInputCommandInteraction } from "discord.js";
-import { logger } from "./logger";
-import { client, db, redis } from "../bot"
+import { redis } from "../bot";
 import embedBuilder from "./embedBuilder";
 
-export default async function cmdRun(cmdName:string, interaction:ChatInputCommandInteraction) {
-    
+export default async function cmdRun(cmdName: string, interaction: ChatInputCommandInteraction) {
     // get this commands count from the seeds:cmds redis hash
     const cmdCount = await redis.hGet("seeds:cmds", cmdName);
 
@@ -19,17 +17,17 @@ export default async function cmdRun(cmdName:string, interaction:ChatInputComman
     await redis.hIncrBy("seeds:cmds", "total", 1);
 
     // check if there are any active alerts
-    let alert:any = await redis.hGet("seeds:alerts", "active")
+    let alert: any = await redis.hGet("seeds:alerts", "active");
 
     if (alert) {
-        alert = JSON.parse(alert)
+        alert = JSON.parse(alert);
         // check if the user has already viewed the alert
         if (!alert.viewers.includes(interaction.user.id)) {
             const embedData = {
                 title: "🚨 Unread message from the developers!",
                 description: "Run `/alert` to view the message",
                 color: "Gold"
-            }
+            };
             const embed = embedBuilder(embedData as any);
             await interaction.channel?.send({ embeds: [embed] });
         }

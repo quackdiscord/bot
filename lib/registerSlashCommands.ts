@@ -9,18 +9,16 @@ const env = config.env;
 
 export default async function registerSlashCommands() {
     client.commands = new Collection();
-    const commands:any = [] // this is for registering the commands
+    const commands: any = []; // this is for registering the commands
 
-    const foldersPath = path.join(__dirname, '../cmds');
+    const foldersPath = path.join(__dirname, "../cmds");
     const commandFolders = readdirSync(foldersPath);
 
     for (const folder of commandFolders) {
-        
         const commandsPath = path.join(foldersPath, folder);
-        const commandFiles = readdirSync(commandsPath).filter(file => file.endsWith('.ts'));
+        const commandFiles = readdirSync(commandsPath).filter((file) => file.endsWith(".ts"));
 
         for (const file of commandFiles) {
-
             const filePath = path.join(commandsPath, file);
             const command = await import(filePath);
 
@@ -30,22 +28,20 @@ export default async function registerSlashCommands() {
 
             // remove the imported command from the cache
             delete require.cache[require.resolve(filePath)];
-
         }
     }
 
-    const eventsPath = path.join(__dirname, '../events');
-    const eventFiles = readdirSync(eventsPath).filter(file => file.endsWith('.ts'));
+    const eventsPath = path.join(__dirname, "../events");
+    const eventFiles = readdirSync(eventsPath).filter((file) => file.endsWith(".ts"));
 
     let eventCount = 0;
     let onceCount = 0;
     let onCount = 0;
 
     for (const file of eventFiles) {
-
         const filePath = path.join(eventsPath, file);
         const event = await import(filePath);
-        
+
         if (event.data.once) {
             client.once(event.data.name, (...args) => event.data.execute(...args));
             onceCount++;
@@ -64,31 +60,32 @@ export default async function registerSlashCommands() {
 
     // Construct and prepare an instance of the REST module
     const rest = new REST().setToken(config.token as string);
-    
+
     // register the commands
     (async () => {
         try {
             logger.info(`Started refreshing ${commands.length} commands.`);
-            let count = 0
-            let isPublic = false
-    
+            let count = 0;
+            let isPublic = false;
+
             // register the commands baed on the environment
             if (env == "dev") {
-                const data:any = await rest.put(
+                const data: any = await rest.put(
                     Routes.applicationGuildCommands(config.appId as string, "1005778938108325970"),
-                    { body: commands },
+                    { body: commands }
                 );
-                count = data.length
+                count = data.length;
             } else {
-                const data:any = await rest.put(
-                    Routes.applicationCommands(config.appId as string),
-                    { body: commands },
-                );
-                count = data.length
-                isPublic = true
+                const data: any = await rest.put(Routes.applicationCommands(config.appId as string), {
+                    body: commands
+                });
+                count = data.length;
+                isPublic = true;
             }
-    
-            logger.info(`Successfully reloaded ${count}/${commands.length} ${isPublic ? "Public": "Private"} commands.`);
+
+            logger.info(
+                `Successfully reloaded ${count}/${commands.length} ${isPublic ? "Public" : "Private"} commands.`
+            );
         } catch (error) {
             logger.error(error);
         }
