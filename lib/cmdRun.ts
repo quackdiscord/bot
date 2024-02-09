@@ -1,6 +1,7 @@
 import { ChatInputCommandInteraction } from "discord.js";
 import { redis } from "../bot";
 import embedBuilder from "./embedBuilder";
+import { logger } from "./logger";
 
 export default async function cmdRun(cmdName: string, interaction: ChatInputCommandInteraction) {
     // get this commands count from the seeds:cmds redis hash
@@ -15,6 +16,16 @@ export default async function cmdRun(cmdName: string, interaction: ChatInputComm
     }
 
     await redis.hIncrBy("seeds:cmds", "total", 1);
+
+    logger.info({
+        mesage: "Command executed",
+        command: cmdName,
+        user: {
+            id: interaction.user.id,
+            username: interaction.user.username
+        },
+        guild: interaction.guild?.id
+    });
 
     // check if there are any active alerts
     let alert: any = await redis.hGet("seeds:alerts", "active");
