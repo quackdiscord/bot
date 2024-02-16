@@ -78,7 +78,7 @@ async function execute(message: any) {
                     if (me) {
                         // make sure the bot has the correct permissions
                         if (!me.permissions.has("ChangeNickname")) {
-                            response.edit("I don't have the correct permissions to change my nickname. Skipping...");
+                            console.log("No permission to change nickname, skipping...");
                             return;
                         }
 
