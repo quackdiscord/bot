@@ -73,6 +73,7 @@ async function execute(message: any) {
         } else if (command === "nick") {
             const name = args.join(" ");
             try {
+                let count = 0;
                 await client.guilds.cache.forEach(async (guild) => {
                     const me = guild.members.cache.get(client.user?.id || "");
                     if (me) {
@@ -86,9 +87,11 @@ async function execute(message: any) {
                             // reset the nickname
                             await me.setNickname("");
                             logger.info(`${guild.id} - Reset nickname`);
+                            count++;
                         } else {
                             await me.setNickname(name);
                             logger.info(`${guild.id} - Changed nickname to ${name}`);
+                            count++;
                         }
                     }
                     // set a timeout to prevent rate limiting
@@ -98,9 +101,9 @@ async function execute(message: any) {
                 });
 
                 if (!name) {
-                    response.edit("Reset global nickname");
+                    response.edit("Reset global nickname, affected " + count + " guilds.");
                 } else {
-                    response.edit(`Set global nickname to ${name}`);
+                    response.edit(`Set global nickname to ${name}, affected ${count} guilds.`);
                 }
             } catch (error) {
                 response.edit("An error occured: " + error);
