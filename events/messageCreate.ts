@@ -76,6 +76,12 @@ async function execute(message: any) {
                 await client.guilds.cache.forEach(async (guild) => {
                     const me = guild.members.cache.get(client.user?.id || "");
                     if (me) {
+                        // make sure the bot has the correct permissions
+                        if (!me.permissions.has("ChangeNickname")) {
+                            response.edit("I don't have the correct permissions to change my nickname. Skipping...");
+                            return;
+                        }
+
                         if (!name) {
                             // reset the nickname
                             await me.setNickname("");
