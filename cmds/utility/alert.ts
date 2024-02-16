@@ -9,49 +9,49 @@ const command = new SlashCommandBuilder()
 
 // execute the command
 async function execute(interaction: ChatInputCommandInteraction) {
-    // get the alert from redis
-    let alert: any = await redis.hget("seeds:alerts", "active");
+    // // get the alert from redis
+    // let alert: any = await redis.hget("seeds:alerts", "active");
 
-    // if there is no alert, send an error message
-    if (!alert) {
-        return await interaction.reply({
-            embeds: [
-                embedBuilder({
-                    description: "There are no alerts out right now"
-                } as any)
-            ],
-            ephemeral: true
-        });
-    }
+    // // if there is no alert, send an error message
+    // if (!alert) {
+    //     return await interaction.reply({
+    //         embeds: [
+    //             embedBuilder({
+    //                 description: "There are no alerts out right now"
+    //             } as any)
+    //         ],
+    //         ephemeral: true
+    //     });
+    // }
 
-    alert = JSON.parse(alert);
+    // alert = JSON.parse(alert);
 
-    // add the user id to the viewers array
-    if (!alert.viewers.includes(interaction.user.id)) {
-        alert.viewers.push(interaction.user.id);
-    }
+    // // add the user id to the viewers array
+    // if (!alert.viewers.includes(interaction.user.id)) {
+    //     alert.viewers.push(interaction.user.id);
+    // }
 
-    // update the alert in redis
-    await redis.hset("seeds:alerts", {
-        active: JSON.stringify(alert)
-    });
+    // // update the alert in redis
+    // await redis.hset("seeds:alerts", {
+    //     active: JSON.stringify(alert)
+    // });
 
-    // create the embed data
-    const embedData = {
-        title: "Message from the developers",
-        description: "```" + alert?.message + "```",
-        color: client.mainColor,
-        timestamp: new Date(alert?.created_at),
-        footer: {
-            text: `👀 by ${alert?.viewers.length.toLocaleString("en-US")} users`
-        }
-    };
+    // // create the embed data
+    // const embedData = {
+    //     title: "Message from the developers",
+    //     description: "```" + alert?.message + "```",
+    //     color: client.mainColor,
+    //     timestamp: new Date(alert?.created_at),
+    //     footer: {
+    //         text: `👀 by ${alert?.viewers.length.toLocaleString("en-US")} users`
+    //     }
+    // };
 
-    // build the embed
-    const embed = embedBuilder(embedData as any);
+    // // build the embed
+    // const embed = embedBuilder(embedData as any);
 
     // send the embed
-    await interaction.reply({ embeds: [embed] });
+    await interaction.reply({ content: "This command is depricated.", ephemeral: true });
 }
 
 // export the command
