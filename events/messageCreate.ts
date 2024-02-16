@@ -1,6 +1,7 @@
 import { Events } from "discord.js";
 import { client } from "../bot";
 import config from "../config";
+import { logger } from "../lib/logger";
 
 async function execute(message: any) {
     const clean = async (text: string) => {
@@ -68,6 +69,35 @@ async function execute(message: any) {
             } catch (err) {
                 // Reply in the channel with our error
                 response.edit("an error occured: " + err);
+            }
+        } else if (command === "nick") {
+            const name = args.join(" ");
+            try {
+                await client.guilds.cache.forEach(async (guild) => {
+                    const me = guild.members.cache.get(client.user?.id || "");
+                    if (me) {
+                        if (!name) {
+                            // reset the nickname
+                            await me.setNickname("");
+                            logger.info(`${guild.id} - Reset nickname`);
+                        } else {
+                            await me.setNickname(name);
+                            logger.info(`${guild.id} - Changed nickname to ${name}`);
+                        }
+                    }
+                    // set a timeout to prevent rate limiting
+                    setTimeout(() => {
+                        return;
+                    }, 1000);
+                });
+
+                if (!name) {
+                    response.edit("Reset global nickname");
+                } else {
+                    response.edit(`Set global nickname to ${name}`);
+                }
+            } catch (error) {
+                response.edit("An error occured: " + error);
             }
         } else {
             response.edit("Invalid command.");

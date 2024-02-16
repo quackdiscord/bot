@@ -5,6 +5,20 @@ import { client, db } from "../bot";
 import { guilds } from "../schema/guild";
 
 async function execute(server: Guild) {
+    // change the bot's nickname
+    const me = server.client.user;
+    if (me) {
+        try {
+            // set a brief timeout
+            setTimeout(() => {
+                return;
+            }, 5000);
+            await me.setUsername("Quack");
+        } catch (error) {
+            //
+        }
+    }
+
     // form the data
     const data: DBGuild = {
         id: server.id,
