@@ -4,7 +4,7 @@ import embedBuilder from "./embedBuilder";
 import { logger } from "./logger";
 
 export default async function cmdRun(cmdName: string, interaction: ChatInputCommandInteraction) {
-    // get this commands count from the seeds:cmds redis hash
+    // get this commands count from the quack:cmds redis hash
     const cmdCount = await redis.hget("seeds:cmds", cmdName);
 
     // if the command is not in the redis hash, add it

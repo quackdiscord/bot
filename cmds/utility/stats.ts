@@ -14,8 +14,8 @@ async function execute(interaction: ChatInputCommandInteraction) {
     const allCmds = allCmdData ? parseInt(allCmdData as string) : 0;
 
     const embedData = {
-        title: "Seeds Stats",
-        description: `Some statistics about Seeds\`\`\`asciidoc
+        title: "Quack's Stats",
+        description: `Some statistics about Quack\`\`\`asciidoc
 Servers      ::   ${interaction.client.guilds.cache.size.toLocaleString("en-US")}
 Users        ::   ${interaction.client.users.cache.size.toLocaleString("en-US")} (in cache)
 CPU          ::   ${(process.cpuUsage().system / 1000000).toFixed(2)}%
@@ -32,7 +32,7 @@ Cmds. Run    ::   ${allCmds.toLocaleString("en-us")}\`\`\``,
         fields: [
             {
                 name: "Links",
-                value: "[🌐 Website](https://seedsbot.xyz) | [<:invite:823987169978613851> Invite](https://seedsbot.xyz/invite) | [<:discord:823989269626355793> Support](https://seedsbot.xyz/discord)",
+                value: "[🌐 Website](https://quackbot.xyz) | [<:invite:823987169978613851> Invite](https://quackbot.xyz/invite) | [<:discord:823989269626355793> Support](https://quackbot.xyz/discord)",
                 inline: false
             }
         ]

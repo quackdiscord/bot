@@ -36,7 +36,7 @@ const logger = winston.createLogger({
             message: true
         })
     ),
-    defaultMeta: { service: "seeds-bot" },
+    defaultMeta: { service: "quack-bot" },
     transports: [
         new winston.transports.Console(),
         new AxiomTransport({

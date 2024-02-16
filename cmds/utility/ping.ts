@@ -7,7 +7,7 @@ const command = new SlashCommandBuilder().setName("ping").setDescription("Replie
 // write the function
 async function execute(interaction: ChatInputCommandInteraction) {
     const embedData = {
-        description: `🏓 **Pong** - Bot Latency is \`${
+        description: `🏓 **Pong** - Quack's Latency is \`${
             Date.now() - interaction.createdTimestamp
         }ms\`. API Latency is \`${Math.round(interaction.client.ws.ping)}ms\``,
         color: "Green"
