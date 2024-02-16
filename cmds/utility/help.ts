@@ -10,7 +10,7 @@ async function execute(interaction: ChatInputCommandInteraction) {
     const embedData = {
         title: "Quack Help",
         color: client.mainColor,
-        thumbnail: interaction.client.user?.displayAvatarURL(),
+        thumbnail: "https://quackbot.xyz/images/webp/logo-circle.webp",
         description:
             "All Quack's commands use the prefix ``/``\n\n**Commands: **[All of Quacks commands can be found here](https://quackbot.xyz/commands)\n**Need Help?** [Join our support server](https://quackbot.xyz/discord)",
         fields: [
