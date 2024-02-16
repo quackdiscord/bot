@@ -18,6 +18,7 @@ const config = {
     mongoUrl: process.env.MONGO_URI, // mongo url for database
     event_api_url: process.env.EVENT_API_URL, // event api url (for events logging)
     event_api_token: process.env.EVENT_API_TOKEN, // event api token (to authenticate with the event api)
+    owner_id: process.env.OWNER_ID, // owner id (for bot owner)
 
     redis: {
         url: process.env.REDIS_HOST,

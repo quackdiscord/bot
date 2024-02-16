@@ -1,4 +1,4 @@
-import { Client, Collection, Events, GatewayIntentBits, WebhookClient, Options, User } from "discord.js";
+import { Client, Collection, Events, GatewayIntentBits, WebhookClient, Options, User, Interaction } from "discord.js";
 import registerSlashCommands from "./lib/registerSlashCommands";
 import { db } from "./lib/db";
 import cmdRun from "./lib/cmdRun";
