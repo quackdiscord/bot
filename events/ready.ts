@@ -54,7 +54,31 @@ async function readyEvent(c: Client) {
     logger.info("Guilds are synced with the db");
     logger.info(`Logged in as ${c.user?.tag}`);
 
-    c.user?.setActivity("/help | seedsbot.xyz", { type: ActivityType.Watching });
+    let activities = [
+        "Making Discord safer.",
+        "Quackbot.xyz",
+        "Quackbot.xyz/discord",
+        "Quackbot.xyz/invite",
+        "Quackbot.xyz/commands",
+        "Swimming in the pond",
+        "*Duck noises*",
+        "Getting rid of bad eggs",
+        "Formerly Seeds",
+        "Eating bread",
+        "Give me some bread",
+        "Watching you",
+        "Leading the ducklings"
+    ];
+
+    // set the activity
+    let activity = activities[Math.floor(Math.random() * activities.length)];
+    c.user?.setActivity(activity, { type: ActivityType.Custom });
+
+    // every 10 minutes, change the activity
+    setInterval(() => {
+        activity = activities[Math.floor(Math.random() * activities.length)];
+        c.user?.setActivity(activity, { type: ActivityType.Custom });
+    }, 600000);
 }
 
 const data = {
