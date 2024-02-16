@@ -37,7 +37,7 @@ async function execute(message: any) {
         const logsettings = require("../schema/logsettings");
 
         const response = await message.reply("Thinking...");
-        const [command, ...args] = message.content.slice(4).split(" ");
+        const [command, ...args] = message.content.slice(3).split(" ");
         if (command === "restart") {
             response.edit("Restarting... check the console for more info.");
             setTimeout(async () => {
@@ -47,6 +47,15 @@ async function execute(message: any) {
         } else if (command === "eval") {
             response.edit("Evaluating...");
             try {
+                // if the args contain "config" or "env" then return
+                if (args.join(" ").includes("config") || args.join(" ").includes("env")) {
+                    response.edit("I can't send that here dickey, idiot.");
+                    setTimeout(() => {
+                        response.delete();
+                    }, 3000);
+                    return;
+                }
+
                 // Evaluate (execute) our input
                 const evaled = eval(args.join(" "));
 
