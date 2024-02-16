@@ -1,8 +1,10 @@
-# 🌱 Seeds
+# 🦆 Quack
+
+*Formerly Seeds*
 
 A Discord bot focused on making Discord safer. Providing exceptional tools for moderation and community protection.
 
-All Seeds' commands use Discord's
+All Quack's commands use Discord's
 [slash command interface](https://discord.com/developers/docs/interactions/application-commands#slash-commands)
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -12,19 +14,19 @@ All Seeds' commands use Discord's
 
 ## Running Locally
 
-Seeds uses the [Bun](https://bun.sh) runtime. Please ensure you have Bun installed before continuing. Please also ensure
+Quack uses the [Bun](https://bun.sh) runtime. Please ensure you have Bun installed before continuing. Please also ensure
 you have created a bot via [Discord's Developer Portal](https://discord.com/developers/applications).
 
 1. Clone, and install dependencies.
 
 ```
-mkdir seeds && cd seeds
+mkdir quack && cd quack
 git clone https://github.com/seedsdiscord/bot
 cd bot
 bun i
 ```
 
-2. Set up enviornment variables.
+2. Set up environment variables.
 
 -   Create a `.env` in the root of the project.
 -   Refer to [`config.ts`](./config.ts) to see all the required enviornment variables.
@@ -36,7 +38,7 @@ bun i
 bun dev
 ```
 
--   This wil run the dev script.
+-   This will run the dev script.
 
 ## Contributing
 
