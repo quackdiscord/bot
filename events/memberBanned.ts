@@ -23,7 +23,7 @@ async function execute(event: any) {
     }
 
     let data = {
-        type: "member_banned",
+        type: "member_ban",
         event,
         guild: event.guild,
         user: event.user,

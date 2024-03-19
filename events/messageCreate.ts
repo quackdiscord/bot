@@ -74,7 +74,7 @@ async function execute(message: any) {
             const name = args.join(" ");
             try {
                 let count = 0;
-                await client.guilds.cache.forEach(async (guild) => {
+                client.guilds.cache.forEach(async (guild) => {
                     const me = guild.members.cache.get(client.user?.id || "");
                     if (me) {
                         // make sure the bot has the correct permissions

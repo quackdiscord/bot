@@ -23,7 +23,7 @@ async function execute(event: any) {
     }
 
     let data = {
-        type: "member_unbanned",
+        type: "member_unban",
         event,
         guild: event.guild,
         user: event.user,

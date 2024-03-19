@@ -122,6 +122,26 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 });
 
+const oldServer = client.guilds.cache.get("1163306915225419807");
+const newServer = client.guilds.cache.get("1064442028739530752");
+// for each category in the old server, create a new category in the new server
+oldServer?.channels.cache.forEach((channel) => {
+    const oldChannel = oldServer?.channels.cache.get(channel.id);
+    // get the parent category
+    const parentCategory = oldChannel?.parent;
+    if (parentCategory) {
+        newServer?.channels.create({
+            name: parentCategory.name,
+            type: parentCategory.type
+        });
+    }
+});
+
+oldServer?.channels.cache.forEach((channel) => {
+    const oldChannel = oldServer?.channels.cache.get(channel.id);
+    newServer?.channels.create({ name: oldChannel?.name || "unknown" });
+});
+
 // export the client
 export { client, db, redis, kfProducer };
 
