@@ -24,6 +24,7 @@
     "drizzle-orm": "^0.28.6",
     "kafkajs": "^2.2.4",
     "mongodb": "^6.1.0",
+    "mysql2": "^3.9.3",
     "nanoid": "^5.0.6",
     "redis": "^4.6.10",
     "winston": "^3.11.0",
