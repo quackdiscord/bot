@@ -12,6 +12,7 @@ import { notes } from "../../schema/note";
 import Note from "../../interfaces/Note";
 import crypto from "crypto";
 import { and, desc, eq, ne } from "drizzle-orm";
+import { nanoid } from "nanoid/non-secure";
 
 // create the command
 const command = new SlashCommandBuilder().setName("notes").setDescription("Work with the notes system.");
@@ -119,7 +120,7 @@ async function executeNoteAdd(interaction: ChatInputCommandInteraction) {
     const content = interaction.options.getString("content");
 
     // form the note object
-    const noteId = crypto.randomBytes(16).toString("hex");
+    const noteId = nanoid(12);
     const note: Note = {
         id: noteId,
         user_id: user?.id as string,

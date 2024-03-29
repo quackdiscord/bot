@@ -10,6 +10,7 @@ import { logger } from "../../lib/logger";
 import { client, db } from "../../bot";
 import { cases } from "../../schema/case";
 import Case from "../../interfaces/Case";
+import { nanoid } from "nanoid/non-secure";
 
 // create the command
 const command = new SlashCommandBuilder().setName("kick").setDescription("Kick a user from the server");
@@ -45,7 +46,7 @@ async function execute(interaction: ChatInputCommandInteraction) {
     }
 
     // form the data
-    const caseId = Math.floor(Math.random() * 90000000) + 10000000;
+    const caseId = nanoid(12);
     const embedData = {
         description: `<:warn:1165590684837875782> <@${user?.id}> has been kicked with reason \`${reason}\``,
         footer: {

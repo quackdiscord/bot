@@ -1,16 +1,11 @@
-import {
-    ChatInputCommandInteraction,
-    DiscordAPIError,
-    PermissionFlagsBits,
-    SlashCommandBuilder,
-    User
-} from "discord.js";
+import { ChatInputCommandInteraction, DiscordAPIError, PermissionFlagsBits, SlashCommandBuilder } from "discord.js";
 import embedBuilder from "../../lib/embedBuilder";
 import { logger } from "../../lib/logger";
 import { client, db } from "../../bot";
 import Case from "../../interfaces/Case";
 import { cases } from "../../schema/case";
 import { and, desc, eq } from "drizzle-orm";
+import { nanoid } from "nanoid";
 
 // create the command
 const command = new SlashCommandBuilder().setName("cases").setDescription("Work with cases for moderation");
@@ -37,7 +32,7 @@ command.addSubcommandGroup((group) =>
             subcommand
                 .setName("id")
                 .setDescription("Remove a case by ID")
-                .addNumberOption((option) =>
+                .addStringOption((option) =>
                     option.setName("id").setDescription("The ID of the case you want to remove").setRequired(true)
                 )
         )
@@ -63,7 +58,7 @@ command.addSubcommandGroup((group) =>
             subcommand
                 .setName("id")
                 .setDescription("View a case by ID")
-                .addNumberOption((option) =>
+                .addStringOption((option) =>
                     option.setName("id").setDescription("The ID of the case you want to view").setRequired(true)
                 )
         )
@@ -122,8 +117,7 @@ async function executeCasesAdd(interaction: ChatInputCommandInteraction) {
     const reason = interaction.options.getString("reason");
 
     // form the case data
-    // generate a case id - numbers only - 8 digits
-    const caseId = Math.floor(Math.random() * 90000000) + 10000000;
+    const caseId = nanoid(12);
     const caseData: Case = {
         id: caseId.toString(),
         user_id: user?.id || "0",
@@ -186,7 +180,7 @@ async function executeCasesAdd(interaction: ChatInputCommandInteraction) {
 
 // for cases remove id
 async function executeCasesRemoveId(interaction: ChatInputCommandInteraction) {
-    const id = interaction.options.getNumber("id");
+    const id = interaction.options.getString("id");
 
     // remove the case from the database
     try {
@@ -284,7 +278,7 @@ async function executeCasesRemoveUser(interaction: ChatInputCommandInteraction) 
 
 // for cases view id
 async function executeCasesViewId(interaction: ChatInputCommandInteraction) {
-    const id = interaction.options.getNumber("id");
+    const id = interaction.options.getString("id");
 
     // get the case from the database
     const caseData = await db

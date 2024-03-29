@@ -37,6 +37,9 @@ async function execute(message: any) {
         const notes = require("../schema/note");
         const logsettings = require("../schema/logsettings");
 
+        // misc
+        const { nanoid } = require("nanoid");
+
         const response = await message.reply("Thinking...");
         const [command, ...args] = message.content.slice(3).split(" ");
         if (command === "restart") {

@@ -9,6 +9,7 @@ import embedBuilder from "../../lib/embedBuilder";
 import { logger } from "../../lib/logger";
 import { client, db } from "../../bot";
 import { cases } from "../../schema/case";
+import { nanoid } from "nanoid";
 
 // create the command
 const command = new SlashCommandBuilder().setName("unban").setDescription("Unban a previously banned user");
@@ -46,7 +47,7 @@ async function execute(interaction: ChatInputCommandInteraction) {
     }
 
     // form the data
-    const caseId = Math.floor(Math.random() * 90000000) + 10000000;
+    const caseId = nanoid(12);
     const embedData = {
         title: "User Unbanned | Case ID: " + caseId,
         description: `Unbanned <@${user?.id}> with reason \`${reason}\``,

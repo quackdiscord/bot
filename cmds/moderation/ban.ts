@@ -10,6 +10,7 @@ import { logger } from "../../lib/logger";
 import { client, db } from "../../bot";
 import { cases } from "../../schema/case";
 import Case from "../../interfaces/Case";
+import { nanoid } from "nanoid";
 
 // create the command
 const command = new SlashCommandBuilder().setName("ban").setDescription("Ban a user from the server");
@@ -81,7 +82,7 @@ async function execute(interaction: ChatInputCommandInteraction) {
         });
 
         // form our data
-        const caseId = Math.floor(Math.random() * 90000000) + 10000000;
+        const caseId = nanoid(12);
         const embedData = {
             description: `<:ban:1165590688554033183> <@${banUser?.id}> has been banned with reason \`${reason}\``,
             footer: {
