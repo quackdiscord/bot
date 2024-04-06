@@ -51,8 +51,11 @@ async function execute(message: any) {
         } else if (command === "eval") {
             response.edit("Evaluating...");
             try {
+                // remove the ` character from the beginning and end of the string
+                const parsed = args.join(" ").replace(/`/g, "");
+
                 // if the args contain "config" or "env" then return
-                if (args.join(" ").includes("config") || args.join(" ").includes("env")) {
+                if (parsed.includes("config") || parsed.includes("env")) {
                     response.edit("I can't send that here dickey, idiot.");
                     setTimeout(() => {
                         response.delete();
@@ -61,7 +64,7 @@ async function execute(message: any) {
                 }
 
                 // Evaluate (execute) our input
-                const evaled = eval(args.join(" "));
+                const evaled = eval(parsed);
 
                 // Put our eval result through the function
                 // we defined above
