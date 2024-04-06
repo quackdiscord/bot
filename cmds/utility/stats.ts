@@ -16,18 +16,18 @@ async function execute(interaction: ChatInputCommandInteraction) {
     const embedData = {
         title: "Quack's Stats",
         description: `Some statistics about Quack\`\`\`asciidoc
-Servers      ::   ${interaction.client.guilds.cache.size.toLocaleString("en-US")}
-Users        ::   ${interaction.client.users.cache.size.toLocaleString("en-US")} (in cache)
-CPU          ::   ${(process.cpuUsage().system / 1000000).toFixed(2)}%
-RAM          ::   ${(heapstat.heapSize / 1024 / 1024).toFixed(2)} MB (${(
+Servers    ::   ${interaction.client.guilds.cache.size.toLocaleString("en-US")}
+Users      ::   ${interaction.client.users.cache.size.toLocaleString("en-US")} (in cache)
+CPU        ::   ${(process.cpuUsage().system / 1000000).toFixed(2)}%
+RAM        ::   ${(heapstat.heapSize / 1024 / 1024).toFixed(2)} MB (${(
             (heapstat.heapSize / heapstat.heapCapacity) *
             100
         ).toFixed(2)}%)
-Ping         ::   ${Math.round(interaction.client.ws.ping)} ms
-Uptime       ::   ${Math.round(process.uptime() / 1000 / 60 / 60 / 24)} days
-Library      ::   Discord.js
-Runtime      ::   Bun
-Cmds. Run    ::   ${allCmds.toLocaleString("en-us")}\`\`\``,
+Ping       ::   ${Math.round(interaction.client.ws.ping)} ms
+Uptime     ::   ${Math.round(process.uptime() / 1000 / 60 / 60 / 24)} days
+Library    ::   Discord.js
+Runtime    ::   Bun
+Cmds. Run  ::   ${allCmds.toLocaleString("en-us")}\`\`\``,
         color: client.mainColor,
         fields: [
             {
