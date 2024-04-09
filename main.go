@@ -16,7 +16,7 @@ func init() {
 		ForceColors:   true,
 		FullTimestamp: true,
 	})
-	
+
 	// load .env file
 	if err := godotenv.Load(".env.local"); err != nil {
 		logrus.Fatal("No .env.local file found")
@@ -25,6 +25,7 @@ func init() {
 }
 
 func main() {
+	// connect services
 	services.ConnectRedis()
 	services.ConnectDiscord(events.Events)
 
