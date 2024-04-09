@@ -9,5 +9,6 @@
     "trailingComma": "none",
     "bracketSpacing": true,
     "jsxBracketSameLine": false,
-    "semi": true
+    "semi": true,
+    "plugins": ["prettier-plugin-go-template"]
 }
