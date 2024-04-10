@@ -2,7 +2,7 @@ package cmds
 
 import (
 	"github.com/bwmarrin/discordgo"
-	"github.com/sirupsen/logrus"
+	"github.com/quackdiscord/bot/lib"
 )
 
 var Commands = make(map[string]*Command)
@@ -11,6 +11,9 @@ type Command struct {
 	*discordgo.ApplicationCommand
 	Handler func(*discordgo.Session, *discordgo.InteractionCreate) *discordgo.InteractionResponse
 }
+
+// Permissions
+var banMembers int64 = discordgo.PermissionBanMembers
 
 func OnInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	data := i.ApplicationCommandData()
@@ -24,12 +27,7 @@ func OnInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		s.InteractionRespond(i.Interaction, resp)
 	}
 
-	logrus.WithFields(logrus.Fields{
-		"command": data.Name,
-		"guild":   i.GuildID,
-		"user":    i.Member.User.ID,
-	}).Info("Command executed")
-	
+	lib.CmdRun(s, i)
 }
 
 func LoadingResponse() *discordgo.InteractionResponse {

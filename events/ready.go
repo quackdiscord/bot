@@ -2,7 +2,7 @@ package events
 
 import (
 	"github.com/bwmarrin/discordgo"
-	"github.com/sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 )
 
 func init() {
@@ -10,5 +10,5 @@ func init() {
 }
 
 func onReady(s *discordgo.Session, r *discordgo.Ready) {
-	logrus.Info("Signed in as " + s.State.User.String())
+	log.Info("Signed in as " + s.State.User.String())
 }

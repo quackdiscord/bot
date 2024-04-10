@@ -1,6 +1,10 @@
 package components
 
-import "github.com/bwmarrin/discordgo"
+import (
+	"time"
+
+	"github.com/bwmarrin/discordgo"
+)
 
 //Embed ...
 type Embed struct {
@@ -84,6 +88,13 @@ func (e *Embed) SetFooter(args ...string) *Embed {
 
 	return e
 }
+
+//SetTimestamp ...
+func (e *Embed) SetTimestamp() *Embed {
+	e.Timestamp = time.Now().Format(time.RFC3339)
+	return e
+}
+
 
 //SetImage ...
 func (e *Embed) SetImage(args ...string) *Embed {
