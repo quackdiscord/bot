@@ -21,3 +21,6 @@ func ConnectRedis() {
 	logrus.Info("Connected to Redis")
 }
 
+func DisconnectRedis() {
+	Redis.Close()
+}

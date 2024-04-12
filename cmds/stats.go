@@ -11,13 +11,13 @@ import (
 )
 
 func init() {
-	Commands[cmdStats.Name] = &Command{
-		ApplicationCommand: cmdStats,
+	services.Commands[statsCmd.Name] = &services.Command{
+		ApplicationCommand: statsCmd,
 		Handler:            handleStats,
 	}
 }
 
-var cmdStats = &discordgo.ApplicationCommand{
+var statsCmd = &discordgo.ApplicationCommand{
 	Type:        discordgo.ChatApplicationCommand,
 	Name:        "stats",
 	Description: "Get some stats about the bot",

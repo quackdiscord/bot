@@ -5,16 +5,17 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
+	"github.com/quackdiscord/bot/services"
 )
 
 func init() {
-	Commands[cmdPing.Name] = &Command{
-		ApplicationCommand: cmdPing,
+	services.Commands[pingCmd.Name] = &services.Command{
+		ApplicationCommand: pingCmd,
 		Handler:            handlePing,
 	}
 }
 
-var cmdPing = &discordgo.ApplicationCommand{
+var pingCmd = &discordgo.ApplicationCommand{
 	Type: discordgo.ChatApplicationCommand,
 	Name: "ping",
 	Description: "Ping the bot and get the latency",

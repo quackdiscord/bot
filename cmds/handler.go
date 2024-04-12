@@ -3,28 +3,29 @@ package cmds
 import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/lib"
+	"github.com/quackdiscord/bot/services"
 )
-
-var Commands = make(map[string]*Command)
-
-type Command struct {
-	*discordgo.ApplicationCommand
-	Handler func(*discordgo.Session, *discordgo.InteractionCreate) *discordgo.InteractionResponse
-}
 
 // Permissions
 var banMembers int64 = discordgo.PermissionBanMembers
+var kickMembers int64 = discordgo.PermissionKickMembers
+var moderateMembers int64 = discordgo.PermissionModerateMembers
 
 func OnInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	data := i.ApplicationCommandData()
-	cmd, ok := Commands[data.Name]
+	cmd, ok := services.Commands[data.Name]
 	if !ok {
+		s.InteractionRespond(i.Interaction, ContentResponse("<:error:1228053905590718596> **Error:** Command does not exist", true))
 		return
 	}
 
 	resp := cmd.Handler(s, i)
 	if resp != nil {
 		s.InteractionRespond(i.Interaction, resp)
+	} else {
+		errMessage := "<:error:1228053905590718596> **Error:** Something went wrong while processing the command"
+		s.InteractionRespond(i.Interaction, ContentResponse(errMessage, true))
+		return
 	}
 
 	lib.CmdRun(s, i)

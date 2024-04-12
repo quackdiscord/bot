@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/signal"
 
 	"github.com/joho/godotenv"
 	"github.com/quackdiscord/bot/events"
@@ -9,19 +10,32 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func init() {
-	log.SetOutput(os.Stdout)
-	log.SetLevel(log.InfoLevel)
-	// log.SetFormatter(&log.TextFormatter{
-	// 	ForceColors:   true,
-	// 	FullTimestamp: true,
-	// })
-	log.SetFormatter(&log.JSONFormatter{})
+var Enviorment string
 
+func init() {
 	// load .env file
 	if err := godotenv.Load(".env.local"); err != nil {
 		log.Fatal("No .env.local file found")
 		return
+	}
+
+	// set the environment
+	Enviorment = os.Getenv("ENVIORNMENT")
+
+	log.SetOutput(os.Stdout)
+	log.SetLevel(log.InfoLevel)
+
+	if Enviorment == "dev" {
+		log.SetFormatter(&log.TextFormatter{
+			ForceColors:   true,
+			FullTimestamp: true,
+		})
+	} else {
+		log.SetFormatter(&log.JSONFormatter{})
+	}
+
+	if Enviorment == "dev" {
+		log.Warn("Running in development mode")
 	}
 }
 
@@ -31,6 +45,15 @@ func main() {
 	services.ConnectDB()
 	services.ConnectDiscord(events.Events)
 
-	// wait until keyboard interrupt
-	select {}
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt)
+	log.Info("Press Ctrl+C to exit")
+	<-stop
+	log.Warn("Shutting down")
+	services.DisconnectDiscord()
+	services.DisconnectDB()
+	services.DisconnectRedis()
+
+	log.Info("Goodbye!")
+
 }

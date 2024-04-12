@@ -13,41 +13,43 @@ import (
 )
 
 func init() {
-	services.Commands[banCmd.Name] = &services.Command{
-		ApplicationCommand: banCmd,
-		Handler:            handleBan,
+	services.Commands[kickCmd.Name] = &services.Command{
+		ApplicationCommand: kickCmd,
+		Handler:            handleKick,
 	}
 }
 
-var banCmd = &discordgo.ApplicationCommand{
+var kickCmd = &discordgo.ApplicationCommand{
 	Type: discordgo.ChatApplicationCommand,
-	Name: "ban",
-	Description: "Ban a user from the server",
+	Name: "kick",
+	Description: "Kick a user from the server",
 	Options: []*discordgo.ApplicationCommandOption{
 		{
 			Type:        discordgo.ApplicationCommandOptionUser,
 			Name:        "user",
-			Description: "The user to ban",
+			Description: "The user to kick",
 			Required:    true,
 		},
 		{
 			Type:        discordgo.ApplicationCommandOptionString,
 			Name:        "reason",
-			Description: "The reason for the ban",
+			Description: "The reason for the kick",
 			Required:    false,
 		},
 	},
-	DefaultMemberPermissions: &banMembers,
+	DefaultMemberPermissions: &kickMembers,
 }
 
-func handleBan(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
+func handleKick(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
+	// defer the response
+	LoadingResponse()
 
-	userToBan := i.ApplicationCommandData().Options[0].UserValue(s)
+	userToKick := i.ApplicationCommandData().Options[0].UserValue(s)
 	reason := "No reason provided"
 	user := i.Member.User
 	guild, _ := s.Guild(i.GuildID)
 
-	if userToBan == nil {
+	if userToKick == nil {
 		embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** User not found.").SetColor("Error").MessageEmbed
 		return EmbedResponse(embed, true)
 	}
@@ -55,41 +57,40 @@ func handleBan(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.
 		reason = i.ApplicationCommandData().Options[1].StringValue()
 	}
 
-	// make sure the user isn't banning themselves
-	if userToBan.ID == user.ID {
-		embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** You can't ban yourself.").SetColor("Error").MessageEmbed
+	// make sure the user isn't kicking themselves
+	if userToKick.ID == user.ID {
+		embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** You can't kick yourself.").SetColor("Error").MessageEmbed
 		return EmbedResponse(embed, true)
 	}
-	// make sure the user isn't banning the bot
-	if userToBan.ID == s.State.User.ID {
-		embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** You can't ban me using this command.").SetColor("Error").MessageEmbed
+	// make sure the user isn't kicking the bot
+	if userToKick.ID == s.State.User.ID {
+		embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** You can't kick me using this command.").SetColor("Error").MessageEmbed
 		return EmbedResponse(embed, true)
 	}
 
-	// do everything in a goroutine
 	go func() {
 		// create the case
 		id, _ := lib.GenID()
 		caseData := &structs.Case{
-			ID:    			id,
-			Type:   		1,
-			Reason: 		reason,
-			UserID:   		userToBan.ID,
-			GuildID: 		i.GuildID,
-			ModeratorID:	user.ID,
+			ID: id,
+			Type: 2,
+			Reason: reason,
+			UserID: userToKick.ID,
+			ModeratorID: user.ID,
+			GuildID: guild.ID,
 		}
 
 		// set up embeds
 		dmError := ""
 		dmEmbed := components.NewEmbed().
-			SetDescription("🚨 You have been banned from **" +  guild.Name + "** for ```" + reason + "```").
-			SetColor("Red").
+			SetDescription("You have been kicked from **" + guild.Name + "** for ```" + reason + "```").
+			SetColor("Error").
 			SetAuthor(guild.Name, guild.IconURL("")).
 			SetFooter("Case ID: " + id).
 			SetTimestamp().MessageEmbed
 
 		// attempt to DM the user
-		dmChannel, err := s.UserChannelCreate(userToBan.ID)
+		dmChannel, err := s.UserChannelCreate(userToKick.ID)
 		if err != nil {
 			dmError = "\n\n<:warn:1165590684837875782> User has DMs disabled."
 		} else {
@@ -99,11 +100,11 @@ func handleBan(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.
 			}
 		}
 
-		// ban the user
-		banErr := s.GuildBanCreateWithReason(i.GuildID, userToBan.ID, reason, 1)
-		if banErr != nil {
-			log.WithError(banErr).Error("Failed to ban user")
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to ban user.\n```" + banErr.Error() + "```").SetColor("Error").MessageEmbed
+		// kick the user
+		err3 := s.GuildMemberDeleteWithReason(guild.ID, userToKick.ID, reason)
+		if err3 != nil {
+			log.WithError(err3).Error("Failed to kick user")
+			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to kick user.\n```" + err3.Error() + "```").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 				Embeds: &[]*discordgo.MessageEmbed{embed},
 			})
@@ -111,10 +112,10 @@ func handleBan(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.
 		}
 
 		// save the case
-		saveErr := storage.CreateCase(caseData)
-		if saveErr != nil {
-			log.Error("Failed to save case", saveErr)
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to save case.\n```" + saveErr.Error() + "```").SetColor("Error").MessageEmbed
+		err4 := storage.CreateCase(caseData)
+		if err4 != nil {
+			log.WithError(err4).Error("Failed to create case")
+			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to save case.\n```" + err4.Error() + "```").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 				Embeds: &[]*discordgo.MessageEmbed{embed},
 			})
@@ -123,9 +124,9 @@ func handleBan(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.
 
 		// create the embed
 		embed := components.NewEmbed().
-			SetDescription(fmt.Sprintf("<:ban:1165590688554033183> <@%s> has been banned for `%s`%s", userToBan.ID, reason, dmError)).
+			SetDescription(fmt.Sprintf("👋 <@%s> has been kicked for `%s`%s", userToKick.ID, reason, dmError)).
 			SetColor("Main").
-			SetAuthor("Banned " + userToBan.Username, userToBan.AvatarURL("")).
+			SetAuthor("Kicked " + userToKick.Username, userToKick.AvatarURL("")).
 			SetFooter("Case ID: " + id).
 			SetTimestamp().
 			MessageEmbed
@@ -133,7 +134,6 @@ func handleBan(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.
 		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 			Embeds: &[]*discordgo.MessageEmbed{embed},
 		})
-
 	}()
 
 	return LoadingResponse()

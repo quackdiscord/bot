@@ -65,16 +65,37 @@ func FindCasesByUserID(userID string, guildID string) ([]*structs.Case, error) {
 	return cases, nil
 }
 
+func FindLatestCase(guildID string) (*structs.Case, error) {
+	if guildID == "" {
+		return nil, nil
+	}
+
+	// prepare the statement
+	stmtOut, err := services.DB.Prepare("SELECT * FROM cases WHERE guild_id = ? ORDER BY created_at DESC LIMIT 1")
+	if err != nil {
+		return nil, err
+	}
+
+	// query the database
+	var c structs.Case
+	err2 := stmtOut.QueryRow(guildID).Scan(&c.ID, &c.UserID, &c.GuildID, &c.ModeratorID, &c.Reason, &c.Type, &c.CreatedAt)
+	if err2 != nil {
+		return nil, err
+	}
+
+	return &c, nil
+}
+
 func CreateCase(c *structs.Case) error {
 
 	// prepare the statement
-	stmtIns, err := services.DB.Prepare("INSERT INTO cases (id, user_id, guild_id, moderator_id, reason, type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+	stmtIns, err := services.DB.Prepare("INSERT INTO cases (id, user_id, guild_id, moderator_id, reason, type) VALUES (?, ?, ?, ?, ?, ?)")
 	if err != nil {
 		return err
 	}
 
 	// execute the statement
-	_, err2 := stmtIns.Exec(c.ID, c.UserID, c.GuildID, c.ModeratorID, c.Reason, c.Type, c.CreatedAt)
+	_, err2 := stmtIns.Exec(c.ID, c.UserID, c.GuildID, c.ModeratorID, c.Reason, c.Type)
 	if err2 != nil {
 		return err2
 	}

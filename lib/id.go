@@ -8,7 +8,7 @@ import (
 func GenID(length ...int) (string, error) {
 	alphabet := nanoid.DefaultAlphabet
 	if length == nil {
-		length = append(length, 8)
+		length = append(length, 12)
 	}
 	id, err := nanoid.Generate(alphabet, length[0])
 	if err != nil {
