@@ -94,7 +94,8 @@ func handleCasesViewUser(s *discordgo.Session, i *discordgo.InteractionCreate) *
 			cases = cases[:10]
 		}
 
-		embed := components.NewEmbed().SetDescription("User cases").SetColor("Main").MessageEmbed
+		embed := components.NewEmbed().
+			SetDescription("User cases").SetColor("Main").MessageEmbed
 
 		for _, c := range cases {
 			embed.Description += c.Reason + "\n"
