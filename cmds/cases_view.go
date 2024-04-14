@@ -2,6 +2,9 @@ package cmds
 
 import (
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/components"
+	"github.com/quackdiscord/bot/storage"
+	log "github.com/sirupsen/logrus"
 )
 
 var casesViewCmd = &discordgo.ApplicationCommandOption{
@@ -62,10 +65,45 @@ func handleCasesViewID(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 }
 
 func handleCasesViewUser(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
-	// defer the response
-	LoadingResponse()
+	user := i.ApplicationCommandData().Options[0].Options[0].Options[0].UserValue(s)
+	guild, _ := s.Guild(i.GuildID)
 
-	// TODO: this lol
+	go func() {
+		cases, err := storage.FindCasesByUserID(user.ID, guild.ID)
+		if err != nil {
+			log.WithError(err).Error("Failed to fetch user cases")
+			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to fetch user's cases.").SetColor("Error").MessageEmbed
+			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+				Embeds: &[]*discordgo.MessageEmbed{embed},
+			})
+			return
+		}
 
-	return ContentResponse("/cases view user", false)
+		if len(cases) == 0 {
+			embed := components.NewEmbed().SetDescription("<@" + user.ID + "> has no cases.").SetColor("Main").MessageEmbed
+			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+				Embeds: &[]*discordgo.MessageEmbed{embed},
+			})
+			return
+		}
+
+		// if the lengh of the cases is greater than 10, we need to paginate
+		if len(cases) > 10 {
+			// TODO: paginate
+			// for now just remove anything after the first 10
+			cases = cases[:10]
+		}
+
+		embed := components.NewEmbed().SetDescription("User cases").SetColor("Main").MessageEmbed
+
+		for _, c := range cases {
+			embed.Description += c.Reason + "\n"
+		}
+
+		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Embeds: &[]*discordgo.MessageEmbed{embed},
+		})
+	}()
+
+	return LoadingResponse()
 }

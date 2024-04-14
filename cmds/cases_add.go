@@ -59,7 +59,7 @@ func handleCasesAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *disco
 
 		dmError := ""
 		dmEmbed := components.NewEmbed().
-			SetDescription(fmt.Sprintf("You have been warned in **%s** for ```%s``` \nPlease discontinue this behavior.", guild.Name, reason)).
+			SetDescription(fmt.Sprintf("You have been warned in **%s** for ```%s```\n> Please discontinue this behavior.", guild.Name, reason)).
 			SetColor("Orange").
 			SetAuthor(guild.Name, guild.IconURL("")).
 			SetFooter("Case ID: " + id).
@@ -69,11 +69,11 @@ func handleCasesAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *disco
 		// attempt to send the user a DM
 		dmChannel, err := s.UserChannelCreate(userToWarn.ID)
 		if err != nil {
-			dmError = "\n\n<:warn:1165590684837875782> User has DMs disabled."
+			dmError = "\n\n> User has DMs disabled."
 		} else {
 			_, err2 := s.ChannelMessageSendEmbed(dmChannel.ID, dmEmbed)
 			if err2 != nil {
-				dmError = "\n\n<:warn:1165590684837875782> User has DMs disabled."
+				dmError = "\n\n> User has DMs disabled."
 			}
 		}
 
@@ -92,7 +92,7 @@ func handleCasesAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *disco
 		embed := components.NewEmbed().
 			SetDescription(fmt.Sprintf("<:warn:1165590684837875782> <@%s> has been warned for `%s`%s", userToWarn.ID, reason, dmError)).
 			SetColor("Main").
-			SetAuthor("Warned " + userToWarn.Username, userToWarn.AvatarURL("")).
+			SetAuthor(fmt.Sprintf("%s warned %s", moderator.Username, userToWarn.Username), userToWarn.AvatarURL("")).
 			SetFooter("Case ID: " + id).
 			SetTimestamp().MessageEmbed
 

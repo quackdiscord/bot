@@ -103,7 +103,7 @@ func handleTimeoutAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 		embed := components.NewEmbed().
 			SetDescription(fmt.Sprintf("<@%s> has been timed out for `%s`. Timed out for `%s`.", userToTime.ID, reason, lengthOfTime)).
 			SetColor("Main").
-			SetAuthor("Timed Out " + userToTime.Username, userToTime.AvatarURL("")).
+			SetAuthor(fmt.Sprintf("%s timed out %s", moderator.Username, userToTime.Username), userToTime.AvatarURL("")).
 			SetFooter("Case ID: " + id).
 			SetTimestamp().
 			MessageEmbed

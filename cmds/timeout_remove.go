@@ -24,6 +24,7 @@ var timeoutRemoveCmd = &discordgo.ApplicationCommandOption{
 func handleTimeoutRemove(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	userToUntime := i.ApplicationCommandData().Options[0].Options[0].UserValue(s)
 	guild, _ := s.Guild(i.GuildID)
+	moderator := i.Member.User
 
 	if userToUntime == nil {
 		embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** User not found.").SetColor("Error").MessageEmbed
@@ -45,7 +46,7 @@ func handleTimeoutRemove(s *discordgo.Session, i *discordgo.InteractionCreate) *
 		embed := components.NewEmbed().
 			SetDescription(fmt.Sprintf("<@%s> has been untimed out.", userToUntime.ID)).
 			SetColor("Main").
-			SetAuthor("Untimed Out " + userToUntime.Username, userToUntime.AvatarURL("")).
+			SetAuthor(fmt.Sprintf("%s untimed out %s", moderator.Username, userToUntime.Username), userToUntime.AvatarURL("")).
 			SetTimestamp().
 			MessageEmbed
 

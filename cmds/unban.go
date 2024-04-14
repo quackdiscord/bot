@@ -46,7 +46,7 @@ func handleUnban(s *discordgo.Session, i *discordgo.InteractionCreate) *discordg
 
 	userToUnban := i.ApplicationCommandData().Options[0].UserValue(s)
 	reason := "No reason provided"
-	user := i.Member.User
+	moderator := i.Member.User
 	guild, _ := s.Guild(i.GuildID)
 
 	if userToUnban == nil {
@@ -58,7 +58,7 @@ func handleUnban(s *discordgo.Session, i *discordgo.InteractionCreate) *discordg
 	}
 
 	// make sure the user isn't kicking themselves
-	if userToUnban.ID == user.ID {
+	if userToUnban.ID == moderator.ID {
 		embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** You can't unban yourself.").SetColor("Error").MessageEmbed
 		return EmbedResponse(embed, true)
 	}
@@ -76,7 +76,7 @@ func handleUnban(s *discordgo.Session, i *discordgo.InteractionCreate) *discordg
 			Type: 3,
 			Reason: reason,
 			UserID: userToUnban.ID,
-			ModeratorID: user.ID,
+			ModeratorID: moderator.ID,
 			GuildID: guild.ID,
 		}
 
@@ -102,11 +102,11 @@ func handleUnban(s *discordgo.Session, i *discordgo.InteractionCreate) *discordg
 		// attempt to send the user a DM
 		dmChannel, err := s.UserChannelCreate(userToUnban.ID)
 		if err != nil {
-			dmError = "\n\n<:warn:1165590684837875782> User has DMs disabled."
+			dmError = "\n\n> User has DMs disabled."
 		} else {
 			_, err2 := s.ChannelMessageSendEmbed(dmChannel.ID, dmEmbed)
 			if err2 != nil {
-				dmError = "\n\n<:warn:1165590684837875782> User has DMs disabled."
+				dmError = "\n\n> User has DMs disabled."
 			}
 		}
 
@@ -125,7 +125,7 @@ func handleUnban(s *discordgo.Session, i *discordgo.InteractionCreate) *discordg
 		embed := components.NewEmbed().
 			SetDescription(fmt.Sprintf("<@%s> has been unbanned for `%s`%s", userToUnban.ID, reason, dmError)).
 			SetColor("Main").
-			SetAuthor("Unbanned " + userToUnban.Username, userToUnban.AvatarURL("")).
+			SetAuthor(fmt.Sprintf("%s unbanned %s", moderator.Username, userToUnban.Username), userToUnban.AvatarURL("")).
 			SetFooter("Case ID: " + id).
 			SetTimestamp().
 			MessageEmbed

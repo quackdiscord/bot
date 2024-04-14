@@ -40,7 +40,7 @@ func FindCasesByUserID(userID string, guildID string) ([]*structs.Case, error) {
 	}
 
 	// prepare the statement
-	stmtOut, err := services.DB.Prepare("SELECT * FROM cases WHERE user_id = ? AND guild_id = ?")
+	stmtOut, err := services.DB.Prepare("SELECT * FROM cases WHERE user_id = ? AND guild_id = ? ORDER BY created_at DESC")
 	if err != nil {
 		return nil, err
 	}
