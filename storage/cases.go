@@ -22,7 +22,7 @@ func FindCaseByID(id string, guildID string) (*structs.Case, error) {
 
 	// query the database
 	var c structs.Case
-	err2 := stmtOut.QueryRow(id, guildID).Scan(&c.ID, &c.UserID, &c.GuildID, &c.ModeratorID, &c.Reason, &c.Type, &c.CreatedAt)
+	err2 := stmtOut.QueryRow(id, guildID).Scan(&c.ID, &c.UserID, &c.ModeratorID, &c.GuildID, &c.Reason, &c.Type, &c.CreatedAt)
 	if err2 != nil {
 		return nil, err
 	}
@@ -54,7 +54,7 @@ func FindCasesByUserID(userID string, guildID string) ([]*structs.Case, error) {
 	var cases []*structs.Case
 	for rows.Next() {
 		var c structs.Case
-		err3 := rows.Scan(&c.ID, &c.UserID, &c.GuildID, &c.ModeratorID, &c.Reason, &c.Type, &c.CreatedAt)
+		err3 := rows.Scan(&c.ID, &c.UserID, &c.ModeratorID, &c.GuildID, &c.Reason, &c.Type, &c.CreatedAt)
 		if err3 != nil {
 			return nil, err
 		}
@@ -78,7 +78,7 @@ func FindLatestCase(guildID string) (*structs.Case, error) {
 
 	// query the database
 	var c structs.Case
-	err2 := stmtOut.QueryRow(guildID).Scan(&c.ID, &c.UserID, &c.GuildID, &c.ModeratorID, &c.Reason, &c.Type, &c.CreatedAt)
+	err2 := stmtOut.QueryRow(guildID).Scan(&c.ID, &c.UserID, &c.ModeratorID, &c.GuildID, &c.Reason, &c.Type, &c.CreatedAt)
 	if err2 != nil {
 		return nil, err
 	}
@@ -101,5 +101,76 @@ func CreateCase(c *structs.Case) error {
 	}
 
 	return nil
+
+}
+
+func DeleteCaseByID(id string, guildID string) (bool, error) {
+	if guildID == "" {
+		return false, nil
+	}
+
+	if id == "" {
+		return false, nil
+	}
+
+	// prepare the statement
+	stmtDel, err := services.DB.Prepare("DELETE FROM cases WHERE id = ? AND guild_id = ?")
+	if err != nil {
+		return false, err
+	}
+
+	// execute the statement
+	_, err2 := stmtDel.Exec(id, guildID)
+	if err2 != nil {
+		return false, err2
+	}
+
+	return true, nil
+
+}
+
+func DeleteCasesByUserID(userID string, guildID string) (bool, error) {
+	if guildID == "" {
+		return false, nil
+	}
+
+	if userID == "" {
+		return false, nil
+	}
+
+	// prepare the statement
+	stmtDel, err := services.DB.Prepare("DELETE FROM cases WHERE user_id = ? AND guild_id = ?")
+	if err != nil {
+		return false, err
+	}
+
+	// execute the statement
+	_, err2 := stmtDel.Exec(userID, guildID)
+	if err2 != nil {
+		return false, err2
+	}
+
+	return true, nil
+
+}
+
+func DeleteLatestCase(guildID string) (bool, error) {
+	if guildID == "" {
+		return false, nil
+	}
+
+	// prepare the statement
+	stmtDel, err := services.DB.Prepare("DELETE FROM cases WHERE guild_id = ? ORDER BY created_at DESC LIMIT 1")
+	if err != nil {
+		return false, err
+	}
+
+	// execute the statement
+	_, err2 := stmtDel.Exec(guildID)
+	if err2 != nil {
+		return false, err2
+	}
+
+	return true, nil
 
 }
