@@ -2,7 +2,7 @@ package events
 
 import (
 	"github.com/bwmarrin/discordgo"
-	"github.com/quackdiscord/bot/cmds"
+	"github.com/quackdiscord/bot/commands"
 )
 
 func init() {
@@ -12,7 +12,7 @@ func init() {
 func onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	switch i.Type {
 	case discordgo.InteractionApplicationCommand:
-		cmds.OnInteraction(s, i)
+		commands.OnInteraction(s, i)
 	}
 	// case discordgo.InteractionMessageComponent:
 	// 	components.OnInteraction(s, i)
