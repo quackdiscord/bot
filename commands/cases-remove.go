@@ -8,8 +8,8 @@ import (
 )
 
 var casesRemoveCmd = &discordgo.ApplicationCommandOption{
-	Type: 	  	discordgo.ApplicationCommandOptionSubCommandGroup,
-	Name: 	  	"remove",
+	Type:        discordgo.ApplicationCommandOptionSubCommandGroup,
+	Name:        "remove",
 	Description: "Remove a case from a user",
 	Options: []*discordgo.ApplicationCommandOption{
 		{
@@ -136,28 +136,9 @@ func handleCasesRemoveUser(s *discordgo.Session, i *discordgo.InteractionCreate)
 	user := i.ApplicationCommandData().Options[0].Options[0].Options[0].UserValue(s)
 
 	go func() {
-		// find the case first
-		c, err := storage.FindCasesByUserID(user.ID, guild.ID)
+		_, err := storage.DeleteCasesByUserID(user.ID, guild.ID)
 		if err != nil {
-			log.WithError(err).Error("Failed to find user case")
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to find user cases.").SetColor("Error").MessageEmbed
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
-			})
-			return
-		}
-
-		if c == nil {
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** That user has no cases.").SetColor("Error").MessageEmbed
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
-			})
-			return
-		}
-
-		_, err2 := storage.DeleteCasesByUserID(user.ID, guild.ID)
-		if err2 != nil {
-			log.WithError(err2).Error("Failed to delete users cases")
+			log.WithError(err).Error("Failed to delete users cases")
 			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to delete user's cases.").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 				Embeds: &[]*discordgo.MessageEmbed{embed},

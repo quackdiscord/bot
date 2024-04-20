@@ -27,6 +27,7 @@ var notesCmd = &discordgo.ApplicationCommand{
 	DefaultMemberPermissions: &moderateMembers,
 	Options: []*discordgo.ApplicationCommandOption{
 		notesAddCmd,
+		notesRemoveCmd,
 	},
 }
 
@@ -34,15 +35,15 @@ func handleNotes(s *discordgo.Session, i *discordgo.InteractionCreate) (resp *di
 	switch c := i.ApplicationCommandData().Options[0]; c.Name {
 	case "add":
 		return handleNotesAdd(s, i)
-		// case "remove":
-		// 	switch sc := c.Options[0]; sc.Name {
-		// 	case "latest":
-		// 		return handleCasesRemoveLatest(s, i)
-		// 	case "id":
-		// 		return handleCasesRemoveID(s, i)
-		// 	case "user":
-		// 		return handleCasesRemoveUser(s, i)
-		// 	}
+	case "remove":
+		switch sc := c.Options[0]; sc.Name {
+		case "latest":
+			return handleNotesRemoveLatest(s, i)
+		case "id":
+			return handleNotesRemoveID(s, i)
+		case "user":
+			return handleNotesRemoveUser(s, i)
+		}
 		// case "view":
 		// 	switch sc := c.Options[0]; sc.Name {
 		// 	case "latest":

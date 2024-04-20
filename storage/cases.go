@@ -48,7 +48,7 @@ func FindCasesByUserID(userID string, guildID string) ([]*structs.Case, error) {
 	// query the database
 	rows, err2 := stmtOut.Query(userID, guildID)
 	if err2 != nil {
-		return nil, err
+		return nil, err2
 	}
 
 	var cases []*structs.Case
