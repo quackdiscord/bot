@@ -179,6 +179,11 @@ func (e *Embed) SetURL(URL string) *Embed {
 	return e
 }
 
+func (e *Embed) SetIntColor(clr int) *Embed {
+	e.Color = clr
+	return e
+}
+
 func (e *Embed) SetColor(clrs ...string) *Embed {
 	colorMap := map[string]int{
 		// Default colors

@@ -130,7 +130,7 @@ func handleCasesViewUser(s *discordgo.Session, i *discordgo.InteractionCreate) *
 				moderator = &discordgo.User{Username: "Unknown"}
 			}
 
-			content += *generateCaseDetails(c, user, moderator)
+			content += *generateCaseDetails(c, moderator)
 		}
 
 		// if the content is > 2048 characters, cut it off and add "too many to show..."
@@ -176,7 +176,7 @@ func generateCaseEmbed(s *discordgo.Session, c *structs.Case, guild *discordgo.G
 	}
 
 	embed := components.NewEmbed().
-		SetDescription(fmt.Sprintf("<@%s> (%s)'s Case \n\n", user.ID, user.Username) + *generateCaseDetails(c, user, moderator)).
+		SetDescription(fmt.Sprintf("<@%s> (%s)'s Case \n\n", user.ID, user.Username) + *generateCaseDetails(c, moderator)).
 		SetAuthor(fmt.Sprintf("Case %s",c.ID,), user.AvatarURL("")).
 		SetTimestamp().
 		SetColor("Main").MessageEmbed
@@ -184,7 +184,7 @@ func generateCaseEmbed(s *discordgo.Session, c *structs.Case, guild *discordgo.G
 	return embed
 }
 
-func generateCaseDetails(c *structs.Case, user *discordgo.User, moderator *discordgo.User) *string {
+func generateCaseDetails(c *structs.Case, moderator *discordgo.User) *string {
 	parsedTime, _ := time.Parse("2006-01-02 15:04:05", c.CreatedAt)
 	unixTime := parsedTime.Unix()
 

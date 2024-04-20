@@ -26,8 +26,9 @@ func ConnectDiscord(events []interface{}) {
 		token = os.Getenv("DEV_TOKEN")
 	}
 
-	Discord, _ = discordgo.New(token)
-	Discord.Identify.Intents = discordgo.IntentsGuildMessages
+	Discord, _  = discordgo.New(token)
+	Discord.Identify.Intents |= discordgo.IntentGuildMembers
+	Discord.Identify.Intents |= discordgo.IntentsAllWithoutPrivileged
 
 	for _, h := range events {
 		Discord.AddHandler(h)
