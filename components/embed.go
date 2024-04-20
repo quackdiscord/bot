@@ -6,7 +6,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-//Embed ...
+// Embed ...
 type Embed struct {
 	*discordgo.MessageEmbed
 }
@@ -22,18 +22,18 @@ const (
 	EmbedLimit            = 4000
 )
 
-//NewEmbed returns a new embed object
+// NewEmbed returns a new embed object
 func NewEmbed() *Embed {
 	return &Embed{&discordgo.MessageEmbed{}}
 }
 
-//SetTitle ...
+// SetTitle ...
 func (e *Embed) SetTitle(name string) *Embed {
 	e.Title = name
 	return e
 }
 
-//SetDescription [desc]
+// SetDescription [desc]
 func (e *Embed) SetDescription(description string) *Embed {
 	if len(description) > 2048 {
 		description = description[:2048]
@@ -42,7 +42,7 @@ func (e *Embed) SetDescription(description string) *Embed {
 	return e
 }
 
-//AddField [name] [value]
+// AddField [name] [value]
 func (e *Embed) AddField(name, value string) *Embed {
 	if len(value) > 1024 {
 		value = value[:1024]
@@ -61,7 +61,7 @@ func (e *Embed) AddField(name, value string) *Embed {
 
 }
 
-//SetFooter [Text] [iconURL]
+// SetFooter [Text] [iconURL]
 func (e *Embed) SetFooter(args ...string) *Embed {
 	iconURL := ""
 	text := ""
@@ -89,14 +89,13 @@ func (e *Embed) SetFooter(args ...string) *Embed {
 	return e
 }
 
-//SetTimestamp ...
+// SetTimestamp ...
 func (e *Embed) SetTimestamp() *Embed {
 	e.Timestamp = time.Now().Format(time.RFC3339)
 	return e
 }
 
-
-//SetImage ...
+// SetImage ...
 func (e *Embed) SetImage(args ...string) *Embed {
 	var URL string
 	var proxyURL string
@@ -117,7 +116,7 @@ func (e *Embed) SetImage(args ...string) *Embed {
 	return e
 }
 
-//SetThumbnail ...
+// SetThumbnail ...
 func (e *Embed) SetThumbnail(args ...string) *Embed {
 	var URL string
 	var proxyURL string
@@ -138,7 +137,7 @@ func (e *Embed) SetThumbnail(args ...string) *Embed {
 	return e
 }
 
-//SetAuthor ...
+// SetAuthor ...
 func (e *Embed) SetAuthor(args ...string) *Embed {
 	var (
 		name     string
@@ -173,7 +172,7 @@ func (e *Embed) SetAuthor(args ...string) *Embed {
 	return e
 }
 
-//SetURL ...
+// SetURL ...
 func (e *Embed) SetURL(URL string) *Embed {
 	e.URL = URL
 	return e
@@ -187,37 +186,37 @@ func (e *Embed) SetIntColor(clr int) *Embed {
 func (e *Embed) SetColor(clrs ...string) *Embed {
 	colorMap := map[string]int{
 		// Default colors
-		"Default": 0x000000,
-		"Aqua": 0x1ABC9C,
-		"DarkAqua": 0x11806A,
-		"Green": 0x57F287,
-		"DarkGreen": 0x1F8B4C,
-		"Blue": 0x3498DB,
-		"DarkBlue": 0x206694,
-		"Purple": 0x9B59B6,
-		"DarkPurple": 0x71368A,
+		"Default":           0x000000,
+		"Aqua":              0x1ABC9C,
+		"DarkAqua":          0x11806A,
+		"Green":             0x57F287,
+		"DarkGreen":         0x1F8B4C,
+		"Blue":              0x3498DB,
+		"DarkBlue":          0x206694,
+		"Purple":            0x9B59B6,
+		"DarkPurple":        0x71368A,
 		"LuminousVividPink": 0xE91E63,
-		"DarkVividPink": 0xAD1457,
-		"Gold": 0xF1C40F,
-		"DarkGold": 0xC27C0E,
-		"Orange": 0xE67E22,
-		"DarkOrange": 0xA84300,
-		"Red": 0xED4245,
-		"DarkRed": 0x992D22,
-		"LightGrey": 0x95A5A6,
-		"DarkGrey": 0x979C9F,
-		"DarkerGrey": 0x7F8C8D,
-		"LightGray": 0xBCC0C0,
-		"Navy": 0x34495E,
-		"DarkNavy": 0x2C3E50,
-		"Yellow": 0xFFFF00,
+		"DarkVividPink":     0xAD1457,
+		"Gold":              0xF1C40F,
+		"DarkGold":          0xC27C0E,
+		"Orange":            0xE67E22,
+		"DarkOrange":        0xA84300,
+		"Red":               0xED4245,
+		"DarkRed":           0x992D22,
+		"LightGrey":         0x95A5A6,
+		"DarkGrey":          0x979C9F,
+		"DarkerGrey":        0x7F8C8D,
+		"LightGray":         0xBCC0C0,
+		"Navy":              0x34495E,
+		"DarkNavy":          0x2C3E50,
+		"Yellow":            0xFFFF00,
 		// Discord color palette
-		"White": 0xFFFFFF,
-		"Greyple": 0x99AAb5,
-		"Black": 0x23272A,
+		"White":           0xFFFFFF,
+		"Greyple":         0x99AAb5,
+		"Black":           0x23272A,
 		"DarkButNotBlack": 0x2C2F33,
-		"NotQuiteBlack": 0x23272A,
-		"Blurple": 0x5865F2,
+		"NotQuiteBlack":   0x23272A,
+		"Blurple":         0x5865F2,
 		// Custom colors
 		"Main":  0xfeb032,
 		"Error": 0xff473a,

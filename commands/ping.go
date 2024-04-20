@@ -16,8 +16,8 @@ func init() {
 }
 
 var pingCmd = &discordgo.ApplicationCommand{
-	Type: discordgo.ChatApplicationCommand,
-	Name: "ping",
+	Type:        discordgo.ChatApplicationCommand,
+	Name:        "ping",
 	Description: "Ping the bot and get the latency",
 }
 

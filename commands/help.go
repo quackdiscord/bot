@@ -14,8 +14,8 @@ func init() {
 }
 
 var helpCmd = &discordgo.ApplicationCommand{
-	Type: discordgo.ChatApplicationCommand,
-	Name: "help",
+	Type:        discordgo.ChatApplicationCommand,
+	Name:        "help",
 	Description: "Get some help :)",
 }
 

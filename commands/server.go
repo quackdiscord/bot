@@ -13,8 +13,8 @@ func init() {
 }
 
 var serverCmd = &discordgo.ApplicationCommand{
-	Type: discordgo.ChatApplicationCommand,
-	Name: "server",
+	Type:        discordgo.ChatApplicationCommand,
+	Name:        "server",
 	Description: "Get some information about the server",
 	Options: []*discordgo.ApplicationCommandOption{
 		serverInfoCmd,
@@ -23,8 +23,8 @@ var serverCmd = &discordgo.ApplicationCommand{
 
 func handleServer(s *discordgo.Session, i *discordgo.InteractionCreate) (resp *discordgo.InteractionResponse) {
 	switch c := i.ApplicationCommandData().Options[0]; c.Name {
-		case "info":
-			return handleServerInfo(s, i)
+	case "info":
+		return handleServerInfo(s, i)
 	}
 
 	return ContentResponse("Uh", true)

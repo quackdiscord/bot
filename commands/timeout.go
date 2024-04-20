@@ -13,8 +13,8 @@ func init() {
 }
 
 var timeoutCmd = &discordgo.ApplicationCommand{
-	Type: discordgo.ChatApplicationCommand,
-	Name: "timeout",
+	Type:        discordgo.ChatApplicationCommand,
+	Name:        "timeout",
 	Description: "Timeout a user",
 	Options: []*discordgo.ApplicationCommandOption{
 		timeoutAddCmd,
@@ -25,10 +25,10 @@ var timeoutCmd = &discordgo.ApplicationCommand{
 
 func handleTimeout(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	switch c := i.ApplicationCommandData().Options[0]; c.Name {
-		case "add":
-			return handleTimeoutAdd(s, i)
-		case "remove":
-			return handleTimeoutRemove(s, i)
+	case "add":
+		return handleTimeoutAdd(s, i)
+	case "remove":
+		return handleTimeoutRemove(s, i)
 	}
 
 	return ContentResponse("Command does not exits", true)

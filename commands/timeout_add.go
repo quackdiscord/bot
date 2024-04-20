@@ -12,8 +12,8 @@ import (
 )
 
 var timeoutAddCmd = &discordgo.ApplicationCommandOption{
-	Type: discordgo.ApplicationCommandOptionSubCommand,
-	Name: "add",
+	Type:        discordgo.ApplicationCommandOptionSubCommand,
+	Name:        "add",
 	Description: "Add a time out to a user",
 	Options: []*discordgo.ApplicationCommandOption{
 		{
@@ -24,7 +24,7 @@ var timeoutAddCmd = &discordgo.ApplicationCommandOption{
 		},
 		{
 			Type:        discordgo.ApplicationCommandOptionString,
-			Name: 	  	 "time",
+			Name:        "time",
 			Description: "The time to time out the user, (e.g. 1d, 1h, 1m, 1s)",
 			Required:    true,
 		},
@@ -68,12 +68,12 @@ func handleTimeoutAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 		// create the case
 		id, _ := lib.GenID()
 		caseData := &structs.Case{
-			ID: id,
-			Type: 4,
-			Reason: reason,
-			UserID: userToTime.ID,
+			ID:          id,
+			Type:        4,
+			Reason:      reason,
+			UserID:      userToTime.ID,
 			ModeratorID: moderator.ID,
-			GuildID: guild.ID,
+			GuildID:     guild.ID,
 		}
 
 		// create the timeout
@@ -115,6 +115,5 @@ func handleTimeoutAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 	}()
 
 	return LoadingResponse()
-
 
 }

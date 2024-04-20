@@ -20,8 +20,8 @@ func init() {
 }
 
 var unbanCmd = &discordgo.ApplicationCommand{
-	Type: discordgo.ChatApplicationCommand,
-	Name: "unban",
+	Type:        discordgo.ChatApplicationCommand,
+	Name:        "unban",
 	Description: "Unban a user from the server",
 	Options: []*discordgo.ApplicationCommandOption{
 		{
@@ -72,17 +72,17 @@ func handleUnban(s *discordgo.Session, i *discordgo.InteractionCreate) *discordg
 		// create the case
 		id, _ := lib.GenID()
 		caseData := &structs.Case{
-			ID: id,
-			Type: 3,
-			Reason: reason,
-			UserID: userToUnban.ID,
+			ID:          id,
+			Type:        3,
+			Reason:      reason,
+			UserID:      userToUnban.ID,
 			ModeratorID: moderator.ID,
-			GuildID: guild.ID,
+			GuildID:     guild.ID,
 		}
 
 		dmError := ""
 		dmEmbed := components.NewEmbed().
-			SetDescription("You have been unbanned from **" + guild.Name + "** for ```" + reason + "```").
+			SetDescription("You have been unbanned from **"+guild.Name+"** for ```"+reason+"```").
 			SetColor("Green").
 			SetAuthor(guild.Name, guild.IconURL("")).
 			SetFooter("Case ID: " + id).

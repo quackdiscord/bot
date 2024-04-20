@@ -26,7 +26,7 @@ func ConnectDiscord(events []interface{}) {
 		token = os.Getenv("DEV_TOKEN")
 	}
 
-	Discord, _  = discordgo.New(token)
+	Discord, _ = discordgo.New(token)
 	Discord.Identify.Intents |= discordgo.IntentGuildMembers
 	Discord.Identify.Intents |= discordgo.IntentsAllWithoutPrivileged
 

@@ -18,12 +18,12 @@ var casesViewCmd = &discordgo.ApplicationCommandOption{
 	Options: []*discordgo.ApplicationCommandOption{
 		{
 			Type:        discordgo.ApplicationCommandOptionSubCommand,
-			Name:		"latest",
+			Name:        "latest",
 			Description: "View the latest case in the server",
 		},
 		{
 			Type:        discordgo.ApplicationCommandOptionSubCommand,
-			Name:		"user",
+			Name:        "user",
 			Description: "View all cases for a user",
 			Options: []*discordgo.ApplicationCommandOption{
 				{
@@ -36,7 +36,7 @@ var casesViewCmd = &discordgo.ApplicationCommandOption{
 		},
 		{
 			Type:        discordgo.ApplicationCommandOptionSubCommand,
-			Name:		"id",
+			Name:        "id",
 			Description: "View a specific case by ID",
 			Options: []*discordgo.ApplicationCommandOption{
 				{
@@ -141,7 +141,7 @@ func handleCasesViewUser(s *discordgo.Session, i *discordgo.InteractionCreate) *
 		embed := components.NewEmbed().
 			SetDescription(content).
 			SetTimestamp().
-			SetAuthor("Cases for " + user.Username, user.AvatarURL("")).
+			SetAuthor("Cases for "+user.Username, user.AvatarURL("")).
 			SetColor("Main").MessageEmbed
 
 		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
@@ -176,8 +176,8 @@ func generateCaseEmbed(s *discordgo.Session, c *structs.Case, guild *discordgo.G
 	}
 
 	embed := components.NewEmbed().
-		SetDescription(fmt.Sprintf("<@%s> (%s)'s Case \n\n", user.ID, user.Username) + *generateCaseDetails(c, moderator)).
-		SetAuthor(fmt.Sprintf("Case %s",c.ID,), user.AvatarURL("")).
+		SetDescription(fmt.Sprintf("<@%s> (%s)'s Case \n\n", user.ID, user.Username)+*generateCaseDetails(c, moderator)).
+		SetAuthor(fmt.Sprintf("Case %s", c.ID), user.AvatarURL("")).
 		SetTimestamp().
 		SetColor("Main").MessageEmbed
 
@@ -190,21 +190,21 @@ func generateCaseDetails(c *structs.Case, moderator *discordgo.User) *string {
 
 	typeStr := "Case added"
 	switch c.Type {
-		case 0:
-			typeStr = "Warned"
-		case 1:
-			typeStr = "Banned"
-		case 2:
-			typeStr = "Kicked"
-		case 3:
-			typeStr = "Unbanned"
-		case 4:
-			typeStr = "Timed out"
+	case 0:
+		typeStr = "Warned"
+	case 1:
+		typeStr = "Banned"
+	case 2:
+		typeStr = "Kicked"
+	case 3:
+		typeStr = "Unbanned"
+	case 4:
+		typeStr = "Timed out"
 	}
 
 	details := fmt.Sprintf(
 		"<t:%d:R> %s by %s\n<:text2:1229344477131309136> *\"%s\"*\n<:text:1229343822337802271> `ID: %s`\n\n",
-	 	unixTime, typeStr, moderator.Username, c.Reason, c.ID,
+		unixTime, typeStr, moderator.Username, c.Reason, c.ID,
 	)
 	return &details
 }

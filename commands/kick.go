@@ -20,8 +20,8 @@ func init() {
 }
 
 var kickCmd = &discordgo.ApplicationCommand{
-	Type: discordgo.ChatApplicationCommand,
-	Name: "kick",
+	Type:        discordgo.ChatApplicationCommand,
+	Name:        "kick",
 	Description: "Kick a user from the server",
 	Options: []*discordgo.ApplicationCommandOption{
 		{
@@ -72,18 +72,18 @@ func handleKick(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo
 		// create the case
 		id, _ := lib.GenID()
 		caseData := &structs.Case{
-			ID: id,
-			Type: 2,
-			Reason: reason,
-			UserID: userToKick.ID,
+			ID:          id,
+			Type:        2,
+			Reason:      reason,
+			UserID:      userToKick.ID,
 			ModeratorID: moderator.ID,
-			GuildID: guild.ID,
+			GuildID:     guild.ID,
 		}
 
 		// set up embeds
 		dmError := ""
 		dmEmbed := components.NewEmbed().
-			SetDescription("You have been kicked from **" + guild.Name + "** for ```" + reason + "```").
+			SetDescription("You have been kicked from **"+guild.Name+"** for ```"+reason+"```").
 			SetColor("Error").
 			SetAuthor(guild.Name, guild.IconURL("")).
 			SetFooter("Case ID: " + id).

@@ -26,7 +26,7 @@ func ConnectDB() {
 	// ping the database to make sure it's connected
 	err = db.Ping()
 	if err != nil {
-  		log.Fatalf("Failed to ping the database: %v", err)
+		log.Fatalf("Failed to ping the database: %v", err)
 	}
 
 	log.Info("Connected to database")

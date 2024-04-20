@@ -8,8 +8,8 @@ import (
 )
 
 var timeoutRemoveCmd = &discordgo.ApplicationCommandOption{
-	Type: discordgo.ApplicationCommandOptionSubCommand,
-	Name: "remove",
+	Type:        discordgo.ApplicationCommandOptionSubCommand,
+	Name:        "remove",
 	Description: "Remove a timeout from a user",
 	Options: []*discordgo.ApplicationCommandOption{
 		{
