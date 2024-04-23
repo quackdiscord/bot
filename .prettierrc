@@ -10,6 +10,4 @@
     "bracketSpacing": true,
     "jsxBracketSameLine": false,
     "semi": true,
-    "plugins": ["prettier-plugin-go-template"],
-    "goTemplateBracketSpacing": true
 }

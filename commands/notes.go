@@ -28,6 +28,7 @@ var notesCmd = &discordgo.ApplicationCommand{
 	Options: []*discordgo.ApplicationCommandOption{
 		notesAddCmd,
 		notesRemoveCmd,
+		notesViewCmd,
 	},
 }
 
@@ -44,15 +45,15 @@ func handleNotes(s *discordgo.Session, i *discordgo.InteractionCreate) (resp *di
 		case "user":
 			return handleNotesRemoveUser(s, i)
 		}
-		// case "view":
-		// 	switch sc := c.Options[0]; sc.Name {
-		// 	case "latest":
-		// 		return handleCasesViewLatest(s, i)
-		// 	case "id":
-		// 		return handleCasesViewID(s, i)
-		// 	case "user":
-		// 		return handleCasesViewUser(s, i)
-		// 	}
+	case "view":
+		switch sc := c.Options[0]; sc.Name {
+		case "latest":
+			return handleNotesViewLatest(s, i)
+		case "id":
+			return handleNotesViewID(s, i)
+		case "user":
+			return handleNotesViewUser(s, i)
+		}
 	}
 
 	return ContentResponse("Command does not exits", true)
