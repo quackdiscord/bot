@@ -25,6 +25,7 @@ var purgeCmd = &discordgo.ApplicationCommand{
 		purgeContainsCmd,
 		purgeBotsCmd,
 		purgeEmbedsCmd,
+		purgeAttachmentsCmd,
 	},
 }
 
@@ -44,6 +45,8 @@ func handlePurge(s *discordgo.Session, i *discordgo.InteractionCreate) (resp *di
 		return handlePurgeBots(s, i)
 	case "embeds":
 		return handlePurgeEmbeds(s, i)
+	case "attachments":
+		return handlePurgeAttachments(s, i)
 	}
 
 	return ContentResponse("Command does not exist", true)
