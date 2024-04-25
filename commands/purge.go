@@ -17,7 +17,7 @@ var purgeCmd = &discordgo.ApplicationCommand{
 	Name:                     "purge",
 	Description:              "Purge messages from the server",
 	DefaultMemberPermissions: &moderateMembers,
-	Options: 				  []*discordgo.ApplicationCommandOption{
+	Options: []*discordgo.ApplicationCommandOption{
 		purgeAllCmd,
 		purgeUserCmd,
 		purgeQuackCmd,

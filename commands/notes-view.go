@@ -76,7 +76,7 @@ func handleNotesViewLatest(s *discordgo.Session, i *discordgo.InteractionCreate)
 func handleNotesViewUser(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	user := i.ApplicationCommandData().Options[0].Options[0].Options[0].UserValue(s)
 
-	go func(){
+	go func() {
 		notes, err := storage.FindNoteByUserID(user.ID, i.GuildID)
 		if err != nil {
 			log.WithError(err).Error("Failed to fetch note by user id")
@@ -128,7 +128,7 @@ func handleNotesViewUser(s *discordgo.Session, i *discordgo.InteractionCreate) *
 func handleNotesViewID(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	caseID := i.ApplicationCommandData().Options[0].Options[0].Options[0].StringValue()
 
-	go func(){
+	go func() {
 		n, err := storage.FindNoteByID(caseID, i.GuildID)
 		if err != nil {
 			log.WithError(err).Error("Failed to fetch note by id")
@@ -149,7 +149,6 @@ func handleNotesViewID(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 
 	return LoadingResponse()
 }
-
 
 // generate a case embed from a case
 func generateNotesEmbed(s *discordgo.Session, n *structs.Note) *discordgo.MessageEmbed {

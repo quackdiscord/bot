@@ -49,12 +49,12 @@ func handleCasesAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *disco
 		// create the case
 		id, _ := lib.GenID()
 		caseData := &structs.Case{
-			ID: id,
-			Type: 0,
-			Reason: reason,
-			UserID: userToWarn.ID,
+			ID:          id,
+			Type:        0,
+			Reason:      reason,
+			UserID:      userToWarn.ID,
 			ModeratorID: moderator.ID,
-			GuildID: guild.ID,
+			GuildID:     guild.ID,
 		}
 
 		dmError := ""

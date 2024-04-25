@@ -12,19 +12,19 @@ var purgeBotsCmd = &discordgo.ApplicationCommandOption{
 	Type:        discordgo.ApplicationCommandOptionSubCommand,
 	Name:        "bots",
 	Description: "Purge specified amount of message from bots in a channel",
-	Options:     []*discordgo.ApplicationCommandOption{
+	Options: []*discordgo.ApplicationCommandOption{
 		{
 			Type:        discordgo.ApplicationCommandOptionInteger,
 			Name:        "amount",
 			Description: "The amount of messages to purge",
-			Required: 	 true,
+			Required:    true,
 			MaxValue:    100,
 		},
 		{
-			Type: 		 discordgo.ApplicationCommandOptionChannel,
-			Name: 		 "channel",
+			Type:        discordgo.ApplicationCommandOptionChannel,
+			Name:        "channel",
 			Description: "The channel to purge messages from",
-			Required: 	 false,
+			Required:    false,
 		},
 	},
 }
@@ -33,7 +33,7 @@ func handlePurgeBots(s *discordgo.Session, i *discordgo.InteractionCreate) *disc
 	amount := i.ApplicationCommandData().Options[0].Options[0].IntValue()
 	channel := i.ChannelID
 
-	go func(){
+	go func() {
 		if len(i.ApplicationCommandData().Options[0].Options) > 2 {
 			channel = i.ApplicationCommandData().Options[0].Options[2].ChannelValue(s).ID
 		}

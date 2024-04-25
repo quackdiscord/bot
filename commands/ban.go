@@ -20,8 +20,8 @@ func init() {
 }
 
 var banCmd = &discordgo.ApplicationCommand{
-	Type: discordgo.ChatApplicationCommand,
-	Name: "ban",
+	Type:        discordgo.ChatApplicationCommand,
+	Name:        "ban",
 	Description: "Ban a user from the server",
 	Options: []*discordgo.ApplicationCommandOption{
 		{
@@ -71,18 +71,18 @@ func handleBan(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.
 		// create the case
 		id, _ := lib.GenID()
 		caseData := &structs.Case{
-			ID:    			id,
-			Type:   		1,
-			Reason: 		reason,
-			UserID:   		userToBan.ID,
-			GuildID: 		i.GuildID,
-			ModeratorID:	moderator.ID,
+			ID:          id,
+			Type:        1,
+			Reason:      reason,
+			UserID:      userToBan.ID,
+			GuildID:     i.GuildID,
+			ModeratorID: moderator.ID,
 		}
 
 		// set up embeds
 		dmError := ""
 		dmEmbed := components.NewEmbed().
-			SetDescription("🚨 You have been banned from **" +  guild.Name + "** for ```" + reason + "```").
+			SetDescription("🚨 You have been banned from **"+guild.Name+"** for ```"+reason+"```").
 			SetColor("Red").
 			SetAuthor(guild.Name, guild.IconURL("")).
 			SetFooter("Case ID: " + id).
