@@ -21,6 +21,10 @@ var purgeCmd = &discordgo.ApplicationCommand{
 		purgeAllCmd,
 		purgeUserCmd,
 		purgeQuackCmd,
+		purgeEmojiCmd,
+		purgeContainsCmd,
+		purgeBotsCmd,
+		purgeEmbedsCmd,
 	},
 }
 
@@ -32,6 +36,14 @@ func handlePurge(s *discordgo.Session, i *discordgo.InteractionCreate) (resp *di
 		return handlePurgeUser(s, i)
 	case "quack":
 		return handlePurgeQuack(s, i)
+	case "emoji":
+		return handlePurgeEmoji(s, i)
+	case "contains":
+		return handlePurgeContains(s, i)
+	case "bots":
+		return handlePurgeBots(s, i)
+	case "embeds":
+		return handlePurgeEmbeds(s, i)
 	}
 
 	return ContentResponse("Command does not exist", true)

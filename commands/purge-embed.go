@@ -8,10 +8,10 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var purgeQuackCmd = &discordgo.ApplicationCommandOption{
+var purgeEmbedsCmd = &discordgo.ApplicationCommandOption{
 	Type:        discordgo.ApplicationCommandOptionSubCommand,
-	Name:        "quack",
-	Description: "Purge specified amount of messages from Quack in a channel",
+	Name:        "embeds",
+	Description: "Purge specified amount of embed messages from a channel",
 	Options:     []*discordgo.ApplicationCommandOption{
 		{
 			Type:        discordgo.ApplicationCommandOptionInteger,
@@ -29,7 +29,7 @@ var purgeQuackCmd = &discordgo.ApplicationCommandOption{
 	},
 }
 
-func handlePurgeQuack(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
+func handlePurgeEmbeds(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	amount := i.ApplicationCommandData().Options[0].Options[0].IntValue()
 	channel := i.ChannelID
 
@@ -38,8 +38,8 @@ func handlePurgeQuack(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 			channel = i.ApplicationCommandData().Options[0].Options[1].ChannelValue(s).ID
 		}
 
-		// fetch the past 100 messages (discord limit)
-		msgs, err := s.ChannelMessages(channel, 100, "", "", "")
+		// fetch the past x messages (x = amount)
+		msgs, err := s.ChannelMessages(channel, int(amount), "", "", "")
 		if err != nil {
 			log.WithError(err).Error("Failed to fetch messages for purge")
 			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to fetch messages.").SetColor("Error").MessageEmbed
@@ -52,22 +52,22 @@ func handlePurgeQuack(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 		// make a list of message ids to delete
 		msgIds := make([]string, 0)
 		for _, msg := range msgs {
-			// at the message id to the list if its from the bot, and we havent reached the limit yet
-			if msg.Author.ID == s.State.User.ID && len(msgIds) < int(amount) {
+			// at the message id to the list if its from the user, and we havent reached the limit yet
+			if len(msg.Embeds) > 0 && len(msgIds) < int(amount) {
 				msgIds = append(msgIds, msg.ID)
 			}
 		}
 
-		// if no messages were found, return an error
+		// if there are no messages to delete, return an error
 		if len(msgIds) == 0 {
-			embed := components.NewEmbed().SetDescription("No messages found to purge.").SetColor("Error").MessageEmbed
+			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** There are no messages to delete.").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 				Embeds: &[]*discordgo.MessageEmbed{embed},
 			})
 			return
 		}
 
-		// attempt to bulk delete the messages
+		// delete the messages
 		err2 := s.ChannelMessagesBulkDelete(channel, msgIds)
 		if err2 != nil {
 			log.WithError(err2).Error("Failed to delete messages")
@@ -79,7 +79,7 @@ func handlePurgeQuack(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 		}
 
 		embed := components.NewEmbed().
-			SetDescription(fmt.Sprintf("Successfully purged `%d` messages from <@%s> in <#%s>.", len(msgIds), s.State.User.ID, channel)).
+			SetDescription(fmt.Sprintf("Successfully purged `%d` messages with embeds in <#%s>.", len(msgIds), channel)).
 			SetColor("Main").
 			MessageEmbed
 

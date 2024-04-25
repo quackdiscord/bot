@@ -40,11 +40,11 @@ func ConnectDiscord(events []interface{}) {
 	}
 
 	// register commands
-	// if Enviorment == "prod" {
-	// 	RegisterCommands(Discord, "") // register globally
-	// } else {
-	// 	RegisterCommands(Discord, "1005778938108325970") // just register for the dev guild
-	// }
+	if Enviorment == "prod" {
+		RegisterCommands(Discord, "") // register globally
+	} else {
+		RegisterCommands(Discord, "1005778938108325970") // just register for the dev guild
+	}
 }
 
 func DisconnectDiscord() {

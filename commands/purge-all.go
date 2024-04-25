@@ -12,13 +12,13 @@ var purgeAllCmd = &discordgo.ApplicationCommandOption{
 	Type:        discordgo.ApplicationCommandOptionSubCommand,
 	Name:        "all",
 	Description: "Purge specified amount of all message types from a channel",
-	Options: []*discordgo.ApplicationCommandOption{
+	Options:     []*discordgo.ApplicationCommandOption{
 		{
 			Type:        discordgo.ApplicationCommandOptionInteger,
 			Name:        "amount",
 			Description: "The amount of messages to purge",
 			Required: 	 true,
-			MaxValue: 100,
+			MaxValue:    100,
 		},
 		{
 			Type: 		 discordgo.ApplicationCommandOptionChannel,
@@ -38,6 +38,7 @@ func handlePurgeAll(s *discordgo.Session, i *discordgo.InteractionCreate) *disco
 			channel = i.ApplicationCommandData().Options[0].Options[1].ChannelValue(s).ID
 		}
 
+		// fetch the past x messages (x = amount)
 		msgs, err := s.ChannelMessages(channel, int(amount), "", "", "")
 		if err != nil {
 			log.WithError(err).Error("Failed to fetch messages for purge")
@@ -48,11 +49,16 @@ func handlePurgeAll(s *discordgo.Session, i *discordgo.InteractionCreate) *disco
 			return
 		}
 
-		msgIds := make([]string, len(msgs))
-		for i, msg := range msgs {
-			msgIds[i] = msg.ID
+		// make a list of message ids to delete
+		msgIds := make([]string, 0)
+		for _, msg := range msgs {
+			// at the message id to the list if its from the user, and we havent reached the limit yet
+			if len(msgIds) < int(amount) {
+				msgIds = append(msgIds, msg.ID)
+			}
 		}
 
+		// if there are no messages to delete, return an error
 		if len(msgIds) == 0 {
 			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** There are no messages to delete.").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
@@ -61,6 +67,7 @@ func handlePurgeAll(s *discordgo.Session, i *discordgo.InteractionCreate) *disco
 			return
 		}
 
+		// delete the messages
 		err2 := s.ChannelMessagesBulkDelete(channel, msgIds)
 		if err2 != nil {
 			log.WithError(err2).Error("Failed to delete messages")

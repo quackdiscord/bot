@@ -2,17 +2,25 @@ package commands
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
 	log "github.com/sirupsen/logrus"
 )
 
-var purgeQuackCmd = &discordgo.ApplicationCommandOption{
+var purgeContainsCmd = &discordgo.ApplicationCommandOption{
 	Type:        discordgo.ApplicationCommandOptionSubCommand,
-	Name:        "quack",
-	Description: "Purge specified amount of messages from Quack in a channel",
+	Name:        "contains",
+	Description: "Purge specified amount of message with a specific string in a channel",
 	Options:     []*discordgo.ApplicationCommandOption{
+		{
+			Type:        discordgo.ApplicationCommandOptionString,
+			Name:        "string",
+			Description: "The string to search for",
+			Required: 	 true,
+			MaxValue: 	 1,
+		},
 		{
 			Type:        discordgo.ApplicationCommandOptionInteger,
 			Name:        "amount",
@@ -29,13 +37,14 @@ var purgeQuackCmd = &discordgo.ApplicationCommandOption{
 	},
 }
 
-func handlePurgeQuack(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
-	amount := i.ApplicationCommandData().Options[0].Options[0].IntValue()
+func handlePurgeContains(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
+	amount := i.ApplicationCommandData().Options[0].Options[1].IntValue()
+	str := i.ApplicationCommandData().Options[0].Options[0].StringValue()
 	channel := i.ChannelID
 
 	go func(){
-		if len(i.ApplicationCommandData().Options[0].Options) > 1 {
-			channel = i.ApplicationCommandData().Options[0].Options[1].ChannelValue(s).ID
+		if len(i.ApplicationCommandData().Options[0].Options) > 2 {
+			channel = i.ApplicationCommandData().Options[0].Options[2].ChannelValue(s).ID
 		}
 
 		// fetch the past 100 messages (discord limit)
@@ -52,13 +61,12 @@ func handlePurgeQuack(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 		// make a list of message ids to delete
 		msgIds := make([]string, 0)
 		for _, msg := range msgs {
-			// at the message id to the list if its from the bot, and we havent reached the limit yet
-			if msg.Author.ID == s.State.User.ID && len(msgIds) < int(amount) {
+			// if the message.Content contains the emoji string, add it to the list
+			if strings.Contains(msg.Content, str) && len(msgIds) < int(amount) {
 				msgIds = append(msgIds, msg.ID)
 			}
 		}
 
-		// if no messages were found, return an error
 		if len(msgIds) == 0 {
 			embed := components.NewEmbed().SetDescription("No messages found to purge.").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
@@ -67,7 +75,7 @@ func handlePurgeQuack(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 			return
 		}
 
-		// attempt to bulk delete the messages
+		// delete the messages
 		err2 := s.ChannelMessagesBulkDelete(channel, msgIds)
 		if err2 != nil {
 			log.WithError(err2).Error("Failed to delete messages")
@@ -79,7 +87,7 @@ func handlePurgeQuack(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 		}
 
 		embed := components.NewEmbed().
-			SetDescription(fmt.Sprintf("Successfully purged `%d` messages from <@%s> in <#%s>.", len(msgIds), s.State.User.ID, channel)).
+			SetDescription(fmt.Sprintf("Successfully purged `%d` messages containing `%s` in <#%s>.", len(msgIds), str, channel)).
 			SetColor("Main").
 			MessageEmbed
 
