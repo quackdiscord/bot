@@ -14,31 +14,29 @@ All Quack's commands use Discord's
 
 ## Running Locally
 
-Quack uses the [Bun](https://bun.sh) runtime. Please ensure you have Bun installed before continuing. Please also ensure
-you have created a bot via [Discord's Developer Portal](https://discord.com/developers/applications).
+Quack uses Go v1.22.2 please make sure you have this installed. Please also ensure you have created a bot via [Discord's Developer Portal](https://discord.com/developers/applications).
 
-1. Clone, and install dependencies.
+1. Clone.
 
 ```
 mkdir quack && cd quack
 git clone https://github.com/seedsdiscord/bot
 cd bot
-bun i
 ```
 
 2. Set up environment variables.
 
--   Create a `.env` in the root of the project.
+-   Create a `.env.local` in the root of the project.
 -   Refer to [`config.ts`](./config.ts) to see all the required enviornment variables.
 -   Feel free to omit any for testing.
 
 3. Start the bot!
 
 ```
-bun dev
+go run .
 ```
 
--   This will run the dev script.
+-   This will run the bot.
 
 ## Contributing
 
