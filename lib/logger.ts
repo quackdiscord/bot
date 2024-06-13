@@ -38,7 +38,7 @@ const logger = winston.createLogger({
     ),
     defaultMeta: { service: "quack-bot" },
     transports: [
-        new winston.transports.Console(),
+        new winston.transports.Console({ format: winston.format.simple() }),
         new AxiomTransport({
             dataset: config.axiom.dataset,
             token: config.axiom.token,
