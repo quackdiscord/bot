@@ -13,9 +13,6 @@ func init() {
 }
 
 // /ticket channel <channel> - sets the channel for the ticket system
-// /ticket create [user] - manually creates a ticket for a user or yourself
-// /ticket close [user] - closes the ticket you are in or the ticket of the user specified
-// /ticket list - lists all open tickets
 // /ticket log channel <channel> - sets the channel for the ticket log
 
 var ticketCmd = &discordgo.ApplicationCommand{
