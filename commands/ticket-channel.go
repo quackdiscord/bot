@@ -45,10 +45,8 @@ func handleTicketChannel(s *discordgo.Session, i *discordgo.InteractionCreate) *
 			return
 		}
 
-		// TODO: edit channel perms
-
 		embed := components.NewEmbed().
-			SetDescription("Ticket channel set to <#" + channel.ID + ">.\n\nBe sure to change the channel permissions so only bots can send messages in it.").
+			SetDescription("Ticket channel set to <#" + channel.ID + ">.\n\nChange the permissions so only bots can send messages and so your moderators can manage threads.").
 			SetColor("Main").
 			MessageEmbed
 

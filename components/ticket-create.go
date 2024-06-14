@@ -61,6 +61,7 @@ func handleTicketCreate(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 		Name:                fmt.Sprintf("%s's ticket", i.Member.User.Username),
 		Invitable:           false,
 		AutoArchiveDuration: 0,
+		Type:                discordgo.ChannelTypeGuildPrivateThread,
 	})
 	if err != nil || thread == nil {
 		log.WithError(err).Error("Failed to create thread")
