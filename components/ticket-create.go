@@ -149,6 +149,6 @@ func handleTicketCreate(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 
 	return ComplexResponse(&discordgo.InteractionResponseData{
 		Flags:   discordgo.MessageFlagsEphemeral,
-		Content: "Ticket created. <#" + thread.ID + ">",
+		Content: "> Ticket created! <#" + thread.ID + ">",
 	})
 }
