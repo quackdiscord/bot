@@ -55,6 +55,16 @@ func CloseTicket(id string, threadID string, resolverID string) (*string, error)
 		return nil, err
 	}
 
+	// remove the ticket content from redis
+	err = services.Redis.Del(context.Background(), id).Err()
+	if err != nil {
+		// if the error is that the key doesnt exist return nil
+		if err == redis.Nil {
+			return nil, nil
+		}
+		return nil, err
+	}
+
 	// prepare the statement
 	stmtUpd, err := services.DB.Prepare("UPDATE tickets SET state = 1, resolved_by = ?, resolved_at = ? WHERE id = ?")
 	if err != nil {
