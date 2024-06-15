@@ -49,8 +49,14 @@ func handleTicketClose(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 		})
 	}
 
+	// get the user and the owner
+	// the user is the person who clicked the button the owner is the person who created the ticket
+	// they may be the same they may be different
+	owner, _ := s.GuildMember(i.GuildID, ticket.OwnerID)
+	user := i.Member.User
+
 	// close the ticket
-	msgs, err := storage.CloseTicket(ticket.ID, ticket.ThreadID, i.Member.User.ID)
+	msgs, err := storage.CloseTicket(ticket.ID, ticket.ThreadID, user.ID)
 	if err != nil {
 		log.WithError(err).Error("Failed to close ticket")
 		return ComplexResponse(&discordgo.InteractionResponseData{
@@ -67,8 +73,9 @@ func handleTicketClose(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 	}
 
 	embed := NewEmbed().
-		SetDescription(fmt.Sprintf("<@%s>'s ticket has been closed by %s", ticket.OwnerID, i.Member.User.Username)).
+		SetDescription(fmt.Sprintf("<@%s>'s ticket has been closed by %s", ticket.OwnerID, user.Username)).
 		SetColor("Red").
+		SetAuthor("Ticket Closed", owner.AvatarURL("")).
 		SetTimestamp().
 		SetFooter("Ticket ID: " + ticket.ID).
 		MessageEmbed
