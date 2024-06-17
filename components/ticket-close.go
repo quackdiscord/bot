@@ -89,7 +89,7 @@ func handleTicketClose(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 
 	if err != nil {
 		// Handle error
-		fmt.Println("Error editing message:", err)
+		log.WithError(err).Error("Failed to edit message")
 	}
 
 	log.WithFields(
