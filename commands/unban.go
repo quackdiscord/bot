@@ -50,8 +50,7 @@ func handleUnban(s *discordgo.Session, i *discordgo.InteractionCreate) *discordg
 	guild, _ := s.Guild(i.GuildID)
 
 	if userToUnban == nil {
-		embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** User not found.").SetColor("Error").MessageEmbed
-		return EmbedResponse(embed, true)
+		return EmbedResponse(components.ErrorEmbed("User not found."), true)
 	}
 	if len(i.ApplicationCommandData().Options) > 1 {
 		reason = i.ApplicationCommandData().Options[1].StringValue()
@@ -59,13 +58,11 @@ func handleUnban(s *discordgo.Session, i *discordgo.InteractionCreate) *discordg
 
 	// make sure the user isn't kicking themselves
 	if userToUnban.ID == moderator.ID {
-		embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** You can't unban yourself.").SetColor("Error").MessageEmbed
-		return EmbedResponse(embed, true)
+		return EmbedResponse(components.ErrorEmbed("You can't unban yourself."), true)
 	}
 	// make sure the user isn't kicking the bot
 	if userToUnban.ID == s.State.User.ID {
-		embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** You can't unban me using this command.").SetColor("Error").MessageEmbed
-		return EmbedResponse(embed, true)
+		return EmbedResponse(components.ErrorEmbed("You can't unban me using this command."), true)
 	}
 
 	go func() {
@@ -92,9 +89,8 @@ func handleUnban(s *discordgo.Session, i *discordgo.InteractionCreate) *discordg
 		err3 := s.GuildBanDelete(guild.ID, userToUnban.ID)
 		if err3 != nil {
 			log.WithError(err3).Error("Failed to unban user")
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to unban user.\n```" + err3.Error() + "```").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to unban user.\n```" + err3.Error() + "```")},
 			})
 			return
 		}
@@ -114,9 +110,8 @@ func handleUnban(s *discordgo.Session, i *discordgo.InteractionCreate) *discordg
 		err4 := storage.CreateCase(caseData)
 		if err4 != nil {
 			log.WithError(err4).Error("Failed to create case")
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to save case.\n```" + err4.Error() + "```").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to save case.\n```" + err4.Error() + "```")},
 			})
 			return
 		}

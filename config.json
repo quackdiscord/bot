@@ -1,4 +1,5 @@
 {
     "guild_count_channel": "1123601662846714018",
-    "dev_guild_id": "1005778938108325970"
+    "dev_guild_id": "1005778938108325970",
+    "error_msg_prefix": "<:error:1228053905590718596> **Error:** "
 }

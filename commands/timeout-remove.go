@@ -27,17 +27,15 @@ func handleTimeoutRemove(s *discordgo.Session, i *discordgo.InteractionCreate) *
 	moderator := i.Member.User
 
 	if userToUntime == nil {
-		embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** User not found.").SetColor("Error").MessageEmbed
-		return EmbedResponse(embed, true)
+		return EmbedResponse(components.ErrorEmbed("User not found."), true)
 	}
 
 	// remove the timeout from the user
 	go func() {
 		err := s.GuildMemberTimeout(guild.ID, userToUntime.ID, nil)
 		if err != nil {
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to untime out user.\n```" + err.Error() + "```").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to untime out user.\n```" + err.Error() + "```")},
 			})
 			return
 		}

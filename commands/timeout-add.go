@@ -45,8 +45,7 @@ func handleTimeoutAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 	guild, _ := s.Guild(i.GuildID)
 
 	if userToTime == nil {
-		embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** User not found.").SetColor("Error").MessageEmbed
-		return EmbedResponse(embed, true)
+		return EmbedResponse(components.ErrorEmbed("User not found."), true)
 	}
 	if len(i.ApplicationCommandData().Options) > 2 {
 		reason = i.ApplicationCommandData().Options[0].Options[2].StringValue()
@@ -54,14 +53,12 @@ func handleTimeoutAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 
 	// make sure the user isn't timing themselves out
 	if userToTime.ID == moderator.ID {
-		embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** You cannot time out yourself.").SetColor("Error").MessageEmbed
-		return EmbedResponse(embed, true)
+		return EmbedResponse(components.ErrorEmbed("You cannot time out yourself."), true)
 	}
 
 	// make sure the user isn't timing out a bot
 	if userToTime.Bot {
-		embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** You cannot time out a bot.").SetColor("Error").MessageEmbed
-		return EmbedResponse(embed, true)
+		return EmbedResponse(components.ErrorEmbed("You cannot time out a bot."), true)
 	}
 
 	go func() {
@@ -81,9 +78,8 @@ func handleTimeoutAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 		err := s.GuildMemberTimeout(guild.ID, userToTime.ID, &until)
 		if err != nil {
 			log.WithError(err).Error("Failed to time out user")
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to time out user.\n```" + err.Error() + "```").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to time out user.\n```" + err.Error() + "```")},
 			})
 			return
 		}
@@ -92,9 +88,8 @@ func handleTimeoutAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 		saveErr := storage.CreateCase(caseData)
 		if saveErr != nil {
 			log.Error("Failed to save case", saveErr)
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to save case.\n```" + saveErr.Error() + "```").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to save case.\n```" + saveErr.Error() + "```")},
 			})
 			return
 		}

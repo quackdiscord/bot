@@ -2,6 +2,7 @@ package commands
 
 import (
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/config"
 	"github.com/quackdiscord/bot/lib"
 	"github.com/quackdiscord/bot/services"
 )
@@ -15,7 +16,7 @@ func OnInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	data := i.ApplicationCommandData()
 	cmd, ok := services.Commands[data.Name]
 	if !ok {
-		s.InteractionRespond(i.Interaction, ContentResponse("<:error:1228053905590718596> **Error:** Command does not exist", true))
+		s.InteractionRespond(i.Interaction, ContentResponse(config.Bot.ErrMsgPrefix+"Command does not exist", true))
 		return
 	}
 
@@ -23,7 +24,7 @@ func OnInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if resp != nil {
 		s.InteractionRespond(i.Interaction, resp)
 	} else {
-		errMessage := "<:error:1228053905590718596> **Error:** Something went wrong while processing the command"
+		errMessage := config.Bot.ErrMsgPrefix + "Something went wrong while processing the command"
 		s.InteractionRespond(i.Interaction, ContentResponse(errMessage, true))
 		return
 	}

@@ -27,9 +27,8 @@ func handleTicketChannel(s *discordgo.Session, i *discordgo.InteractionCreate) *
 	go func() {
 		// make sure the channel is a text channel
 		if channel.Type != discordgo.ChannelTypeGuildText {
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** The channel must be a text channel.").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("The channel must be a text channel.")},
 			})
 			return
 		}
@@ -38,9 +37,8 @@ func handleTicketChannel(s *discordgo.Session, i *discordgo.InteractionCreate) *
 		err := storage.SetTicketChannel(i.GuildID, channel.ID)
 		if err != nil {
 			log.WithError(err).Error("Failed to set ticket channel")
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to set ticket channel.").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to set ticket channel.")},
 			})
 			return
 		}
@@ -73,9 +71,8 @@ func handleTicketChannel(s *discordgo.Session, i *discordgo.InteractionCreate) *
 
 		if err2 != nil {
 			log.WithError(err2).Error("Failed to send message to ticket channel")
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to send message to ticket channel.").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to send message to ticket channel.")},
 			})
 			return
 		}

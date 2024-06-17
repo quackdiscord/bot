@@ -51,9 +51,8 @@ func handleNotesAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *disco
 		err := storage.CreateNote(noteData)
 		if err != nil {
 			log.WithError(err).Error("Failed to create note")
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to save note.\n```" + err.Error() + "```").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to save note.\n```" + err.Error() + "```")},
 			})
 			return
 		}

@@ -55,9 +55,8 @@ func handleNotesViewLatest(s *discordgo.Session, i *discordgo.InteractionCreate)
 		n, err := storage.FindLatestNote(i.GuildID)
 		if err != nil {
 			log.WithError(err).Error("Failed to fetch latest note")
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to fetch latest note.").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to fetch latest note.")},
 			})
 			return
 		}
@@ -80,9 +79,8 @@ func handleNotesViewUser(s *discordgo.Session, i *discordgo.InteractionCreate) *
 		notes, err := storage.FindNoteByUserID(user.ID, i.GuildID)
 		if err != nil {
 			log.WithError(err).Error("Failed to fetch note by user id")
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to fetch notes.").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to fetch notes.")},
 			})
 			return
 		}
@@ -132,9 +130,8 @@ func handleNotesViewID(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 		n, err := storage.FindNoteByID(caseID, i.GuildID)
 		if err != nil {
 			log.WithError(err).Error("Failed to fetch note by id")
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to fetch note.").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to fetch note.")},
 			})
 			return
 		}
@@ -153,16 +150,14 @@ func handleNotesViewID(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 // generate a case embed from a case
 func generateNotesEmbed(s *discordgo.Session, n *structs.Note) *discordgo.MessageEmbed {
 	if n == nil {
-		embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Note not found.").SetColor("Error").MessageEmbed
-		return embed
+		return components.ErrorEmbed("Note not found.")
 	}
 
 	user, _ := s.User(n.UserID)
 	moderator, _ := s.User(n.ModeratorID)
 
 	if user == nil || moderator == nil {
-		embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to fetch user or moderator.").SetColor("Error").MessageEmbed
-		return embed
+		return components.ErrorEmbed("Failed to fetch user or moderator.")
 	}
 
 	embed := components.NewEmbed().

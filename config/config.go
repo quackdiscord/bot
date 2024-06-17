@@ -10,6 +10,7 @@ import (
 type Config struct {
 	GuildCountChannel string `json:"guild_count_channel"`
 	DevGuildID        string `json:"dev_guild_id"`
+	ErrMsgPrefix      string `json:"error_msg_prefix"`
 }
 
 var Bot Config
@@ -19,6 +20,7 @@ func init() {
 	Bot = Config{
 		GuildCountChannel: "val",
 		DevGuildID:        "val",
+		ErrMsgPrefix:      "val",
 	}
 
 	// Optionally, load config from a JSON file

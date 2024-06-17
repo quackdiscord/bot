@@ -54,17 +54,15 @@ func handleNotesRemoveLatest(s *discordgo.Session, i *discordgo.InteractionCreat
 		n, err := storage.FindLatestNote(guild.ID)
 		if err != nil {
 			log.WithError(err).Error("Failed to find latest note")
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to find latest note.").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to find latest note.")},
 			})
 			return
 		}
 
 		if n == nil {
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Latest note not found.").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Latest note not found.")},
 			})
 			return
 		}
@@ -72,9 +70,8 @@ func handleNotesRemoveLatest(s *discordgo.Session, i *discordgo.InteractionCreat
 		_, err2 := storage.DeleteLatestNote(guild.ID)
 		if err2 != nil {
 			log.WithError(err2).Error("Failed to delete latest note")
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to delete latest note.").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to delete latest note.")},
 			})
 			return
 		}
@@ -100,9 +97,8 @@ func handleNotesRemoveUser(s *discordgo.Session, i *discordgo.InteractionCreate)
 		_, err := storage.DeleteNoteByUserID(user.ID, guild.ID)
 		if err != nil {
 			log.WithError(err).Error("Failed to delete users notes")
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to delete user's notes.").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to delete user's notes.")},
 			})
 			return
 		}
@@ -125,17 +121,15 @@ func handleNotesRemoveID(s *discordgo.Session, i *discordgo.InteractionCreate) *
 		n, err := storage.FindNoteByID(noteID, guild.ID)
 		if err != nil {
 			log.WithError(err).Error("Failed to find note")
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to find note.").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to find note.")},
 			})
 			return
 		}
 
 		if n == nil {
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** note not found.").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Note not found.")},
 			})
 			return
 		}
@@ -143,9 +137,8 @@ func handleNotesRemoveID(s *discordgo.Session, i *discordgo.InteractionCreate) *
 		_, err2 := storage.DeleteNoteByID(noteID, guild.ID)
 		if err2 != nil {
 			log.WithError(err2).Error("Failed to delete note")
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to delete note.").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to delete note.")},
 			})
 			return
 		}

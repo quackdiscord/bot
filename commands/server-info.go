@@ -17,9 +17,8 @@ var serverInfoCmd = &discordgo.ApplicationCommandOption{
 func handleServerInfo(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	guild, err := s.GuildWithCounts(i.GuildID)
 	if err != nil {
-		log.Info("Failed to fetch a guild")
-		embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Something went wrong.").SetColor("Error").MessageEmbed
-		return EmbedResponse(embed, true)
+		log.WithError(err).Error("Failed to fetch a guild")
+		return EmbedResponse(components.ErrorEmbed("Failed to fetch guild info."), true)
 	}
 
 	desc := fmt.Sprintf(

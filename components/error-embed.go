@@ -4,8 +4,9 @@ import (
 	"fmt"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/config"
 )
 
 func ErrorEmbed(errMessage string) *discordgo.MessageEmbed {
-	return NewEmbed().SetDescription(fmt.Sprintf("<:error:1228053905590718596> **Error:** %s", errMessage)).SetColor("Error").MessageEmbed
+	return NewEmbed().SetDescription(fmt.Sprintf("%s%s", config.Bot.ErrMsgPrefix, errMessage)).SetColor("Error").MessageEmbed
 }

@@ -48,8 +48,7 @@ func handleBan(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.
 	guild, _ := s.Guild(i.GuildID)
 
 	if userToBan == nil {
-		embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** User not found.").SetColor("Error").MessageEmbed
-		return EmbedResponse(embed, true)
+		return EmbedResponse(components.ErrorEmbed("User not found."), true)
 	}
 	if len(i.ApplicationCommandData().Options) > 1 {
 		reason = i.ApplicationCommandData().Options[1].StringValue()
@@ -57,13 +56,11 @@ func handleBan(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.
 
 	// make sure the user isn't banning themselves
 	if userToBan.ID == moderator.ID {
-		embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** You can't ban yourself.").SetColor("Error").MessageEmbed
-		return EmbedResponse(embed, true)
+		return EmbedResponse(components.ErrorEmbed("You can't ban yourself."), true)
 	}
 	// make sure the user isn't banning the bot
 	if userToBan.ID == s.State.User.ID {
-		embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** You can't ban me using this command.").SetColor("Error").MessageEmbed
-		return EmbedResponse(embed, true)
+		return EmbedResponse(components.ErrorEmbed("You can't ban me using this command."), true)
 	}
 
 	// do everything in a goroutine
@@ -103,9 +100,8 @@ func handleBan(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.
 		banErr := s.GuildBanCreateWithReason(i.GuildID, userToBan.ID, reason, 1)
 		if banErr != nil {
 			log.WithError(banErr).Error("Failed to ban user")
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to ban user.\n```" + banErr.Error() + "```").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to ban user.\n```" + banErr.Error() + "```")},
 			})
 			return
 		}
@@ -113,10 +109,9 @@ func handleBan(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.
 		// save the case
 		saveErr := storage.CreateCase(caseData)
 		if saveErr != nil {
-			log.Error("Failed to save case", saveErr)
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to save case.\n```" + saveErr.Error() + "```").SetColor("Error").MessageEmbed
+			log.WithError(saveErr).Error("Failed to save case")
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to save case.\n```" + saveErr.Error() + "```")},
 			})
 			return
 		}

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/config"
 	"github.com/quackdiscord/bot/storage"
 	log "github.com/sirupsen/logrus"
 )
@@ -21,14 +22,14 @@ func handleTicketClose(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 		log.WithError(err).Error("Failed to get ticket settings")
 		return ComplexResponse(&discordgo.InteractionResponseData{
 			Flags:   discordgo.MessageFlagsEphemeral,
-			Content: "<:error:1228053905590718596> **Error:** Failed to get ticket settings. Please try again later.",
+			Content: config.Bot.ErrMsgPrefix + "Failed to get ticket settings. Please try again later.",
 		})
 	}
 
 	if tsettings == nil {
 		return ComplexResponse(&discordgo.InteractionResponseData{
 			Flags:   discordgo.MessageFlagsEphemeral,
-			Content: "<:error:1228053905590718596> **Error:** This server has not set up the ticket system. Please contact a moderator.",
+			Content: config.Bot.ErrMsgPrefix + "This server has not set up the ticket system. Please contact a moderator.",
 		})
 	}
 
@@ -38,14 +39,14 @@ func handleTicketClose(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 		log.WithError(err).Error("Failed to get ticket")
 		return ComplexResponse(&discordgo.InteractionResponseData{
 			Flags:   discordgo.MessageFlagsEphemeral,
-			Content: "<:error:1228053905590718596> **Error:** Failed to get ticket. Please try again later.",
+			Content: config.Bot.ErrMsgPrefix + "Failed to get ticket. Please try again later.",
 		})
 	}
 
 	if ticket == nil {
 		return ComplexResponse(&discordgo.InteractionResponseData{
 			Flags:   discordgo.MessageFlagsEphemeral,
-			Content: "<:error:1228053905590718596> **Error:** This ticket does not exist. Please try again later.",
+			Content: config.Bot.ErrMsgPrefix + "This ticket does not exist. Please try again later.",
 		})
 	}
 
@@ -61,7 +62,7 @@ func handleTicketClose(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 		log.WithError(err).Error("Failed to close ticket")
 		return ComplexResponse(&discordgo.InteractionResponseData{
 			Flags:   discordgo.MessageFlagsEphemeral,
-			Content: "<:error:1228053905590718596> **Error:** Failed to close ticket. Please try again later.",
+			Content: config.Bot.ErrMsgPrefix + "Failed to close ticket. Please try again later.",
 		})
 	}
 
@@ -106,7 +107,7 @@ func handleTicketClose(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 		log.WithError(err).Error("Failed to delete thread")
 		return ComplexResponse(&discordgo.InteractionResponseData{
 			Flags:   discordgo.MessageFlagsEphemeral,
-			Content: "<:error:1228053905590718596> **Error:** Failed to delete thread. Please try again later.",
+			Content: config.Bot.ErrMsgPrefix + "Failed to delete thread. Please try again later.",
 		})
 	}
 

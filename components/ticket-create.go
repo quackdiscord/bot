@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/config"
 	"github.com/quackdiscord/bot/lib"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/quackdiscord/bot/structs"
@@ -23,21 +24,21 @@ func handleTicketCreate(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 		log.WithError(err).Error("Failed to get ticket settings")
 		return ComplexResponse(&discordgo.InteractionResponseData{
 			Flags:   discordgo.MessageFlagsEphemeral,
-			Content: "<:error:1228053905590718596> **Error:** Failed to get ticket settings. Please try again later.",
+			Content: config.Bot.ErrMsgPrefix + "Failed to get ticket settings. Please try again later.",
 		})
 	}
 
 	if tsettings == nil {
 		return ComplexResponse(&discordgo.InteractionResponseData{
 			Flags:   discordgo.MessageFlagsEphemeral,
-			Content: "<:error:1228053905590718596> **Error:** This server has not set up the ticket system. Please contact a moderator.",
+			Content: config.Bot.ErrMsgPrefix + "This server has not set up the ticket system. Please contact a moderator.",
 		})
 	}
 
 	if tsettings.ChannelID == "" {
 		return ComplexResponse(&discordgo.InteractionResponseData{
 			Flags:   discordgo.MessageFlagsEphemeral,
-			Content: "<:error:1228053905590718596> **Error:** This server has not set a ticket channel. Please contact a moderator.",
+			Content: config.Bot.ErrMsgPrefix + "This server has not set a ticket channel. Please contact a moderator.",
 		})
 	}
 
@@ -47,7 +48,7 @@ func handleTicketCreate(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 		log.WithError(err).Error("Failed to get users ticket")
 		return ComplexResponse(&discordgo.InteractionResponseData{
 			Flags:   discordgo.MessageFlagsEphemeral,
-			Content: "<:error:1228053905590718596> **Error:** Failed to get users ticket.",
+			Content: config.Bot.ErrMsgPrefix + "Failed to get users ticket.",
 		})
 	}
 	if currTicket != nil {
@@ -68,7 +69,7 @@ func handleTicketCreate(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 		log.WithError(err).Error("Failed to create thread")
 		return ComplexResponse(&discordgo.InteractionResponseData{
 			Flags:   discordgo.MessageFlagsEphemeral,
-			Content: "<:error:1228053905590718596> **Error:** Failed to create thread.",
+			Content: config.Bot.ErrMsgPrefix + "Failed to create thread.",
 		})
 	}
 
@@ -91,7 +92,7 @@ func handleTicketCreate(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 			log.WithError(err).Error("Failed to send message to ticket log channel")
 			return ComplexResponse(&discordgo.InteractionResponseData{
 				Flags:   discordgo.MessageFlagsEphemeral,
-				Content: "<:error:1228053905590718596> **Error:** Failed to send message to ticket log channel.",
+				Content: config.Bot.ErrMsgPrefix + "Failed to send message to ticket log channel.",
 			})
 		}
 	}
@@ -111,7 +112,7 @@ func handleTicketCreate(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 		log.WithError(err).Error("Failed to create ticket")
 		return ComplexResponse(&discordgo.InteractionResponseData{
 			Flags:   discordgo.MessageFlagsEphemeral,
-			Content: "<:error:1228053905590718596> **Error:** Failed to create ticket.",
+			Content: config.Bot.ErrMsgPrefix + "Failed to create ticket.",
 		})
 	}
 
@@ -135,7 +136,7 @@ func handleTicketCreate(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 		log.WithError(err).Error("Failed to send message to thread")
 		return ComplexResponse(&discordgo.InteractionResponseData{
 			Flags:   discordgo.MessageFlagsEphemeral,
-			Content: "<:error:1228053905590718596> **Error:** Failed to send message to thread.",
+			Content: config.Bot.ErrMsgPrefix + "Failed to send message to thread.",
 		})
 	}
 

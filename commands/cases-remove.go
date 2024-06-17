@@ -54,17 +54,15 @@ func handleCasesRemoveLatest(s *discordgo.Session, i *discordgo.InteractionCreat
 		c, err := storage.FindLatestCase(guild.ID)
 		if err != nil {
 			log.WithError(err).Error("Failed to find latest case")
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to find latest case.").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to find latest case.")},
 			})
 			return
 		}
 
 		if c == nil {
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Latest case not found.").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Latest case not found.")},
 			})
 			return
 		}
@@ -72,9 +70,8 @@ func handleCasesRemoveLatest(s *discordgo.Session, i *discordgo.InteractionCreat
 		_, err2 := storage.DeleteLatestCase(guild.ID)
 		if err2 != nil {
 			log.WithError(err2).Error("Failed to delete latest case")
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to delete latest case.").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to delete latest case.")},
 			})
 			return
 		}
@@ -97,17 +94,15 @@ func handleCasesRemoveID(s *discordgo.Session, i *discordgo.InteractionCreate) *
 		c, err := storage.FindCaseByID(caseID, guild.ID)
 		if err != nil {
 			log.WithError(err).Error("Failed to find case")
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to find case.").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to find case.")},
 			})
 			return
 		}
 
 		if c == nil {
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Case not found.").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Case not found.")},
 			})
 			return
 		}
@@ -115,9 +110,8 @@ func handleCasesRemoveID(s *discordgo.Session, i *discordgo.InteractionCreate) *
 		_, err2 := storage.DeleteCaseByID(caseID, guild.ID)
 		if err2 != nil {
 			log.WithError(err2).Error("Failed to delete case")
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to delete case.").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to delete case.")},
 			})
 			return
 		}
@@ -139,9 +133,8 @@ func handleCasesRemoveUser(s *discordgo.Session, i *discordgo.InteractionCreate)
 		_, err := storage.DeleteCasesByUserID(user.ID, guild.ID)
 		if err != nil {
 			log.WithError(err).Error("Failed to delete users cases")
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to delete user's cases.").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to delete user's cases.")},
 			})
 			return
 		}

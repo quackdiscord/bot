@@ -42,9 +42,8 @@ func handlePurgeEmbeds(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 		msgs, err := s.ChannelMessages(channel, int(amount), "", "", "")
 		if err != nil {
 			log.WithError(err).Error("Failed to fetch messages for purge")
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to fetch messages.").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to fetch messages.")},
 			})
 			return
 		}
@@ -60,9 +59,8 @@ func handlePurgeEmbeds(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 
 		// if there are no messages to delete, return an error
 		if len(msgIds) == 0 {
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** There are no messages to delete.").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("There are no messages to delete.")},
 			})
 			return
 		}
@@ -71,9 +69,8 @@ func handlePurgeEmbeds(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 		err2 := s.ChannelMessagesBulkDelete(channel, msgIds)
 		if err2 != nil {
 			log.WithError(err2).Error("Failed to delete messages")
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to delete messages.").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to delete messages.")},
 			})
 			return
 		}

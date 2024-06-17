@@ -57,8 +57,7 @@ func handleWarn(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo
 
 	// make sure the user is not a bot
 	if userToWarn.Bot {
-		embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** You can not give a bot a case.").SetColor("Error").MessageEmbed
-		return EmbedResponse(embed, true)
+		return EmbedResponse(components.ErrorEmbed("You can not give a bot a case."), true)
 	}
 
 	// process the whole thing in a goroutine to avoid blocking the response
@@ -98,9 +97,8 @@ func handleWarn(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo
 		err3 := storage.CreateCase(caseData)
 		if err3 != nil {
 			log.WithError(err3).Error("Failed to create case")
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to save case.\n```" + err3.Error() + "```").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to save case.\n```" + err3.Error() + "```")},
 			})
 			return
 		}
