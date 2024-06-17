@@ -15,12 +15,6 @@ type Ticket struct {
 	Content      sql.NullString
 }
 
-// a message string looks like
-// <<user_id>>: <message>
-// ex:
-// <123456789>: This is a message
-// <123456789>: This is another message
-
 type TicketSettings struct {
 	GuildID      string
 	ChannelID    string

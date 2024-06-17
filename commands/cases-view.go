@@ -55,9 +55,8 @@ func handleCasesViewLatest(s *discordgo.Session, i *discordgo.InteractionCreate)
 		c, err := storage.FindLatestCase(i.GuildID)
 		if err != nil {
 			log.WithError(err).Error("Failed to fetch latest case")
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to fetch latest case.").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to fetch latest case.")},
 			})
 			return
 		}
@@ -79,9 +78,8 @@ func handleCasesViewID(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 		c, err := storage.FindCaseByID(caseID, i.GuildID)
 		if err != nil {
 			log.WithError(err).Error("Failed to fetch case by id")
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to fetch case.").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to fetch case.")},
 			})
 			return
 		}
@@ -103,17 +101,15 @@ func handleCasesViewUser(s *discordgo.Session, i *discordgo.InteractionCreate) *
 		cases, err := storage.FindCasesByUserID(user.ID, i.GuildID)
 		if err != nil {
 			log.WithError(err).Error("Failed to fetch user cases")
-			embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to fetch user's cases.").SetColor("Error").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to fetch user's cases.")},
 			})
 			return
 		}
 
 		if len(cases) == 0 {
-			embed := components.NewEmbed().SetDescription("<@" + user.ID + "> has no cases.").SetColor("Main").MessageEmbed
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed(fmt.Sprintf("<@%s> has no cases.", user.ID))},
 			})
 			return
 		}
@@ -152,16 +148,14 @@ func handleCasesViewUser(s *discordgo.Session, i *discordgo.InteractionCreate) *
 // generate a case embed from a case
 func generateCaseEmbed(s *discordgo.Session, c *structs.Case) *discordgo.MessageEmbed {
 	if c == nil {
-		embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Case not found.").SetColor("Error").MessageEmbed
-		return embed
+		return components.ErrorEmbed("Case not found.")
 	}
 
 	user, _ := s.User(c.UserID)
 	moderator, _ := s.User(c.ModeratorID)
 
 	if user == nil || moderator == nil {
-		embed := components.NewEmbed().SetDescription("<:error:1228053905590718596> **Error:** Failed to fetch user or moderator.").SetColor("Error").MessageEmbed
-		return embed
+		return components.ErrorEmbed("Failed to fetch user or moderator.")
 	}
 
 	embed := components.NewEmbed().

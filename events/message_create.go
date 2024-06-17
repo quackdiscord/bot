@@ -6,10 +6,10 @@ import (
 )
 
 func init() {
-	Events = append(Events, messageCreate)
+	Events = append(Events, onMessageCreate)
 }
 
-func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
+func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.Author.ID == s.State.User.ID {
 		return
 	}

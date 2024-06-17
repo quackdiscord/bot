@@ -43,7 +43,7 @@ func ConnectDiscord(events []interface{}) {
 	// if Enviorment == "prod" {
 	// 	RegisterCommands(Discord, "") // register globally
 	// } else {
-	// 	RegisterCommands(Discord, "1005778938108325970") // just register for the dev guild
+	// 	RegisterCommands(Discord, config.Bot.DevGuildID) // just register for the dev guild
 	// }
 }
 
@@ -52,7 +52,7 @@ func DisconnectDiscord() {
 }
 
 func RegisterCommands(s *discordgo.Session, g string) {
-	log.Infof("Registering %d/%d commands", 0, len(Commands))
+	log.Infof("Registering %d commands", len(Commands))
 
 	i := 0
 	for _, v := range Commands {
