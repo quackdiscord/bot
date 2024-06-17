@@ -92,6 +92,14 @@ func handleTicketClose(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 		fmt.Println("Error editing message:", err)
 	}
 
+	log.WithFields(
+		log.Fields{
+			"guild":  i.GuildID,
+			"user":   user.ID,
+			"ticket": ticket.ID,
+		},
+	).Info("Ticket closed")
+
 	// delete the thread
 	_, err = s.ChannelDelete(ticket.ThreadID)
 	if err != nil {

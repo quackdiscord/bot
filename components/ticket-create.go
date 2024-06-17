@@ -139,6 +139,14 @@ func handleTicketCreate(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 		})
 	}
 
+	log.WithFields(
+		log.Fields{
+			"guild":  i.GuildID,
+			"user":   user.ID,
+			"ticket": id,
+		},
+	).Info("Ticket created")
+
 	return ComplexResponse(&discordgo.InteractionResponseData{
 		Flags:   discordgo.MessageFlagsEphemeral,
 		Content: "> Ticket created! <#" + thread.ID + ">",
