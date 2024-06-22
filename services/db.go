@@ -37,4 +37,5 @@ func ConnectDB() {
 
 func DisconnectDB() {
 	DB.Close()
+	log.Info("Disconnected from database")
 }

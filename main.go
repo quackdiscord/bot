@@ -44,15 +44,19 @@ func main() {
 	services.ConnectRedis()
 	services.ConnectDB()
 	services.ConnectDiscord(events.Events)
+	services.ConnectKafka()
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt)
 	log.Info("Press Ctrl+C to exit")
+
+	// handle shutdown
 	<-stop
 	log.Warn("Shutting down")
 	services.DisconnectDiscord()
 	services.DisconnectDB()
 	services.DisconnectRedis()
+	services.DisconnectKafka()
 
 	log.Info("Goodbye!")
 

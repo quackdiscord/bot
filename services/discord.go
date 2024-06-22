@@ -2,6 +2,7 @@ package services
 
 import (
 	"os"
+	"sync"
 
 	"github.com/bwmarrin/discordgo"
 	log "github.com/sirupsen/logrus"
@@ -11,6 +12,14 @@ var Discord *discordgo.Session
 var Commands = make(map[string]*Command)
 var RegisteredCommands = make([]*discordgo.ApplicationCommand, len(Commands))
 var Enviorment = os.Getenv("ENVIORNMENT")
+
+const MaxMessageCacheSize = 10_000
+
+var (
+	MessageCache = make(map[string]*discordgo.Message)
+	CacheOrder   []string
+	CacheMutex   sync.Mutex
+)
 
 type Command struct {
 	*discordgo.ApplicationCommand
@@ -27,11 +36,12 @@ func ConnectDiscord(events []interface{}) {
 	}
 
 	Discord, _ = discordgo.New(token)
-	Discord.Identify.Intents |= discordgo.IntentGuildMembers
-	Discord.Identify.Intents |= discordgo.IntentsAllWithoutPrivileged
+	Discord.Identify.Intents = discordgo.Intent(3276543) // all unpriveledged intents + message content + guild members
+	Discord.State.MaxMessageCount = MaxMessageCacheSize
 
-	for _, h := range events {
+	for i, h := range events {
 		Discord.AddHandler(h)
+		log.Infof("Added %d/%d event handlers", i+1, len(events))
 	}
 
 	err := Discord.Open()
@@ -41,19 +51,15 @@ func ConnectDiscord(events []interface{}) {
 
 	// register commands
 	// if Enviorment == "prod" {
+	// 	log.Infof("Registering %d global commands", len(Commands))
 	// 	RegisterCommands(Discord, "") // register globally
 	// } else {
+	// 	log.Infof("Registering %d dev commands", len(Commands))
 	// 	RegisterCommands(Discord, config.Bot.DevGuildID) // just register for the dev guild
 	// }
 }
 
-func DisconnectDiscord() {
-	Discord.Close()
-}
-
 func RegisterCommands(s *discordgo.Session, g string) {
-	log.Infof("Registering %d commands", len(Commands))
-
 	i := 0
 	for _, v := range Commands {
 		_, err := s.ApplicationCommandCreate(s.State.User.ID, g, v.ApplicationCommand)
@@ -63,4 +69,9 @@ func RegisterCommands(s *discordgo.Session, g string) {
 		i += 1
 		log.Infof("Registered %d/%d commands", i, len(Commands))
 	}
+}
+
+func DisconnectDiscord() {
+	Discord.Close()
+	log.Info("Disconnected from Discord")
 }

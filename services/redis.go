@@ -4,7 +4,7 @@ import (
 	"os"
 
 	r "github.com/go-redis/redis/v8"
-	"github.com/sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 )
 
 var Redis *r.Client
@@ -15,12 +15,13 @@ func ConnectRedis() {
 
 	_, err := Redis.Ping(Redis.Context()).Result()
 	if err != nil {
-		logrus.WithError(err).Fatal("Error connecting to Redis")
+		log.WithError(err).Fatal("Error connecting to Redis")
 	}
 
-	logrus.Info("Connected to Redis")
+	log.Info("Connected to Redis")
 }
 
 func DisconnectRedis() {
 	Redis.Close()
+	log.Info("Disconnected from Redis")
 }

@@ -1,6 +1,8 @@
 package commands
 
 import (
+	"time"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/config"
 	"github.com/quackdiscord/bot/lib"
@@ -13,6 +15,9 @@ var kickMembers int64 = discordgo.PermissionKickMembers
 var moderateMembers int64 = discordgo.PermissionModerateMembers
 
 func OnInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// start a timer to track how long the command takes
+	start := time.Now()
+
 	data := i.ApplicationCommandData()
 	cmd, ok := services.Commands[data.Name]
 	if !ok {
@@ -29,7 +34,9 @@ func OnInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		return
 	}
 
-	lib.CmdRun(s, i)
+	// stop the timer
+	end := time.Now()
+	lib.CmdRun(s, i, end.Sub(start))
 }
 
 func LoadingResponse() *discordgo.InteractionResponse {
