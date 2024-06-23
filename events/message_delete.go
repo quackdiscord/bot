@@ -39,7 +39,7 @@ func onMessageDelete(s *discordgo.Session, m *discordgo.MessageDelete) {
 	data := MsgDelete{
 		Type:        "message_delete",
 		ID:          m.ID,
-		Author:      structs.LogUser{ID: message.Author.ID, Username: message.Author.Username, AvatarURL: message.Author.AvatarURL("")},
+		Author:      structs.LogUser{ID: message.Author.ID, Username: message.Author.Username},
 		GuildID:     message.GuildID,
 		ChannelID:   message.ChannelID,
 		Content:     message.Content,

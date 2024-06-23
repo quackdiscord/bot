@@ -33,7 +33,7 @@ func onMessageUpdate(s *discordgo.Session, m *discordgo.MessageUpdate) {
 	data := MsgUpdate{
 		Type:           "message_update",
 		ID:             m.ID,
-		Author:         structs.LogUser{ID: m.Author.ID, Username: m.Author.Username, AvatarURL: m.Author.AvatarURL("")},
+		Author:         structs.LogUser{ID: m.Author.ID, Username: m.Author.Username},
 		GuildID:        m.GuildID,
 		ChannelID:      m.ChannelID,
 		OldContent:     m.BeforeUpdate.Content,
