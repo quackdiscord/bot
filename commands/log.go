@@ -13,6 +13,7 @@ func init() {
 }
 
 // /log channel <type> <channel> - sets the logging channel for a specific log type
+// /log disable <type> - disables logging for a specific log type
 
 var logCmd = &discordgo.ApplicationCommand{
 	Type:                     discordgo.ChatApplicationCommand,
@@ -21,6 +22,7 @@ var logCmd = &discordgo.ApplicationCommand{
 	DefaultMemberPermissions: &moderateMembers,
 	Options: []*discordgo.ApplicationCommandOption{
 		logChannelCmd,
+		logDisableCmd,
 	},
 }
 
@@ -28,6 +30,8 @@ func handleLog(s *discordgo.Session, i *discordgo.InteractionCreate) (resp *disc
 	switch c := i.ApplicationCommandData().Options[0]; c.Name {
 	case "channel":
 		return handleLogChannel(s, i)
+	case "disable":
+		return handleLogDisable(s, i)
 	}
 
 	return ContentResponse("oh... this is awkward.", true)

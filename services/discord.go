@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/config"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -50,13 +51,13 @@ func ConnectDiscord(events []interface{}) {
 	}
 
 	// register commands
-	// if Enviorment == "prod" {
-	// 	log.Infof("Registering %d global commands", len(Commands))
-	// 	RegisterCommands(Discord, "") // register globally
-	// } else {
-	// 	log.Infof("Registering %d dev commands", len(Commands))
-	// 	RegisterCommands(Discord, config.Bot.DevGuildID) // just register for the dev guild
-	// }
+	if Enviorment == "prod" {
+		log.Infof("Registering %d global commands", len(Commands))
+		RegisterCommands(Discord, "") // register globally
+	} else {
+		log.Infof("Registering %d dev commands", len(Commands))
+		RegisterCommands(Discord, config.Bot.DevGuildID) // just register for the dev guild
+	}
 }
 
 func RegisterCommands(s *discordgo.Session, g string) {
