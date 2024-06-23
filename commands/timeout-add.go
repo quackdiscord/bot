@@ -47,7 +47,7 @@ func handleTimeoutAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 	if userToTime == nil {
 		return EmbedResponse(components.ErrorEmbed("User not found."), true)
 	}
-	if len(i.ApplicationCommandData().Options) > 2 {
+	if len(i.ApplicationCommandData().Options[0].Options) > 2 {
 		reason = i.ApplicationCommandData().Options[0].Options[2].StringValue()
 	}
 
