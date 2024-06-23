@@ -25,14 +25,10 @@ func init() {
 	log.SetOutput(os.Stdout)
 	log.SetLevel(log.InfoLevel)
 
-	if Enviorment == "dev" {
-		log.SetFormatter(&log.TextFormatter{
-			ForceColors:   true,
-			FullTimestamp: true,
-		})
-	} else {
-		log.SetFormatter(&log.JSONFormatter{})
-	}
+	log.SetFormatter(&log.TextFormatter{
+		ForceColors:   true,
+		FullTimestamp: true,
+	})
 
 	if Enviorment == "dev" {
 		log.Warn("Running in development mode")
