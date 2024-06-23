@@ -13,7 +13,7 @@ var Discord *discordgo.Session
 var Commands = make(map[string]*Command)
 var RegisteredCommands = make([]*discordgo.ApplicationCommand, len(Commands))
 
-const MaxMessageCacheSize = 5_000
+const MaxMessageCacheSize = 2_000
 
 var (
 	MessageCache = make(map[string]*discordgo.Message)
