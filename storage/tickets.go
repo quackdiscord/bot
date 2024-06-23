@@ -355,3 +355,32 @@ func GetUsersTicket(userID string, guildID string) (*string, error) {
 	return &t, nil
 
 }
+
+// get all open tickets for a guild in order of created at
+func GetOpenTickets(guildID string) ([]*structs.Ticket, error) {
+
+	// prepare the statement
+	stmtOut, err := services.DB.Prepare("SELECT * FROM tickets WHERE guild_id = ? AND state = 0 ORDER BY created_at DESC")
+	if err != nil {
+		return nil, err
+	}
+
+	// query the database
+	rows, err2 := stmtOut.Query(guildID)
+	if err2 != nil {
+		return nil, err2
+	}
+
+	var tickets []*structs.Ticket
+	for rows.Next() {
+		var t structs.Ticket
+		err3 := rows.Scan(&t.ID, &t.ThreadID, &t.OwnerID, &t.GuildID, &t.State, &t.LogMessageID, &t.CreatedAt, &t.ResolvedAt, &t.ResolvedBy, &t.Content)
+		if err3 != nil {
+			return nil, err3
+		}
+		tickets = append(tickets, &t)
+	}
+
+	return tickets, nil
+
+}

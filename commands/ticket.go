@@ -23,6 +23,7 @@ var ticketCmd = &discordgo.ApplicationCommand{
 	Options: []*discordgo.ApplicationCommandOption{
 		ticketChannelCmd,
 		ticketLogChannelCmd,
+		ticketQueueCmd,
 	},
 }
 
@@ -32,6 +33,8 @@ func handleTicket(s *discordgo.Session, i *discordgo.InteractionCreate) (resp *d
 		return handleTicketChannel(s, i)
 	case "log":
 		return handleTicketLogChannel(s, i)
+	case "queue":
+		return handleTicketQueue(s, i)
 	}
 
 	return ContentResponse("oh... this is awkward.", true)
