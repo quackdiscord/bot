@@ -32,45 +32,33 @@ var ticketLogChannelCmd = &discordgo.ApplicationCommandOption{
 func handleTicketLogChannel(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	channel := i.ApplicationCommandData().Options[0].Options[0].Options[0].ChannelValue(s)
 
-	go func() {
-		// make sure the channel is a text channel
-		if channel.Type != discordgo.ChannelTypeGuildText {
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("The channel must be a text channel.")},
-			})
-			return
-		}
+	// make sure the channel is a text channel
+	if channel.Type != discordgo.ChannelTypeGuildText {
+		return EmbedResponse(components.ErrorEmbed("The channel must be a text channel."), true)
+	}
 
-		// Set the ticket log channel
-		err := storage.SetTicketLogChannel(i.GuildID, channel.ID)
-		if err != nil {
-			log.WithError(err).Error("Failed to set ticket log channel")
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to set ticket log channel.")},
-			})
-			return
-		}
+	// Set the ticket log channel
+	err := storage.SetTicketLogChannel(i.GuildID, channel.ID)
+	if err != nil {
+		log.WithError(err).Error("Failed to set ticket log channel")
+		return EmbedResponse(components.ErrorEmbed("Failed to set ticket log channel."), true)
+	}
 
-		embed := components.NewEmbed().
-			SetDescription("Ticket log channel set to <#" + channel.ID + ">.").
-			SetColor("Main").
-			MessageEmbed
+	// send a message to the channel
+	embed := components.NewEmbed().
+		SetDescription("Ticket logs will be sent here.").
+		SetColor("Main").
+		MessageEmbed
 
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Embeds: &[]*discordgo.MessageEmbed{embed},
-		})
+	_, err = s.ChannelMessageSendEmbed(channel.ID, embed)
+	if err != nil {
+		return EmbedResponse(components.ErrorEmbed("Failed to send message to ticket log channel."), true)
+	}
 
-		// send a message to the channel
-		embed = components.NewEmbed().
-			SetDescription("Ticket logs will be sent here.").
-			SetColor("Main").
-			MessageEmbed
+	embed = components.NewEmbed().
+		SetDescription("Ticket log channel set to <#" + channel.ID + ">.").
+		SetColor("Main").
+		MessageEmbed
 
-		_, err = s.ChannelMessageSendEmbed(channel.ID, embed)
-		if err != nil {
-			return
-		}
-	}()
-
-	return LoadingResponse()
+	return EmbedResponse(embed, false)
 }

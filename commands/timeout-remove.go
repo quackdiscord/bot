@@ -31,28 +31,18 @@ func handleTimeoutRemove(s *discordgo.Session, i *discordgo.InteractionCreate) *
 	}
 
 	// remove the timeout from the user
-	go func() {
-		err := s.GuildMemberTimeout(guild.ID, userToUntime.ID, nil)
-		if err != nil {
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to untime out user.\n```" + err.Error() + "```")},
-			})
-			return
-		}
+	err := s.GuildMemberTimeout(guild.ID, userToUntime.ID, nil)
+	if err != nil {
+		return EmbedResponse(components.ErrorEmbed("Failed to untime out user.\n```"+err.Error()+"```"), true)
+	}
 
-		// create the embed
-		embed := components.NewEmbed().
-			SetDescription(fmt.Sprintf("<@%s> has been untimed out.", userToUntime.ID)).
-			SetColor("Main").
-			SetAuthor(fmt.Sprintf("%s untimed out %s", moderator.Username, userToUntime.Username), userToUntime.AvatarURL("")).
-			SetTimestamp().
-			MessageEmbed
+	// create the embed
+	embed := components.NewEmbed().
+		SetDescription(fmt.Sprintf("<@%s> has been untimed out.", userToUntime.ID)).
+		SetColor("Main").
+		SetAuthor(fmt.Sprintf("%s untimed out %s", moderator.Username, userToUntime.Username), userToUntime.AvatarURL("")).
+		SetTimestamp().
+		MessageEmbed
 
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Embeds: &[]*discordgo.MessageEmbed{embed},
-		})
-
-	}()
-
-	return LoadingResponse()
+	return EmbedResponse(embed, false)
 }

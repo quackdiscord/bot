@@ -74,9 +74,9 @@ func handlePurgeContains(s *discordgo.Session, i *discordgo.InteractionCreate) *
 		}
 
 		// delete the messages
-		err2 := s.ChannelMessagesBulkDelete(channel, msgIds)
-		if err2 != nil {
-			log.WithError(err2).Error("Failed to delete messages")
+		err = s.ChannelMessagesBulkDelete(channel, msgIds)
+		if err != nil {
+			log.WithError(err).Error("Failed to delete messages")
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to delete messages.")},
 			})

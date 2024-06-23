@@ -22,8 +22,8 @@ func FindCaseByID(id string, guildID string) (*structs.Case, error) {
 
 	// query the database
 	var c structs.Case
-	err2 := stmtOut.QueryRow(id, guildID).Scan(&c.ID, &c.UserID, &c.ModeratorID, &c.GuildID, &c.Reason, &c.Type, &c.CreatedAt)
-	if err2 != nil {
+	err = stmtOut.QueryRow(id, guildID).Scan(&c.ID, &c.UserID, &c.ModeratorID, &c.GuildID, &c.Reason, &c.Type, &c.CreatedAt)
+	if err != nil {
 		return nil, err
 	}
 
@@ -46,16 +46,16 @@ func FindCasesByUserID(userID string, guildID string) ([]*structs.Case, error) {
 	}
 
 	// query the database
-	rows, err2 := stmtOut.Query(userID, guildID)
-	if err2 != nil {
-		return nil, err2
+	rows, err := stmtOut.Query(userID, guildID)
+	if err != nil {
+		return nil, err
 	}
 
 	var cases []*structs.Case
 	for rows.Next() {
 		var c structs.Case
-		err3 := rows.Scan(&c.ID, &c.UserID, &c.ModeratorID, &c.GuildID, &c.Reason, &c.Type, &c.CreatedAt)
-		if err3 != nil {
+		err = rows.Scan(&c.ID, &c.UserID, &c.ModeratorID, &c.GuildID, &c.Reason, &c.Type, &c.CreatedAt)
+		if err != nil {
 			return nil, err
 		}
 
@@ -78,8 +78,8 @@ func FindLatestCase(guildID string) (*structs.Case, error) {
 
 	// query the database
 	var c structs.Case
-	err2 := stmtOut.QueryRow(guildID).Scan(&c.ID, &c.UserID, &c.ModeratorID, &c.GuildID, &c.Reason, &c.Type, &c.CreatedAt)
-	if err2 != nil {
+	err = stmtOut.QueryRow(guildID).Scan(&c.ID, &c.UserID, &c.ModeratorID, &c.GuildID, &c.Reason, &c.Type, &c.CreatedAt)
+	if err != nil {
 		return nil, err
 	}
 
@@ -95,9 +95,9 @@ func CreateCase(c *structs.Case) error {
 	}
 
 	// execute the statement
-	_, err2 := stmtIns.Exec(c.ID, c.UserID, c.GuildID, c.ModeratorID, c.Reason, c.Type)
-	if err2 != nil {
-		return err2
+	_, err = stmtIns.Exec(c.ID, c.UserID, c.GuildID, c.ModeratorID, c.Reason, c.Type)
+	if err != nil {
+		return err
 	}
 
 	return nil
@@ -120,9 +120,9 @@ func DeleteCaseByID(id string, guildID string) (bool, error) {
 	}
 
 	// execute the statement
-	_, err2 := stmtDel.Exec(id, guildID)
-	if err2 != nil {
-		return false, err2
+	_, err = stmtDel.Exec(id, guildID)
+	if err != nil {
+		return false, err
 	}
 
 	return true, nil
@@ -145,9 +145,9 @@ func DeleteCasesByUserID(userID string, guildID string) (bool, error) {
 	}
 
 	// execute the statement
-	_, err2 := stmtDel.Exec(userID, guildID)
-	if err2 != nil {
-		return false, err2
+	_, err = stmtDel.Exec(userID, guildID)
+	if err != nil {
+		return false, err
 	}
 
 	return true, nil
@@ -166,9 +166,9 @@ func DeleteLatestCase(guildID string) (bool, error) {
 	}
 
 	// execute the statement
-	_, err2 := stmtDel.Exec(guildID)
-	if err2 != nil {
-		return false, err2
+	_, err = stmtDel.Exec(guildID)
+	if err != nil {
+		return false, err
 	}
 
 	return true, nil

@@ -44,105 +44,83 @@ func handleLogChannel(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 	ltype := i.ApplicationCommandData().Options[0].Options[0].StringValue()
 	channel := i.ApplicationCommandData().Options[0].Options[1].ChannelValue(s)
 
-	go func() {
-		// make sure the channel is a text channel
-		if channel.Type != discordgo.ChannelTypeGuildText {
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("The channel must be a text channel.")},
-			})
-			return
+	// make sure the channel is a text channel
+	if channel.Type != discordgo.ChannelTypeGuildText {
+		return EmbedResponse(components.ErrorEmbed("The channel must be a text channel."), true)
+	}
+
+	// get the current log settings
+	logSettings, err := storage.FindLogSettingsByID(i.GuildID)
+	if err != nil {
+		log.WithError(err).Error("Failed to get log settings")
+		return EmbedResponse(components.ErrorEmbed("Failed to get log settings."), true)
+	}
+
+	// create a webhook for the given channel
+	webhook, err := s.WebhookCreate(channel.ID, "Quack Logging", s.State.User.AvatarURL(""))
+	if err != nil {
+		log.WithError(err).Error("Failed to create webhook")
+		return EmbedResponse(components.ErrorEmbed("Failed to create webhook."), true)
+	}
+	whURL := fmt.Sprintf("https://discord.com/api/webhooks/%s/%s", webhook.ID, webhook.Token)
+
+	// if the logSettings object is defined, update it with the new webhook url and channel id
+	if logSettings != nil {
+		if ltype == "messages" {
+			logSettings.MessageChannelID = channel.ID
+			logSettings.MessageWebhookURL = whURL
+		} else if ltype == "members" {
+			logSettings.MemberChannelID = channel.ID
+			logSettings.MemberWebhookURL = whURL
 		}
 
-		// get the current log settings
-		logSettings, err := storage.FindLogSettingsByID(i.GuildID)
+		// update the log settings
+		err = storage.UpdateLogSettings(logSettings)
 		if err != nil {
-			log.WithError(err).Error("Failed to get log settings")
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to get log settings.")},
-			})
-			return
+			log.WithError(err).Error("Failed to update log settings")
+			return EmbedResponse(components.ErrorEmbed("Failed to update log settings."), true)
 		}
 
-		// create a webhook for the given channel
-		webhook, err := s.WebhookCreate(channel.ID, "Quack Logging", s.State.User.AvatarURL(""))
+	} else {
+		logSettings = &structs.LogSettings{
+			GuildID: i.GuildID,
+		}
+
+		if ltype == "messages" {
+			logSettings.MessageChannelID = channel.ID
+			logSettings.MessageWebhookURL = whURL
+			logSettings.MemberChannelID = ""
+			logSettings.MemberWebhookURL = ""
+		} else if ltype == "members" {
+			logSettings.MemberChannelID = channel.ID
+			logSettings.MemberWebhookURL = whURL
+			logSettings.MessageChannelID = ""
+			logSettings.MessageWebhookURL = ""
+		}
+
+		// create the log settings object
+		err = storage.CreateLogSettings(logSettings)
 		if err != nil {
-			log.WithError(err).Error("Failed to create webhook")
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to create webhook.")},
-			})
-			return
+			log.WithError(err).Error("Failed to create log settings")
+			return EmbedResponse(components.ErrorEmbed("Failed to create log settings."), true)
 		}
-		whURL := fmt.Sprintf("https://discord.com/api/webhooks/%s/%s", webhook.ID, webhook.Token)
+	}
 
-		// if the logSettings object is defined, update it with the new webhook url and channel id
-		if logSettings != nil {
-			if ltype == "messages" {
-				logSettings.MessageChannelID = channel.ID
-				logSettings.MessageWebhookURL = whURL
-			} else if ltype == "members" {
-				logSettings.MemberChannelID = channel.ID
-				logSettings.MemberWebhookURL = whURL
-			}
+	// send a message to the channel
+	embed := components.NewEmbed().
+		SetDescription(fmt.Sprintf("This channel has been set to log `%s` events.", ltype)).
+		SetColor("Main").
+		MessageEmbed
 
-			// update the log settings
-			err = storage.UpdateLogSettings(logSettings)
-			if err != nil {
-				log.WithError(err).Error("Failed to update log settings")
-				s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-					Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to update log settings.")},
-				})
-				return
-			}
+	_, err = s.ChannelMessageSendEmbed(channel.ID, embed)
+	if err != nil {
+		return EmbedResponse(components.ErrorEmbed("Failed to send message to channel."), true)
+	}
 
-		} else {
-			logSettings = &structs.LogSettings{
-				GuildID: i.GuildID,
-			}
+	embed = components.NewEmbed().
+		SetDescription(fmt.Sprintf("Set logging for `%s` in <#%s>.", ltype, channel.ID)).
+		SetColor("Main").
+		MessageEmbed
 
-			if ltype == "messages" {
-				logSettings.MessageChannelID = channel.ID
-				logSettings.MessageWebhookURL = whURL
-				logSettings.MemberChannelID = ""
-				logSettings.MemberWebhookURL = ""
-			} else if ltype == "members" {
-				logSettings.MemberChannelID = channel.ID
-				logSettings.MemberWebhookURL = whURL
-				logSettings.MessageChannelID = ""
-				logSettings.MessageWebhookURL = ""
-			}
-
-			// create the log settings object
-			err = storage.CreateLogSettings(logSettings)
-			if err != nil {
-				log.WithError(err).Error("Failed to create log settings")
-				s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-					Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to create log settings.")},
-				})
-				return
-			}
-		}
-
-		// send a message to the channel
-		embed := components.NewEmbed().
-			SetDescription(fmt.Sprintf("This channel has been set to log `%s` events.", ltype)).
-			SetColor("Main").
-			MessageEmbed
-
-		_, err = s.ChannelMessageSendEmbed(channel.ID, embed)
-		if err != nil {
-			return
-		}
-
-		embed = components.NewEmbed().
-			SetDescription(fmt.Sprintf("Set logging for `%s` in <#%s>.", ltype, channel.ID)).
-			SetColor("Main").
-			MessageEmbed
-
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Embeds: &[]*discordgo.MessageEmbed{embed},
-		})
-
-	}()
-
-	return LoadingResponse()
+	return EmbedResponse(embed, false)
 }

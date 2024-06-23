@@ -51,100 +51,68 @@ var notesViewCmd = &discordgo.ApplicationCommandOption{
 }
 
 func handleNotesViewLatest(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
-	go func() {
-		n, err := storage.FindLatestNote(i.GuildID)
-		if err != nil {
-			log.WithError(err).Error("Failed to fetch latest note")
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to fetch latest note.")},
-			})
-			return
-		}
+	n, err := storage.FindLatestNote(i.GuildID)
+	if err != nil {
+		log.WithError(err).Error("Failed to fetch latest note")
+		return EmbedResponse(components.ErrorEmbed("Failed to fetch latest note."), true)
+	}
 
-		embed := generateNotesEmbed(s, n)
+	embed := generateNotesEmbed(s, n)
 
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Embeds: &[]*discordgo.MessageEmbed{embed},
-		})
-
-	}()
-
-	return LoadingResponse()
+	return EmbedResponse(embed, false)
 }
 
 func handleNotesViewUser(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	user := i.ApplicationCommandData().Options[0].Options[0].Options[0].UserValue(s)
 
-	go func() {
-		notes, err := storage.FindNoteByUserID(user.ID, i.GuildID)
-		if err != nil {
-			log.WithError(err).Error("Failed to fetch note by user id")
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to fetch notes.")},
-			})
-			return
+	notes, err := storage.FindNoteByUserID(user.ID, i.GuildID)
+	if err != nil {
+		log.WithError(err).Error("Failed to fetch note by user id")
+		return EmbedResponse(components.ErrorEmbed("Failed to fetch notes."), true)
+	}
+
+	if len(notes) == 0 {
+		embed := components.NewEmbed().SetDescription("<:PepoG:1172051306026905620> <@" + user.ID + "> has no notes.").SetColor("DarkButNotBlack").MessageEmbed
+		return EmbedResponse(embed, false)
+	}
+
+	content := fmt.Sprintf("<@%s> has **%d** notes\n\n", user.ID, len(notes))
+
+	for _, n := range notes {
+		moderator, _ := s.User(n.ModeratorID)
+		if moderator == nil {
+			moderator = &discordgo.User{Username: "Unknown"}
 		}
 
-		if len(notes) == 0 {
-			embed := components.NewEmbed().SetDescription("<:PepoG:1172051306026905620> <@" + user.ID + "> has no notes.").SetColor("DarkButNotBlack").MessageEmbed
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{embed},
-			})
-			return
-		}
+		content += *generateNoteDetails(n, moderator)
+	}
 
-		content := fmt.Sprintf("<@%s> has **%d** notes\n\n", user.ID, len(notes))
+	// if the content is > 2048 characters, cut it off and add "too many to show..."
+	if len(content) > 2048 {
+		content = content[:2000] + "\n\n*Too many notes to show them all.*"
+	}
 
-		for _, n := range notes {
-			moderator, _ := s.User(n.ModeratorID)
-			if moderator == nil {
-				moderator = &discordgo.User{Username: "Unknown"}
-			}
+	embed := components.NewEmbed().
+		SetDescription(content).
+		SetTimestamp().
+		SetAuthor("Notes for "+user.Username, user.AvatarURL("")).
+		SetColor("DarkButNotBlack").MessageEmbed
 
-			content += *generateNoteDetails(n, moderator)
-		}
-
-		// if the content is > 2048 characters, cut it off and add "too many to show..."
-		if len(content) > 2048 {
-			content = content[:2000] + "\n\n*Too many notes to show them all.*"
-		}
-
-		embed := components.NewEmbed().
-			SetDescription(content).
-			SetTimestamp().
-			SetAuthor("Notes for "+user.Username, user.AvatarURL("")).
-			SetColor("DarkButNotBlack").MessageEmbed
-
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Embeds: &[]*discordgo.MessageEmbed{embed},
-		})
-	}()
-
-	return LoadingResponse()
+	return EmbedResponse(embed, false)
 }
 
 func handleNotesViewID(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	caseID := i.ApplicationCommandData().Options[0].Options[0].Options[0].StringValue()
 
-	go func() {
-		n, err := storage.FindNoteByID(caseID, i.GuildID)
-		if err != nil {
-			log.WithError(err).Error("Failed to fetch note by id")
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to fetch note.")},
-			})
-			return
-		}
+	n, err := storage.FindNoteByID(caseID, i.GuildID)
+	if err != nil {
+		log.WithError(err).Error("Failed to fetch note by id")
+		return EmbedResponse(components.ErrorEmbed("Failed to fetch note."), true)
+	}
 
-		embed := generateNotesEmbed(s, n)
+	embed := generateNotesEmbed(s, n)
 
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Embeds: &[]*discordgo.MessageEmbed{embed},
-		})
-
-	}()
-
-	return LoadingResponse()
+	return EmbedResponse(embed, false)
 }
 
 // generate a case embed from a case

@@ -65,71 +65,59 @@ func handleKick(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo
 		return EmbedResponse(components.ErrorEmbed("You can't kick me using this command."), true)
 	}
 
-	go func() {
-		// create the case
-		id, _ := lib.GenID()
-		caseData := &structs.Case{
-			ID:          id,
-			Type:        2,
-			Reason:      reason,
-			UserID:      userToKick.ID,
-			ModeratorID: moderator.ID,
-			GuildID:     guild.ID,
-		}
+	// create the case
+	id, _ := lib.GenID()
+	caseData := &structs.Case{
+		ID:          id,
+		Type:        2,
+		Reason:      reason,
+		UserID:      userToKick.ID,
+		ModeratorID: moderator.ID,
+		GuildID:     guild.ID,
+	}
 
-		// set up embeds
-		dmError := ""
-		dmEmbed := components.NewEmbed().
-			SetDescription("You have been kicked from **"+guild.Name+"** for ```"+reason+"```").
-			SetColor("Error").
-			SetAuthor(guild.Name, guild.IconURL("")).
-			SetFooter("Case ID: " + id).
-			SetTimestamp().MessageEmbed
+	// set up embeds
+	dmError := ""
+	dmEmbed := components.NewEmbed().
+		SetDescription("You have been kicked from **"+guild.Name+"** for ```"+reason+"```").
+		SetColor("Error").
+		SetAuthor(guild.Name, guild.IconURL("")).
+		SetFooter("Case ID: " + id).
+		SetTimestamp().MessageEmbed
 
-		// attempt to DM the user
-		dmChannel, err := s.UserChannelCreate(userToKick.ID)
+	// attempt to DM the user
+	dmChannel, err := s.UserChannelCreate(userToKick.ID)
+	if err != nil {
+		dmError = "\n\n> User has DMs disabled."
+	} else {
+		_, err = s.ChannelMessageSendEmbed(dmChannel.ID, dmEmbed)
 		if err != nil {
 			dmError = "\n\n> User has DMs disabled."
-		} else {
-			_, err2 := s.ChannelMessageSendEmbed(dmChannel.ID, dmEmbed)
-			if err2 != nil {
-				dmError = "\n\n> User has DMs disabled."
-			}
 		}
+	}
 
-		// kick the user
-		err3 := s.GuildMemberDeleteWithReason(guild.ID, userToKick.ID, reason)
-		if err3 != nil {
-			log.WithError(err3).Error("Failed to kick user")
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to kick user.\n```" + err3.Error() + "```")},
-			})
-			return
-		}
+	// kick the user
+	err = s.GuildMemberDeleteWithReason(guild.ID, userToKick.ID, reason)
+	if err != nil {
+		log.WithError(err).Error("Failed to kick user")
+		return EmbedResponse(components.ErrorEmbed("Failed to kick user.\n```"+err.Error()+"```"), true)
+	}
 
-		// save the case
-		err4 := storage.CreateCase(caseData)
-		if err4 != nil {
-			log.WithError(err4).Error("Failed to create case")
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to save case.\n```" + err4.Error() + "```")},
-			})
-			return
-		}
+	// save the case
+	err = storage.CreateCase(caseData)
+	if err != nil {
+		log.WithError(err).Error("Failed to create case")
+		return EmbedResponse(components.ErrorEmbed("Failed to save case.\n```"+err.Error()+"```"), true)
+	}
 
-		// create the embed
-		embed := components.NewEmbed().
-			SetDescription(fmt.Sprintf("👋 <@%s> has been kicked for `%s`%s", userToKick.ID, reason, dmError)).
-			SetColor("Main").
-			SetAuthor(fmt.Sprintf("%s kicked out %s", moderator.Username, userToKick.Username), userToKick.AvatarURL("")).
-			SetFooter("Case ID: " + id).
-			SetTimestamp().
-			MessageEmbed
+	// create the embed
+	embed := components.NewEmbed().
+		SetDescription(fmt.Sprintf("👋 <@%s> has been kicked for `%s`%s", userToKick.ID, reason, dmError)).
+		SetColor("Main").
+		SetAuthor(fmt.Sprintf("%s kicked out %s", moderator.Username, userToKick.Username), userToKick.AvatarURL("")).
+		SetFooter("Case ID: " + id).
+		SetTimestamp().
+		MessageEmbed
 
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Embeds: &[]*discordgo.MessageEmbed{embed},
-		})
-	}()
-
-	return LoadingResponse()
+	return EmbedResponse(embed, false)
 }

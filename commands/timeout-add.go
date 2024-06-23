@@ -61,54 +61,41 @@ func handleTimeoutAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 		return EmbedResponse(components.ErrorEmbed("You cannot time out a bot."), true)
 	}
 
-	go func() {
-		// create the case
-		id, _ := lib.GenID()
-		caseData := &structs.Case{
-			ID:          id,
-			Type:        4,
-			Reason:      reason,
-			UserID:      userToTime.ID,
-			ModeratorID: moderator.ID,
-			GuildID:     guild.ID,
-		}
+	// create the case
+	id, _ := lib.GenID()
+	caseData := &structs.Case{
+		ID:          id,
+		Type:        4,
+		Reason:      reason,
+		UserID:      userToTime.ID,
+		ModeratorID: moderator.ID,
+		GuildID:     guild.ID,
+	}
 
-		// create the timeout
-		until, _ := lib.ParseTime(lengthOfTime)
-		err := s.GuildMemberTimeout(guild.ID, userToTime.ID, &until)
-		if err != nil {
-			log.WithError(err).Error("Failed to time out user")
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to time out user.\n```" + err.Error() + "```")},
-			})
-			return
-		}
+	// create the timeout
+	until, _ := lib.ParseTime(lengthOfTime)
+	err := s.GuildMemberTimeout(guild.ID, userToTime.ID, &until)
+	if err != nil {
+		log.WithError(err).Error("Failed to time out user")
+		return EmbedResponse(components.ErrorEmbed("Failed to time out user.\n```"+err.Error()+"```"), true)
+	}
 
-		// save the case
-		saveErr := storage.CreateCase(caseData)
-		if saveErr != nil {
-			log.Error("Failed to save case", saveErr)
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to save case.\n```" + saveErr.Error() + "```")},
-			})
-			return
-		}
+	// save the case
+	err = storage.CreateCase(caseData)
+	if err != nil {
+		log.Error("Failed to save case", err)
+		return EmbedResponse(components.ErrorEmbed("Failed to save case.\n```"+err.Error()+"```"), true)
+	}
 
-		// create the embed
-		embed := components.NewEmbed().
-			SetDescription(fmt.Sprintf("<@%s> has been timed out for `%s`. Timed out for `%s`.", userToTime.ID, reason, lengthOfTime)).
-			SetColor("Main").
-			SetAuthor(fmt.Sprintf("%s timed out %s", moderator.Username, userToTime.Username), userToTime.AvatarURL("")).
-			SetFooter("Case ID: " + id).
-			SetTimestamp().
-			MessageEmbed
+	// create the embed
+	embed := components.NewEmbed().
+		SetDescription(fmt.Sprintf("<@%s> has been timed out for `%s`. Timed out for `%s`.", userToTime.ID, reason, lengthOfTime)).
+		SetColor("Main").
+		SetAuthor(fmt.Sprintf("%s timed out %s", moderator.Username, userToTime.Username), userToTime.AvatarURL("")).
+		SetFooter("Case ID: " + id).
+		SetTimestamp().
+		MessageEmbed
 
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Embeds: &[]*discordgo.MessageEmbed{embed},
-		})
-
-	}()
-
-	return LoadingResponse()
+	return EmbedResponse(embed, false)
 
 }

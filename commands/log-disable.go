@@ -37,75 +37,59 @@ var logDisableCmd = &discordgo.ApplicationCommandOption{
 func handleLogDisable(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	ltype := i.ApplicationCommandData().Options[0].Options[0].StringValue()
 
-	go func() {
-		// get the current log settings
-		logSettings, err := storage.FindLogSettingsByID(i.GuildID)
+	// get the current log settings
+	logSettings, err := storage.FindLogSettingsByID(i.GuildID)
+	if err != nil {
+		log.WithError(err).Error("Failed to get log settings")
+		return EmbedResponse(components.ErrorEmbed("Failed to get log settings."), true)
+	}
+
+	// if the logSettings object is defined, update it with the new webhook url and channel id
+	if logSettings != nil {
+		if ltype == "messages" {
+			logSettings.MessageChannelID = ""
+			logSettings.MessageWebhookURL = ""
+		} else if ltype == "members" {
+			logSettings.MemberChannelID = ""
+			logSettings.MemberWebhookURL = ""
+		}
+
+		// update the log settings
+		err = storage.UpdateLogSettings(logSettings)
 		if err != nil {
-			log.WithError(err).Error("Failed to get log settings")
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to get log settings.")},
-			})
-			return
+			log.WithError(err).Error("Failed to update log settings")
+			return EmbedResponse(components.ErrorEmbed("Failed to update log settings."), true)
 		}
 
-		// if the logSettings object is defined, update it with the new webhook url and channel id
-		if logSettings != nil {
-			if ltype == "messages" {
-				logSettings.MessageChannelID = ""
-				logSettings.MessageWebhookURL = ""
-			} else if ltype == "members" {
-				logSettings.MemberChannelID = ""
-				logSettings.MemberWebhookURL = ""
-			}
-
-			// update the log settings
-			err = storage.UpdateLogSettings(logSettings)
-			if err != nil {
-				log.WithError(err).Error("Failed to update log settings")
-				s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-					Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to update log settings.")},
-				})
-				return
-			}
-
-		} else {
-			logSettings = &structs.LogSettings{
-				GuildID: i.GuildID,
-			}
-
-			if ltype == "messages" {
-				logSettings.MessageChannelID = ""
-				logSettings.MessageWebhookURL = ""
-				logSettings.MemberChannelID = ""
-				logSettings.MemberWebhookURL = ""
-			} else if ltype == "members" {
-				logSettings.MemberChannelID = ""
-				logSettings.MemberWebhookURL = ""
-				logSettings.MessageChannelID = ""
-				logSettings.MessageWebhookURL = ""
-			}
-
-			// create the log settings object
-			err = storage.CreateLogSettings(logSettings)
-			if err != nil {
-				log.WithError(err).Error("Failed to update log settings")
-				s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-					Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to update log settings.")},
-				})
-				return
-			}
+	} else {
+		logSettings = &structs.LogSettings{
+			GuildID: i.GuildID,
 		}
 
-		embed := components.NewEmbed().
-			SetDescription(fmt.Sprintf("Disabled logging for `%s` events", ltype)).
-			SetColor("Main").
-			MessageEmbed
+		if ltype == "messages" {
+			logSettings.MessageChannelID = ""
+			logSettings.MessageWebhookURL = ""
+			logSettings.MemberChannelID = ""
+			logSettings.MemberWebhookURL = ""
+		} else if ltype == "members" {
+			logSettings.MemberChannelID = ""
+			logSettings.MemberWebhookURL = ""
+			logSettings.MessageChannelID = ""
+			logSettings.MessageWebhookURL = ""
+		}
 
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Embeds: &[]*discordgo.MessageEmbed{embed},
-		})
+		// create the log settings object
+		err = storage.CreateLogSettings(logSettings)
+		if err != nil {
+			log.WithError(err).Error("Failed to update log settings")
+			return EmbedResponse(components.ErrorEmbed("Failed to create log settings."), true)
+		}
+	}
 
-	}()
+	embed := components.NewEmbed().
+		SetDescription(fmt.Sprintf("Disabled logging for `%s` events", ltype)).
+		SetColor("Main").
+		MessageEmbed
 
-	return LoadingResponse()
+	return EmbedResponse(embed, false)
 }

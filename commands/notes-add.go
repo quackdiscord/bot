@@ -37,39 +37,30 @@ func handleNotesAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *disco
 	moderator := i.Member.User
 	guild, _ := s.Guild(i.GuildID)
 
-	go func() {
-		// create the note
-		id, _ := lib.GenID()
-		noteData := &structs.Note{
-			ID:          id,
-			Content:     content,
-			UserID:      userToNote.ID,
-			ModeratorID: moderator.ID,
-			GuildID:     guild.ID,
-		}
+	// create the note
+	id, _ := lib.GenID()
+	noteData := &structs.Note{
+		ID:          id,
+		Content:     content,
+		UserID:      userToNote.ID,
+		ModeratorID: moderator.ID,
+		GuildID:     guild.ID,
+	}
 
-		err := storage.CreateNote(noteData)
-		if err != nil {
-			log.WithError(err).Error("Failed to create note")
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to save note.\n```" + err.Error() + "```")},
-			})
-			return
-		}
+	err := storage.CreateNote(noteData)
+	if err != nil {
+		log.WithError(err).Error("Failed to create note")
+		return EmbedResponse(components.ErrorEmbed("Failed to save note.\n```"+err.Error()+"```"), true)
+	}
 
-		// form the embed
-		embed := components.NewEmbed().
-			SetDescription(fmt.Sprintf("<:PepoG:1172051306026905620> Note taken for <@%s>.\n<:text:1229343822337802271>`%s`", userToNote.ID, content)).
-			SetColor("DarkButNotBlack").
-			SetAuthor(fmt.Sprintf("%s noted %s", moderator.Username, userToNote.Username), userToNote.AvatarURL((""))).
-			SetFooter("Note ID: " + id).
-			SetTimestamp().
-			MessageEmbed
+	// form the embed
+	embed := components.NewEmbed().
+		SetDescription(fmt.Sprintf("<:PepoG:1172051306026905620> Note taken for <@%s>.\n<:text:1229343822337802271>`%s`", userToNote.ID, content)).
+		SetColor("DarkButNotBlack").
+		SetAuthor(fmt.Sprintf("%s noted %s", moderator.Username, userToNote.Username), userToNote.AvatarURL((""))).
+		SetFooter("Note ID: " + id).
+		SetTimestamp().
+		MessageEmbed
 
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Embeds: &[]*discordgo.MessageEmbed{embed},
-		})
-	}()
-
-	return LoadingResponse()
+	return EmbedResponse(embed, false)
 }

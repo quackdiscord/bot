@@ -51,98 +51,68 @@ var casesViewCmd = &discordgo.ApplicationCommandOption{
 }
 
 func handleCasesViewLatest(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
-	go func() {
-		c, err := storage.FindLatestCase(i.GuildID)
-		if err != nil {
-			log.WithError(err).Error("Failed to fetch latest case")
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to fetch latest case.")},
-			})
-			return
-		}
+	c, err := storage.FindLatestCase(i.GuildID)
+	if err != nil {
+		log.WithError(err).Error("Failed to fetch latest case")
+		return EmbedResponse(components.ErrorEmbed("Failed to fetch latest case."), true)
+	}
 
-		embed := generateCaseEmbed(s, c)
+	embed := generateCaseEmbed(s, c)
 
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Embeds: &[]*discordgo.MessageEmbed{embed},
-		})
-	}()
-
-	return LoadingResponse()
+	return EmbedResponse(embed, false)
 }
 
 func handleCasesViewID(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	caseID := i.ApplicationCommandData().Options[0].Options[0].Options[0].StringValue()
 
-	go func() {
-		c, err := storage.FindCaseByID(caseID, i.GuildID)
-		if err != nil {
-			log.WithError(err).Error("Failed to fetch case by id")
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to fetch case.")},
-			})
-			return
-		}
+	c, err := storage.FindCaseByID(caseID, i.GuildID)
+	if err != nil {
+		log.WithError(err).Error("Failed to fetch case by id")
+		return EmbedResponse(components.ErrorEmbed("Failed to fetch case."), true)
+	}
 
-		embed := generateCaseEmbed(s, c)
+	embed := generateCaseEmbed(s, c)
 
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Embeds: &[]*discordgo.MessageEmbed{embed},
-		})
-	}()
-
-	return LoadingResponse()
+	return EmbedResponse(embed, false)
 }
 
 func handleCasesViewUser(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	user := i.ApplicationCommandData().Options[0].Options[0].Options[0].UserValue(s)
 
-	go func() {
-		cases, err := storage.FindCasesByUserID(user.ID, i.GuildID)
-		if err != nil {
-			log.WithError(err).Error("Failed to fetch user cases")
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to fetch user's cases.")},
-			})
-			return
+	cases, err := storage.FindCasesByUserID(user.ID, i.GuildID)
+	if err != nil {
+		log.WithError(err).Error("Failed to fetch user cases")
+		return EmbedResponse(components.ErrorEmbed("Failed to fetch user's cases."), true)
+	}
+
+	if len(cases) == 0 {
+		embed := components.NewEmbed().SetDescription("<@" + user.ID + "> has no cases.").SetColor("Main").MessageEmbed
+		return EmbedResponse(embed, false)
+	}
+
+	content := fmt.Sprintf("<@%s> has **%d** cases\n\n", user.ID, len(cases))
+
+	for _, c := range cases {
+		moderator, _ := s.User(c.ModeratorID)
+		if moderator == nil {
+			moderator = &discordgo.User{Username: "Unknown"}
 		}
 
-		if len(cases) == 0 {
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed(fmt.Sprintf("<@%s> has no cases.", user.ID))},
-			})
-			return
-		}
+		content += *generateCaseDetails(c, moderator)
+	}
 
-		content := fmt.Sprintf("<@%s> has **%d** cases\n\n", user.ID, len(cases))
+	// if the content is > 2048 characters, cut it off and add "too many to show..."
+	if len(content) > 2048 {
+		content = content[:2000] + "\n\n*Too many cases to show. You should ban them...*"
+	}
 
-		for _, c := range cases {
-			moderator, _ := s.User(c.ModeratorID)
-			if moderator == nil {
-				moderator = &discordgo.User{Username: "Unknown"}
-			}
+	embed := components.NewEmbed().
+		SetDescription(content).
+		SetTimestamp().
+		SetAuthor("Cases for "+user.Username, user.AvatarURL("")).
+		SetColor("Main").MessageEmbed
 
-			content += *generateCaseDetails(c, moderator)
-		}
-
-		// if the content is > 2048 characters, cut it off and add "too many to show..."
-		if len(content) > 2048 {
-			content = content[:2000] + "\n\n*Too many cases to show. You should ban them...*"
-		}
-
-		embed := components.NewEmbed().
-			SetDescription(content).
-			SetTimestamp().
-			SetAuthor("Cases for "+user.Username, user.AvatarURL("")).
-			SetColor("Main").MessageEmbed
-
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			// Content: &content,
-			Embeds: &[]*discordgo.MessageEmbed{embed},
-		})
-	}()
-
-	return LoadingResponse()
+	return EmbedResponse(embed, false)
 }
 
 // generate a case embed from a case

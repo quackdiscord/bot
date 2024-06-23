@@ -49,101 +49,65 @@ var casesRemoveCmd = &discordgo.ApplicationCommandOption{
 func handleCasesRemoveLatest(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	guild, _ := s.Guild(i.GuildID)
 
-	go func() {
-		// find the case first
-		c, err := storage.FindLatestCase(guild.ID)
-		if err != nil {
-			log.WithError(err).Error("Failed to find latest case")
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to find latest case.")},
-			})
-			return
-		}
+	// find the case first
+	c, err := storage.FindLatestCase(guild.ID)
+	if err != nil {
+		log.WithError(err).Error("Failed to find latest case")
+		return EmbedResponse(components.ErrorEmbed("Failed to find latest case."), true)
+	}
 
-		if c == nil {
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Latest case not found.")},
-			})
-			return
-		}
+	if c == nil {
+		return EmbedResponse(components.ErrorEmbed("Latest case not found."), true)
+	}
 
-		_, err2 := storage.DeleteLatestCase(guild.ID)
-		if err2 != nil {
-			log.WithError(err2).Error("Failed to delete latest case")
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to delete latest case.")},
-			})
-			return
-		}
+	_, err = storage.DeleteLatestCase(guild.ID)
+	if err != nil {
+		log.WithError(err).Error("Failed to delete latest case")
+		return EmbedResponse(components.ErrorEmbed("Failed to delete latest case."), true)
+	}
 
-		embed := components.NewEmbed().SetDescription("Deleted latest case.").SetColor("Main").MessageEmbed
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Embeds: &[]*discordgo.MessageEmbed{embed},
-		})
-	}()
+	embed := components.NewEmbed().SetDescription("Deleted latest case.").SetColor("Main").MessageEmbed
 
-	return LoadingResponse()
+	return EmbedResponse(embed, false)
 }
 
 func handleCasesRemoveID(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	guild, _ := s.Guild(i.GuildID)
 	caseID := i.ApplicationCommandData().Options[0].Options[0].Options[0].StringValue()
 
-	go func() {
-		// find the case first
-		c, err := storage.FindCaseByID(caseID, guild.ID)
-		if err != nil {
-			log.WithError(err).Error("Failed to find case")
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to find case.")},
-			})
-			return
-		}
+	// find the case first
+	c, err := storage.FindCaseByID(caseID, guild.ID)
+	if err != nil {
+		log.WithError(err).Error("Failed to find case")
+		return EmbedResponse(components.ErrorEmbed("Failed to find case."), true)
+	}
 
-		if c == nil {
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Case not found.")},
-			})
-			return
-		}
+	if c == nil {
+		return EmbedResponse(components.ErrorEmbed("Case not found."), true)
+	}
 
-		_, err2 := storage.DeleteCaseByID(caseID, guild.ID)
-		if err2 != nil {
-			log.WithError(err2).Error("Failed to delete case")
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to delete case.")},
-			})
-			return
-		}
+	_, err = storage.DeleteCaseByID(caseID, guild.ID)
+	if err != nil {
+		log.WithError(err).Error("Failed to delete case")
+		return EmbedResponse(components.ErrorEmbed("Failed to delete case."), true)
+	}
 
-		embed := components.NewEmbed().SetDescription("Deleted case `" + caseID + "`.").SetColor("Main").MessageEmbed
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Embeds: &[]*discordgo.MessageEmbed{embed},
-		})
-	}()
+	embed := components.NewEmbed().SetDescription("Deleted case `" + caseID + "`.").SetColor("Main").MessageEmbed
 
-	return LoadingResponse()
+	return EmbedResponse(embed, false)
 }
 
 func handleCasesRemoveUser(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	guild, _ := s.Guild(i.GuildID)
 	user := i.ApplicationCommandData().Options[0].Options[0].Options[0].UserValue(s)
 
-	go func() {
-		_, err := storage.DeleteCasesByUserID(user.ID, guild.ID)
-		if err != nil {
-			log.WithError(err).Error("Failed to delete users cases")
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to delete user's cases.")},
-			})
-			return
-		}
+	_, err := storage.DeleteCasesByUserID(user.ID, guild.ID)
+	if err != nil {
+		log.WithError(err).Error("Failed to delete users cases")
+		return EmbedResponse(components.ErrorEmbed("Failed to delete user's cases."), true)
+	}
 
-		embed := components.NewEmbed().SetDescription(" Deleted <@" + user.ID + ">'s cases.").SetColor("Main").MessageEmbed
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Embeds: &[]*discordgo.MessageEmbed{embed},
-		})
-	}()
+	embed := components.NewEmbed().SetDescription(" Deleted <@" + user.ID + ">'s cases.").SetColor("Main").MessageEmbed
 
-	return LoadingResponse()
+	return EmbedResponse(embed, false)
 }

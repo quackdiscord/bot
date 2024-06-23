@@ -65,70 +65,58 @@ func handleUnban(s *discordgo.Session, i *discordgo.InteractionCreate) *discordg
 		return EmbedResponse(components.ErrorEmbed("You can't unban me using this command."), true)
 	}
 
-	go func() {
-		// create the case
-		id, _ := lib.GenID()
-		caseData := &structs.Case{
-			ID:          id,
-			Type:        3,
-			Reason:      reason,
-			UserID:      userToUnban.ID,
-			ModeratorID: moderator.ID,
-			GuildID:     guild.ID,
-		}
+	// create the case
+	id, _ := lib.GenID()
+	caseData := &structs.Case{
+		ID:          id,
+		Type:        3,
+		Reason:      reason,
+		UserID:      userToUnban.ID,
+		ModeratorID: moderator.ID,
+		GuildID:     guild.ID,
+	}
 
-		dmError := ""
-		dmEmbed := components.NewEmbed().
-			SetDescription("You have been unbanned from **"+guild.Name+"** for ```"+reason+"```").
-			SetColor("Green").
-			SetAuthor(guild.Name, guild.IconURL("")).
-			SetFooter("Case ID: " + id).
-			SetTimestamp().MessageEmbed
+	dmError := ""
+	dmEmbed := components.NewEmbed().
+		SetDescription("You have been unbanned from **"+guild.Name+"** for ```"+reason+"```").
+		SetColor("Green").
+		SetAuthor(guild.Name, guild.IconURL("")).
+		SetFooter("Case ID: " + id).
+		SetTimestamp().MessageEmbed
 
-		// unban the user
-		err3 := s.GuildBanDelete(guild.ID, userToUnban.ID)
-		if err3 != nil {
-			log.WithError(err3).Error("Failed to unban user")
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to unban user.\n```" + err3.Error() + "```")},
-			})
-			return
-		}
+	// unban the user
+	err := s.GuildBanDelete(guild.ID, userToUnban.ID)
+	if err != nil {
+		log.WithError(err).Error("Failed to unban user")
+		return EmbedResponse(components.ErrorEmbed("Failed to unban user.\n```"+err.Error()+"```"), true)
+	}
 
-		// attempt to send the user a DM
-		dmChannel, err := s.UserChannelCreate(userToUnban.ID)
+	// attempt to send the user a DM
+	dmChannel, err := s.UserChannelCreate(userToUnban.ID)
+	if err != nil {
+		dmError = "\n\n> User has DMs disabled."
+	} else {
+		_, err = s.ChannelMessageSendEmbed(dmChannel.ID, dmEmbed)
 		if err != nil {
 			dmError = "\n\n> User has DMs disabled."
-		} else {
-			_, err2 := s.ChannelMessageSendEmbed(dmChannel.ID, dmEmbed)
-			if err2 != nil {
-				dmError = "\n\n> User has DMs disabled."
-			}
 		}
+	}
 
-		// save the case
-		err4 := storage.CreateCase(caseData)
-		if err4 != nil {
-			log.WithError(err4).Error("Failed to create case")
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to save case.\n```" + err4.Error() + "```")},
-			})
-			return
-		}
+	// save the case
+	err = storage.CreateCase(caseData)
+	if err != nil {
+		log.WithError(err).Error("Failed to create case")
+		return EmbedResponse(components.ErrorEmbed("Failed to save case.\n```"+err.Error()+"```"), true)
+	}
 
-		// send the response
-		embed := components.NewEmbed().
-			SetDescription(fmt.Sprintf("<@%s> has been unbanned for `%s`%s", userToUnban.ID, reason, dmError)).
-			SetColor("Main").
-			SetAuthor(fmt.Sprintf("%s unbanned %s", moderator.Username, userToUnban.Username), userToUnban.AvatarURL("")).
-			SetFooter("Case ID: " + id).
-			SetTimestamp().
-			MessageEmbed
+	// send the response
+	embed := components.NewEmbed().
+		SetDescription(fmt.Sprintf("<@%s> has been unbanned for `%s`%s", userToUnban.ID, reason, dmError)).
+		SetColor("Main").
+		SetAuthor(fmt.Sprintf("%s unbanned %s", moderator.Username, userToUnban.Username), userToUnban.AvatarURL("")).
+		SetFooter("Case ID: " + id).
+		SetTimestamp().
+		MessageEmbed
 
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Embeds: &[]*discordgo.MessageEmbed{embed},
-		})
-	}()
-
-	return LoadingResponse()
+	return EmbedResponse(embed, false)
 }

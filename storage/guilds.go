@@ -16,9 +16,9 @@ func CreateGuild(g *structs.Guild) error {
 	}
 
 	// execute the statement
-	_, err2 := stmtIns.Exec(g.ID, g.Name, g.Description, g.MemberCount, g.IsPremium, g.Large, g.VanityURL, g.JoinedAt, g.OwnerID, g.ShardID, g.BannerURL, g.Icon, g.MaxMembers, g.Partnered, g.AFKChannelID, g.AFKTimeout, g.MFALevel, g.NSFWLevel, g.PerferedLocale, g.RulesChannelID, g.SystemChannelID)
-	if err2 != nil {
-		return err2
+	_, err = stmtIns.Exec(g.ID, g.Name, g.Description, g.MemberCount, g.IsPremium, g.Large, g.VanityURL, g.JoinedAt, g.OwnerID, g.ShardID, g.BannerURL, g.Icon, g.MaxMembers, g.Partnered, g.AFKChannelID, g.AFKTimeout, g.MFALevel, g.NSFWLevel, g.PerferedLocale, g.RulesChannelID, g.SystemChannelID)
+	if err != nil {
+		return err
 	}
 
 	return nil
@@ -33,9 +33,9 @@ func UpdateGuild(g *structs.Guild) error {
 	}
 
 	// execute the statement
-	_, err2 := stmtUpd.Exec(g.Name, g.Description, g.MemberCount, g.IsPremium, g.Large, g.VanityURL, g.JoinedAt, g.OwnerID, g.ShardID, g.BannerURL, g.Icon, g.MaxMembers, g.Partnered, g.AFKChannelID, g.AFKTimeout, g.MFALevel, g.NSFWLevel, g.PerferedLocale, g.RulesChannelID, g.SystemChannelID, g.ID)
-	if err2 != nil {
-		return err2
+	_, err = stmtUpd.Exec(g.Name, g.Description, g.MemberCount, g.IsPremium, g.Large, g.VanityURL, g.JoinedAt, g.OwnerID, g.ShardID, g.BannerURL, g.Icon, g.MaxMembers, g.Partnered, g.AFKChannelID, g.AFKTimeout, g.MFALevel, g.NSFWLevel, g.PerferedLocale, g.RulesChannelID, g.SystemChannelID, g.ID)
+	if err != nil {
+		return err
 	}
 
 	return nil
@@ -50,9 +50,9 @@ func DeleteGuild(id string) error {
 	}
 
 	// execute the statement
-	_, err2 := stmtDel.Exec(id)
-	if err2 != nil {
-		return err2
+	_, err = stmtDel.Exec(id)
+	if err != nil {
+		return err
 	}
 
 	// remove the guild from the redis set
@@ -74,9 +74,9 @@ func FindGuildByID(id string) (*structs.Guild, error) {
 
 	// query the db
 	var g structs.Guild
-	err2 := stmtOut.QueryRow(id).Scan(&g.ID, &g.Name, &g.Description, &g.MemberCount, &g.IsPremium, &g.Large, &g.VanityURL, &g.JoinedAt, &g.OwnerID, &g.ShardID, &g.BannerURL, &g.Icon, &g.MaxMembers, &g.Partnered, &g.AFKChannelID, &g.AFKTimeout, &g.MFALevel, &g.NSFWLevel, &g.PerferedLocale, &g.RulesChannelID, &g.SystemChannelID)
-	if err2 != nil {
-		return nil, err2
+	err = stmtOut.QueryRow(id).Scan(&g.ID, &g.Name, &g.Description, &g.MemberCount, &g.IsPremium, &g.Large, &g.VanityURL, &g.JoinedAt, &g.OwnerID, &g.ShardID, &g.BannerURL, &g.Icon, &g.MaxMembers, &g.Partnered, &g.AFKChannelID, &g.AFKTimeout, &g.MFALevel, &g.NSFWLevel, &g.PerferedLocale, &g.RulesChannelID, &g.SystemChannelID)
+	if err != nil {
+		return nil, err
 	}
 
 	return &g, nil

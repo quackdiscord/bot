@@ -2,6 +2,7 @@ package commands
 
 import (
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/components"
 	"github.com/quackdiscord/bot/services"
 )
 
@@ -49,5 +50,5 @@ func handlePurge(s *discordgo.Session, i *discordgo.InteractionCreate) (resp *di
 		return handlePurgeAttachments(s, i)
 	}
 
-	return ContentResponse("Command does not exist", true)
+	return EmbedResponse(components.ErrorEmbed("Command does not exist"), true)
 }

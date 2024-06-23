@@ -27,9 +27,9 @@ func CreateTicket(t *structs.Ticket) error {
 	}
 
 	// execute the statement
-	_, err2 := stmtIns.Exec(t.ID, t.ThreadID, t.OwnerID, t.GuildID, t.State, t.LogMessageID)
-	if err2 != nil {
-		return err2
+	_, err = stmtIns.Exec(t.ID, t.ThreadID, t.OwnerID, t.GuildID, t.State, t.LogMessageID)
+	if err != nil {
+		return err
 	}
 
 	return nil
@@ -72,8 +72,8 @@ func CloseTicket(id string, threadID string, resolverID string) (*string, error)
 	}
 
 	// execute the statement
-	_, err2 := stmtUpd.Exec(resolverID, time.Now(), id)
-	if err2 != nil {
+	_, err = stmtUpd.Exec(resolverID, time.Now(), id)
+	if err != nil {
 		return nil, err
 	}
 
@@ -92,9 +92,9 @@ func FindTicketByID(id string) (*structs.Ticket, error) {
 
 	// query the database
 	var t structs.Ticket
-	err2 := stmtOut.QueryRow(id).Scan(&t.ID, &t.ThreadID, &t.OwnerID, &t.GuildID, &t.State, &t.LogMessageID, &t.CreatedAt, &t.ResolvedAt, &t.ResolvedBy, &t.Content)
-	if err2 != nil {
-		return nil, err2
+	err = stmtOut.QueryRow(id).Scan(&t.ID, &t.ThreadID, &t.OwnerID, &t.GuildID, &t.State, &t.LogMessageID, &t.CreatedAt, &t.ResolvedAt, &t.ResolvedBy, &t.Content)
+	if err != nil {
+		return nil, err
 	}
 
 	return &t, nil
@@ -130,9 +130,9 @@ func FindOpenTickets() ([]*structs.Ticket, error) {
 	}
 
 	// query the database
-	rows, err2 := stmtOut.Query()
-	if err2 != nil {
-		return nil, err2
+	rows, err := stmtOut.Query()
+	if err != nil {
+		return nil, err
 	}
 
 	var tickets []*structs.Ticket
@@ -174,9 +174,9 @@ func StoreAllTicketMessages(ticketID string) (*string, error) {
 	}
 
 	// execute the statement
-	_, err2 := stmtIns.Exec(msg, ticketID)
-	if err2 != nil {
-		return nil, err2
+	_, err = stmtIns.Exec(msg, ticketID)
+	if err != nil {
+		return nil, err
 	}
 
 	return &msg, nil
@@ -238,9 +238,9 @@ func SetTicketChannel(guildID string, channelID string) error { // later gonna c
 		}
 
 		// execute the statement
-		_, err2 := stmtUpd.Exec(channelID, guildID)
-		if err2 != nil {
-			return err2
+		_, err = stmtUpd.Exec(channelID, guildID)
+		if err != nil {
+			return err
 		}
 
 		return nil
@@ -278,9 +278,9 @@ func SetTicketLogChannel(guildID string, channelID string) error { // later gonn
 		}
 
 		// execute the statement
-		_, err2 := stmtUpd.Exec(channelID, guildID)
-		if err2 != nil {
-			return err2
+		_, err = stmtUpd.Exec(channelID, guildID)
+		if err != nil {
+			return err
 		}
 
 		return nil
@@ -301,8 +301,8 @@ func FindTicketSettingsByGuildID(guildID string) (*structs.TicketSettings, error
 
 	// query the database
 	var t structs.TicketSettings
-	err2 := stmtOut.QueryRow(guildID).Scan(&t.GuildID, &t.ChannelID, &t.LogChannelID)
-	if err2 != nil {
+	err = stmtOut.QueryRow(guildID).Scan(&t.GuildID, &t.ChannelID, &t.LogChannelID)
+	if err != nil {
 		// if the error is that the row doesnt exist return nil
 		return nil, nil
 	}
@@ -321,9 +321,9 @@ func CreateTicketSettings(t *structs.TicketSettings) error {
 	}
 
 	// execute the statement
-	_, err2 := stmtIns.Exec(t.GuildID, t.ChannelID, t.LogChannelID)
-	if err2 != nil {
-		return err2
+	_, err = stmtIns.Exec(t.GuildID, t.ChannelID, t.LogChannelID)
+	if err != nil {
+		return err
 	}
 
 	return nil
@@ -342,14 +342,14 @@ func GetUsersTicket(userID string, guildID string) (*string, error) {
 
 	// query the database
 	var t string
-	err2 := stmtOut.QueryRow(userID, guildID).Scan(&t)
-	if err2 != nil {
+	err = stmtOut.QueryRow(userID, guildID).Scan(&t)
+	if err != nil {
 		// if the error is that the row doesnt exist return nil
-		if err2 == sql.ErrNoRows {
+		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 
-		return nil, err2
+		return nil, err
 	}
 
 	return &t, nil
@@ -366,17 +366,17 @@ func GetOpenTickets(guildID string) ([]*structs.Ticket, error) {
 	}
 
 	// query the database
-	rows, err2 := stmtOut.Query(guildID)
-	if err2 != nil {
-		return nil, err2
+	rows, err := stmtOut.Query(guildID)
+	if err != nil {
+		return nil, err
 	}
 
 	var tickets []*structs.Ticket
 	for rows.Next() {
 		var t structs.Ticket
-		err3 := rows.Scan(&t.ID, &t.ThreadID, &t.OwnerID, &t.GuildID, &t.State, &t.LogMessageID, &t.CreatedAt, &t.ResolvedAt, &t.ResolvedBy, &t.Content)
-		if err3 != nil {
-			return nil, err3
+		err = rows.Scan(&t.ID, &t.ThreadID, &t.OwnerID, &t.GuildID, &t.State, &t.LogMessageID, &t.CreatedAt, &t.ResolvedAt, &t.ResolvedBy, &t.Content)
+		if err != nil {
+			return nil, err
 		}
 		tickets = append(tickets, &t)
 	}

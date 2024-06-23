@@ -2,6 +2,7 @@ package commands
 
 import (
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/components"
 	"github.com/quackdiscord/bot/services"
 )
 
@@ -56,5 +57,5 @@ func handleNotes(s *discordgo.Session, i *discordgo.InteractionCreate) (resp *di
 		}
 	}
 
-	return ContentResponse("Command does not exits", true)
+	return EmbedResponse(components.ErrorEmbed("Command does not exits"), true)
 }

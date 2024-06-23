@@ -49,105 +49,68 @@ var notesRemoveCmd = &discordgo.ApplicationCommandOption{
 func handleNotesRemoveLatest(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	guild, _ := s.Guild(i.GuildID)
 
-	go func() {
-		// find the note first
-		n, err := storage.FindLatestNote(guild.ID)
-		if err != nil {
-			log.WithError(err).Error("Failed to find latest note")
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to find latest note.")},
-			})
-			return
-		}
+	// find the note first
+	n, err := storage.FindLatestNote(guild.ID)
+	if err != nil {
+		log.WithError(err).Error("Failed to find latest note")
+		return EmbedResponse(components.ErrorEmbed("Failed to find latest note."), true)
+	}
 
-		if n == nil {
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Latest note not found.")},
-			})
-			return
-		}
+	if n == nil {
+		return EmbedResponse(components.ErrorEmbed("Latest note not found."), true)
+	}
 
-		_, err2 := storage.DeleteLatestNote(guild.ID)
-		if err2 != nil {
-			log.WithError(err2).Error("Failed to delete latest note")
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to delete latest note.")},
-			})
-			return
-		}
+	_, err = storage.DeleteLatestNote(guild.ID)
+	if err != nil {
+		log.WithError(err).Error("Failed to delete latest note")
+		return EmbedResponse(components.ErrorEmbed("Failed to delete latest note."), true)
+	}
 
-		embed := components.NewEmbed().
-			SetDescription("<:PepoG:1172051306026905620> Deleted latest note").
-			SetColor("DarkButNotBlack").
-			MessageEmbed
+	embed := components.NewEmbed().
+		SetDescription("<:PepoG:1172051306026905620> Deleted latest note").
+		SetColor("DarkButNotBlack").
+		MessageEmbed
 
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Embeds: &[]*discordgo.MessageEmbed{embed},
-		})
-	}()
-
-	return LoadingResponse()
+	return EmbedResponse(embed, false)
 }
 
 func handleNotesRemoveUser(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	guild, _ := s.Guild(i.GuildID)
 	user := i.ApplicationCommandData().Options[0].Options[0].Options[0].UserValue(s)
 
-	go func() {
-		_, err := storage.DeleteNoteByUserID(user.ID, guild.ID)
-		if err != nil {
-			log.WithError(err).Error("Failed to delete users notes")
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to delete user's notes.")},
-			})
-			return
-		}
+	_, err := storage.DeleteNoteByUserID(user.ID, guild.ID)
+	if err != nil {
+		log.WithError(err).Error("Failed to delete users notes")
+		return EmbedResponse(components.ErrorEmbed("Failed to delete user's notes."), true)
+	}
 
-		embed := components.NewEmbed().SetDescription("<:PepoG:1172051306026905620> Deleted <@" + user.ID + ">'s notes.").SetColor("DarkButNotBlack").MessageEmbed
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Embeds: &[]*discordgo.MessageEmbed{embed},
-		})
-	}()
+	embed := components.NewEmbed().SetDescription("<:PepoG:1172051306026905620> Deleted <@" + user.ID + ">'s notes.").SetColor("DarkButNotBlack").MessageEmbed
 
-	return LoadingResponse()
+	return EmbedResponse(embed, false)
 }
 
 func handleNotesRemoveID(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	guild, _ := s.Guild(i.GuildID)
 	noteID := i.ApplicationCommandData().Options[0].Options[0].Options[0].StringValue()
 
-	go func() {
-		// find the case first
-		n, err := storage.FindNoteByID(noteID, guild.ID)
-		if err != nil {
-			log.WithError(err).Error("Failed to find note")
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to find note.")},
-			})
-			return
-		}
+	// find the case first
+	n, err := storage.FindNoteByID(noteID, guild.ID)
+	if err != nil {
+		log.WithError(err).Error("Failed to find note")
+		return EmbedResponse(components.ErrorEmbed("Failed to find note."), true)
+	}
 
-		if n == nil {
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Note not found.")},
-			})
-			return
-		}
+	if n == nil {
+		return EmbedResponse(components.ErrorEmbed("Note not found."), true)
+	}
 
-		_, err2 := storage.DeleteNoteByID(noteID, guild.ID)
-		if err2 != nil {
-			log.WithError(err2).Error("Failed to delete note")
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to delete note.")},
-			})
-			return
-		}
+	_, err = storage.DeleteNoteByID(noteID, guild.ID)
+	if err != nil {
+		log.WithError(err).Error("Failed to delete note")
+		return EmbedResponse(components.ErrorEmbed("Failed to delete note."), true)
+	}
 
-		embed := components.NewEmbed().SetDescription("<:PepoG:1172051306026905620> Deleted note `" + noteID + "`.").SetColor("DarkButNotBlack").MessageEmbed
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Embeds: &[]*discordgo.MessageEmbed{embed},
-		})
-	}()
+	embed := components.NewEmbed().SetDescription("<:PepoG:1172051306026905620> Deleted note `" + noteID + "`.").SetColor("DarkButNotBlack").MessageEmbed
 
-	return LoadingResponse()
+	return EmbedResponse(embed, false)
 }

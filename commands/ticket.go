@@ -2,6 +2,7 @@ package commands
 
 import (
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/components"
 	"github.com/quackdiscord/bot/services"
 )
 
@@ -37,5 +38,5 @@ func handleTicket(s *discordgo.Session, i *discordgo.InteractionCreate) (resp *d
 		return handleTicketQueue(s, i)
 	}
 
-	return ContentResponse("oh... this is awkward.", true)
+	return EmbedResponse(components.ErrorEmbed("Command does not exist"), true)
 }

@@ -22,8 +22,8 @@ func FindNoteByID(id string, guildID string) (*structs.Note, error) {
 
 	// query the db
 	var n structs.Note
-	err2 := stmtOut.QueryRow(id, guildID).Scan(&n.ID, &n.UserID, &n.ModeratorID, &n.GuildID, &n.Content, &n.CreatedAt)
-	if err2 != nil {
+	err = stmtOut.QueryRow(id, guildID).Scan(&n.ID, &n.UserID, &n.ModeratorID, &n.GuildID, &n.Content, &n.CreatedAt)
+	if err != nil {
 		return nil, err
 	}
 
@@ -46,17 +46,17 @@ func FindNoteByUserID(userID string, guildID string) ([]*structs.Note, error) {
 	}
 
 	// query the db
-	rows, err2 := stmtOut.Query(userID, guildID)
-	if err2 != nil {
-		return nil, err2
+	rows, err := stmtOut.Query(userID, guildID)
+	if err != nil {
+		return nil, err
 	}
 
 	var notes []*structs.Note
 	for rows.Next() {
 		var n structs.Note
-		err3 := rows.Scan(&n.ID, &n.UserID, &n.ModeratorID, &n.GuildID, &n.Content, &n.CreatedAt)
-		if err3 != nil {
-			return nil, err3
+		err = rows.Scan(&n.ID, &n.UserID, &n.ModeratorID, &n.GuildID, &n.Content, &n.CreatedAt)
+		if err != nil {
+			return nil, err
 		}
 
 		notes = append(notes, &n)
@@ -78,9 +78,9 @@ func FindLatestNote(guildID string) (*structs.Note, error) {
 
 	// query the db
 	var n structs.Note
-	err2 := stmtOut.QueryRow(guildID).Scan(&n.ID, &n.UserID, &n.ModeratorID, &n.GuildID, &n.Content, &n.CreatedAt)
-	if err2 != nil {
-		return nil, err2
+	err = stmtOut.QueryRow(guildID).Scan(&n.ID, &n.UserID, &n.ModeratorID, &n.GuildID, &n.Content, &n.CreatedAt)
+	if err != nil {
+		return nil, err
 	}
 
 	return &n, nil
@@ -94,9 +94,9 @@ func CreateNote(n *structs.Note) error {
 	}
 
 	// execute the statment
-	_, err2 := stmtIns.Exec(n.ID, n.UserID, n.GuildID, n.ModeratorID, n.Content)
-	if err2 != nil {
-		return err2
+	_, err = stmtIns.Exec(n.ID, n.UserID, n.GuildID, n.ModeratorID, n.Content)
+	if err != nil {
+		return err
 	}
 
 	return nil
@@ -118,9 +118,9 @@ func DeleteNoteByID(id string, guildID string) (bool, error) {
 	}
 
 	// execute the statement
-	_, err2 := stmtDel.Exec(id, guildID)
-	if err2 != nil {
-		return false, err2
+	_, err = stmtDel.Exec(id, guildID)
+	if err != nil {
+		return false, err
 	}
 
 	return true, nil
@@ -142,9 +142,9 @@ func DeleteNoteByUserID(userID string, guildID string) (bool, error) {
 	}
 
 	// execute the statement
-	_, err2 := stmtDel.Exec(userID, guildID)
-	if err2 != nil {
-		return false, err2
+	_, err = stmtDel.Exec(userID, guildID)
+	if err != nil {
+		return false, err
 	}
 
 	return true, nil
@@ -162,9 +162,9 @@ func DeleteLatestNote(guildID string) (bool, error) {
 	}
 
 	// execute the statement
-	_, err2 := stmtDel.Exec(guildID)
-	if err2 != nil {
-		return false, err2
+	_, err = stmtDel.Exec(guildID)
+	if err != nil {
+		return false, err
 	}
 
 	return true, nil
