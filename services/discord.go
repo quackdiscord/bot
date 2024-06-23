@@ -29,6 +29,7 @@ type Command struct {
 func ConnectDiscord(events []interface{}) {
 	token := ""
 	env := os.Getenv("ENVIORNMENT")
+	registerCmds := os.Getenv("REGISTER_CMDS")
 
 	if env == "prod" {
 		token = os.Getenv("TOKEN")
@@ -51,12 +52,14 @@ func ConnectDiscord(events []interface{}) {
 	}
 
 	// register commands
-	if env == "prod" {
-		log.Infof("Registering %d global commands", len(Commands))
-		RegisterCommands(Discord, "") // register globally
-	} else {
-		log.Infof("Registering %d dev commands", len(Commands))
-		RegisterCommands(Discord, config.Bot.DevGuildID) // just register for the dev guild
+	if registerCmds == "true" {
+		if env == "prod" {
+			log.Infof("Registering %d global commands", len(Commands))
+			RegisterCommands(Discord, "") // register globally
+		} else {
+			log.Infof("Registering %d dev commands", len(Commands))
+			RegisterCommands(Discord, config.Bot.DevGuildID) // just register for the dev guild
+		}
 	}
 }
 
