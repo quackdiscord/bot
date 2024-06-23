@@ -10,8 +10,6 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var Enviorment string
-
 func init() {
 	// load .env file
 	if err := godotenv.Load(".env"); err != nil {
@@ -20,7 +18,7 @@ func init() {
 	}
 
 	// set the environment
-	Enviorment = os.Getenv("ENVIORNMENT")
+	env := os.Getenv("ENVIORNMENT")
 
 	log.SetOutput(os.Stdout)
 	log.SetLevel(log.InfoLevel)
@@ -30,7 +28,7 @@ func init() {
 		FullTimestamp: true,
 	})
 
-	if Enviorment == "dev" {
+	if env == "dev" {
 		log.Warn("Running in development mode")
 	}
 }

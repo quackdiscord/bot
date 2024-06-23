@@ -12,7 +12,6 @@ import (
 var Discord *discordgo.Session
 var Commands = make(map[string]*Command)
 var RegisteredCommands = make([]*discordgo.ApplicationCommand, len(Commands))
-var Enviorment = os.Getenv("ENVIORNMENT")
 
 const MaxMessageCacheSize = 10_000
 
@@ -29,8 +28,9 @@ type Command struct {
 
 func ConnectDiscord(events []interface{}) {
 	token := ""
+	env := os.Getenv("ENVIORNMENT")
 
-	if Enviorment == "prod" {
+	if env == "prod" {
 		token = os.Getenv("TOKEN")
 	} else {
 		token = os.Getenv("DEV_TOKEN")
@@ -51,7 +51,7 @@ func ConnectDiscord(events []interface{}) {
 	}
 
 	// register commands
-	if Enviorment == "prod" {
+	if env == "prod" {
 		log.Infof("Registering %d global commands", len(Commands))
 		RegisterCommands(Discord, "") // register globally
 	} else {
