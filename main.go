@@ -37,8 +37,8 @@ func main() {
 	// connect services
 	services.ConnectRedis()
 	services.ConnectDB()
-	services.ConnectDiscord(events.Events)
 	services.ConnectKafka()
+	services.ConnectDiscord(events.Events)
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt)
