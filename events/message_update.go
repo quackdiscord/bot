@@ -26,7 +26,7 @@ type MsgUpdate struct {
 }
 
 func onMessageUpdate(s *discordgo.Session, m *discordgo.MessageUpdate) {
-	if m.ID == "" || m.BeforeUpdate == nil {
+	if m.ID == "" || m.BeforeUpdate == nil || m.Author == nil {
 		return
 	}
 
