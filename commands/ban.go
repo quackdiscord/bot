@@ -62,59 +62,73 @@ func handleBan(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.
 	if userToBan.ID == s.State.User.ID {
 		return EmbedResponse(components.ErrorEmbed("You can't ban me using this command."), true)
 	}
-	// create the case
-	id, _ := lib.GenID()
-	caseData := &structs.Case{
-		ID:          id,
-		Type:        1,
-		Reason:      reason,
-		UserID:      userToBan.ID,
-		GuildID:     i.GuildID,
-		ModeratorID: moderator.ID,
-	}
 
-	// set up embeds
-	dmError := ""
-	dmEmbed := components.NewEmbed().
-		SetDescription("🚨 You have been banned from **"+guild.Name+"** for ```"+reason+"```").
-		SetColor("Red").
-		SetAuthor(guild.Name, guild.IconURL("")).
-		SetFooter("Case ID: " + id).
-		SetTimestamp().MessageEmbed
+	go func() {
+		// create the case
+		id, _ := lib.GenID()
+		caseData := &structs.Case{
+			ID:          id,
+			Type:        1,
+			Reason:      reason,
+			UserID:      userToBan.ID,
+			GuildID:     i.GuildID,
+			ModeratorID: moderator.ID,
+		}
 
-	// attempt to DM the user
-	dmChannel, err := s.UserChannelCreate(userToBan.ID)
-	if err != nil {
-		dmError = "\n\n> User has DMs disabled."
-	} else {
-		_, err = s.ChannelMessageSendEmbed(dmChannel.ID, dmEmbed)
+		// set up embeds
+		dmError := ""
+		dmEmbed := components.NewEmbed().
+			SetDescription("🚨 You have been banned from **"+guild.Name+"** for ```"+reason+"```").
+			SetColor("Red").
+			SetAuthor(guild.Name, guild.IconURL("")).
+			SetFooter("Case ID: " + id).
+			SetTimestamp().MessageEmbed
+
+		// attempt to DM the user
+		dmChannel, err := s.UserChannelCreate(userToBan.ID)
 		if err != nil {
 			dmError = "\n\n> User has DMs disabled."
+		} else {
+			_, err = s.ChannelMessageSendEmbed(dmChannel.ID, dmEmbed)
+			if err != nil {
+				dmError = "\n\n> User has DMs disabled."
+			}
 		}
-	}
 
-	// ban the user
-	err = s.GuildBanCreateWithReason(i.GuildID, userToBan.ID, reason, 1)
-	if err != nil {
-		log.WithError(err).Error("Failed to ban user")
-		return EmbedResponse(components.ErrorEmbed("Failed to ban user.\n```"+err.Error()+"```"), true)
-	}
+		// ban the user
+		err = s.GuildBanCreateWithReason(i.GuildID, userToBan.ID, reason, 1)
+		if err != nil {
+			log.WithError(err).Error("Failed to ban user")
+			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to ban user.\n```" + err.Error() + "```")},
+			})
+			return
+		}
 
-	// save the case
-	err = storage.CreateCase(caseData)
-	if err != nil {
-		log.WithError(err).Error("Failed to save case")
-		return EmbedResponse(components.ErrorEmbed("Failed to save case.\n```"+err.Error()+"```"), true)
-	}
+		// save the case
+		err = storage.CreateCase(caseData)
+		if err != nil {
+			log.WithError(err).Error("Failed to save case")
+			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to save case.\n```" + err.Error() + "```")},
+			})
+			return
+		}
 
-	// create the embed
-	embed := components.NewEmbed().
-		SetDescription(fmt.Sprintf("<:ban:1165590688554033183> <@%s> has been banned for `%s`%s", userToBan.ID, reason, dmError)).
-		SetColor("Main").
-		SetAuthor(fmt.Sprintf("%s banned %s", moderator.Username, userToBan.Username), userToBan.AvatarURL("")).
-		SetFooter("Case ID: " + id).
-		SetTimestamp().
-		MessageEmbed
+		// create the embed
+		embed := components.NewEmbed().
+			SetDescription(fmt.Sprintf("<:ban:1165590688554033183> <@%s> has been banned for `%s`%s", userToBan.ID, reason, dmError)).
+			SetColor("Main").
+			SetAuthor(fmt.Sprintf("%s banned %s", moderator.Username, userToBan.Username), userToBan.AvatarURL("")).
+			SetFooter("Case ID: " + id).
+			SetTimestamp().
+			MessageEmbed
 
-	return EmbedResponse(embed, false)
+		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Embeds: &[]*discordgo.MessageEmbed{embed},
+		})
+
+	}()
+
+	return LoadingResponse()
 }
