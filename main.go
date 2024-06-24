@@ -39,6 +39,7 @@ func main() {
 	services.ConnectDB()
 	services.ConnectKafka()
 	services.ConnectDiscord(events.Events)
+	services.ReadyMessageCache()
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt)

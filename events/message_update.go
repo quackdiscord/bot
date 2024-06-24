@@ -30,6 +30,9 @@ func onMessageUpdate(s *discordgo.Session, m *discordgo.MessageUpdate) {
 		return
 	}
 
+	// access the message cache
+	services.MsgCache.AddMessage(m.Message)
+
 	data := MsgUpdate{
 		Type:           "message_update",
 		ID:             m.ID,
@@ -49,7 +52,4 @@ func onMessageUpdate(s *discordgo.Session, m *discordgo.MessageUpdate) {
 	}
 
 	services.Kafka.Produce(context.Background(), []byte(data.Type), json)
-
-	// update the message in the cache
-	services.MessageCache[m.Message.ID] = m.Message
 }

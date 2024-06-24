@@ -29,10 +29,8 @@ func onMessageDelete(s *discordgo.Session, m *discordgo.MessageDelete) {
 	}
 
 	// get the message from message cache
-	services.CacheMutex.Lock()
-	message, exists := services.MessageCache[m.ID]
+	message, exists := services.MsgCache.GetMessage(m.ID)
 	if !exists {
-		services.CacheMutex.Unlock()
 		return
 	}
 
@@ -53,16 +51,4 @@ func onMessageDelete(s *discordgo.Session, m *discordgo.MessageDelete) {
 	}
 
 	services.Kafka.Produce(context.Background(), []byte(data.Type), json)
-
-	// remove the message from the cache
-	delete(services.MessageCache, m.ID)
-	// remove the message id from the order slice
-	// Also remove the ID from the order slice
-	for i, id := range services.CacheOrder {
-		if id == m.ID {
-			services.CacheOrder = append(services.CacheOrder[:i], services.CacheOrder[:i+1]...)
-			break
-		}
-	}
-	services.CacheMutex.Unlock()
 }

@@ -28,8 +28,6 @@ type BulkMessage struct {
 }
 
 func onMessageBulkDelete(s *discordgo.Session, m *discordgo.MessageDeleteBulk) {
-	// lock the cache
-	services.CacheMutex.Lock()
 
 	data := MsgBulkDelete{
 		Type:      "message_bulk_delete",
@@ -40,7 +38,7 @@ func onMessageBulkDelete(s *discordgo.Session, m *discordgo.MessageDeleteBulk) {
 
 	// get the messages from message cache
 	for _, id := range m.Messages {
-		message, exists := services.MessageCache[id]
+		message, exists := services.MsgCache.GetMessage(id)
 		if !exists {
 			continue
 		}
@@ -51,15 +49,6 @@ func onMessageBulkDelete(s *discordgo.Session, m *discordgo.MessageDeleteBulk) {
 			Content:     message.Content,
 			Attachments: message.Attachments,
 		})
-
-		// remove the message from the cache and the order slice
-		delete(services.MessageCache, id)
-		for i, id := range services.CacheOrder {
-			if id == message.ID {
-				services.CacheOrder = append(services.CacheOrder[:i], services.CacheOrder[:i+1]...)
-				break
-			}
-		}
 	}
 
 	// send the kafka message
@@ -69,7 +58,4 @@ func onMessageBulkDelete(s *discordgo.Session, m *discordgo.MessageDeleteBulk) {
 	}
 
 	services.Kafka.Produce(context.Background(), []byte(data.Type), json)
-
-	// unlock the cache
-	services.CacheMutex.Unlock()
 }

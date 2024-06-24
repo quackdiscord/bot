@@ -2,7 +2,6 @@ package services
 
 import (
 	"os"
-	"sync"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/config"
@@ -13,13 +12,11 @@ var Discord *discordgo.Session
 var Commands = make(map[string]*Command)
 var RegisteredCommands = make([]*discordgo.ApplicationCommand, len(Commands))
 
-const MaxMessageCacheSize = 2_000
-
-var (
-	MessageCache = make(map[string]*discordgo.Message)
-	CacheOrder   []string
-	CacheMutex   sync.Mutex
-)
+// var (
+// 	MessageCache = make(map[string]*discordgo.Message)
+// 	CacheOrder   []string
+// 	CacheMutex   sync.Mutex
+// )
 
 type Command struct {
 	*discordgo.ApplicationCommand
@@ -39,7 +36,8 @@ func ConnectDiscord(events []interface{}) {
 
 	Discord, _ = discordgo.New(token)
 	Discord.Identify.Intents = discordgo.Intent(3276543) // all unpriveledged intents + message content + guild members
-	Discord.State.MaxMessageCount = MaxMessageCacheSize
+	Discord.StateEnabled = true
+	Discord.State.MaxMessageCount = 2000
 
 	for i, h := range events {
 		Discord.AddHandler(h)
