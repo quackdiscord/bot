@@ -35,28 +35,27 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 }
 
 func statsCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
+
 	var heap runtime.MemStats
 	runtime.ReadMemStats(&heap)
 
-	cpuStat, err := cpu.Percent(time.Second, false)
-	if err != nil {
-		s.ChannelMessageSend(m.ChannelID, "Error getting CPU stats: "+err.Error())
-		return
-	}
-	CPUPercent := fmt.Sprintf("%.1f%%", cpuStat[0])
+	cpuStat, _ := cpu.Times(true)
+	totalDelta := float64(cpuStat[0].Total())
+	idleDelta := float64(cpuStat[0].Idle)
 
-	memStat, err := mem.VirtualMemory()
-	if err != nil {
-		s.ChannelMessageSend(m.ChannelID, "Error getting memory stats: "+err.Error())
-		return
-	}
-	MemoryUsage := fmt.Sprintf("%.1f%%", memStat.UsedPercent)
+	memStat, _ := mem.VirtualMemory()
+	usedMemory := float64(memStat.Used)
+	totalMemory := float64(memStat.Total)
 
 	Servers := fmt.Sprint(len(s.State.Guilds))
+	CPUPercent := fmt.Sprintf("%.1f%%", (totalDelta-idleDelta)/totalDelta*100)
+	MemoryUsage := fmt.Sprintf("%.1f%%", usedMemory/totalMemory*100)
 	HeapUsed := fmt.Sprintf("%.1fMB", float64(heap.HeapInuse)/1024/1024)
 	HeartbeatLatency := fmt.Sprint(s.HeartbeatLatency().Milliseconds())
+	CmdsRun := fmt.Sprint(services.Redis.HGet(services.Redis.Context(), "seeds:cmds", "total").Val())
 
-	// Cache stats
+	// cache stats
+	msgCacheSize := len(services.MsgCache.Messages)
 	memberCount := 0
 	channelCount := 0
 	roleCount := 0
@@ -68,41 +67,36 @@ func statsCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 		emojiCount += len(guild.Emojis)
 	}
 
-	// Pings
-	ctx := services.Redis.Context()
+	// pings
 	start := time.Now()
-	err = services.Redis.Ping(ctx).Err()
-	RedisPing := "Error"
-	if err == nil {
-		RedisPing = fmt.Sprint(time.Since(start).Milliseconds())
-	}
+	// ping redis
+	services.Redis.Ping(services.Redis.Context())
+	end := time.Now()
+	RedisPing := fmt.Sprint(end.Sub(start).Milliseconds())
 
 	start = time.Now()
-	err = services.DB.PingContext(ctx)
-	DBPing := "Error"
-	if err == nil {
-		DBPing = fmt.Sprint(time.Since(start).Milliseconds())
-	}
-
-	CmdsRun, err := services.Redis.HGet(ctx, "seeds:cmds", "total").Result()
-	if err != nil {
-		CmdsRun = "Error"
-	}
+	services.DB.Ping()
+	end = time.Now()
+	DBPing := fmt.Sprint(end.Sub(start).Milliseconds())
 
 	msg := fmt.Sprintf("```asciidoc\nQuack Stats\n\n"+
 		"CPU            ::   %s      \n"+
 		"RAM            ::   %s      \n"+
 		"Heap           ::   %s      \n\n"+
+
 		"Guilds         ::   %s      \n"+
+		"Messages       ::   %d / 5000 \n"+
 		"Members        ::   %d      \n"+
 		"Channels       ::   %d      \n"+
 		"Roles          ::   %d      \n"+
 		"Emojis         ::   %d      \n\n"+
+
 		"Discord Ping   ::   %sms    \n"+
 		"Redis Ping     ::   %sms    \n"+
 		"DB Ping        ::   %sms    \n\n"+
+
 		"Commands Run   ::   %s      \n"+
-		"```", CPUPercent, MemoryUsage, HeapUsed, Servers, memberCount, channelCount, roleCount, emojiCount, HeartbeatLatency, RedisPing, DBPing, CmdsRun)
+		"```", CPUPercent, MemoryUsage, HeapUsed, Servers, msgCacheSize, memberCount, channelCount, roleCount, emojiCount, HeartbeatLatency, RedisPing, DBPing, CmdsRun)
 
 	s.ChannelMessageSend(m.ChannelID, msg)
 }
