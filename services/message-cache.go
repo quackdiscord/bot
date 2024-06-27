@@ -8,7 +8,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const MaxMessageCacheSize = 2_000
+const MaxMessageCacheSize = 5_000
 
 var MsgCache *MessageCache
 

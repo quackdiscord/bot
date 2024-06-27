@@ -1,6 +1,8 @@
 package commands
 
 import (
+	"strings"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
 	"github.com/quackdiscord/bot/storage"
@@ -18,11 +20,24 @@ var ticketChannelCmd = &discordgo.ApplicationCommandOption{
 			Description: "The channel to send the ticket message to.",
 			Required:    true,
 		},
+		{
+			Type:        discordgo.ApplicationCommandOptionString,
+			Name:        "message",
+			Description: "Customize the ticket channel message.",
+			Required:    false,
+		},
 	},
 }
 
 func handleTicketChannel(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	channel := i.ApplicationCommandData().Options[0].Options[0].ChannelValue(s)
+	msg := "# Need Help?\n\n> Click the button below to open a **private ticket**.\n\n<:empty:1250701065591197716>"
+
+	if len(i.ApplicationCommandData().Options[0].Options) > 1 {
+		msg = i.ApplicationCommandData().Options[0].Options[1].StringValue()
+		// process the message to properly implement \n
+		msg = strings.ReplaceAll(msg, "\\n", "\n")
+	}
 
 	// make sure the channel is a text channel
 	if channel.Type != discordgo.ChannelTypeGuildText {
@@ -37,9 +52,8 @@ func handleTicketChannel(s *discordgo.Session, i *discordgo.InteractionCreate) *
 	}
 
 	// send a message to the channel
-	str := "# Need Help?\n\n> Click the button below to open a **private ticket**.\n\n<:empty:1250701065591197716>"
 	_, err = s.ChannelMessageSendComplex(channel.ID, &discordgo.MessageSend{
-		Content: str,
+		Content: msg,
 		Components: []discordgo.MessageComponent{
 			discordgo.ActionsRow{
 				Components: []discordgo.MessageComponent{

@@ -37,7 +37,7 @@ func ConnectDiscord(events []interface{}) {
 	Discord, _ = discordgo.New(token)
 	Discord.Identify.Intents = discordgo.Intent(3276543) // all unpriveledged intents + message content + guild members
 	Discord.StateEnabled = true
-	Discord.State.MaxMessageCount = 2000
+	Discord.State.MaxMessageCount = 5000
 
 	for i, h := range events {
 		Discord.AddHandler(h)
