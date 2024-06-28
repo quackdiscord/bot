@@ -24,6 +24,11 @@ var timeoutRemoveCmd = &discordgo.ApplicationCommandOption{
 func handleTimeoutRemove(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	userToUntime := i.ApplicationCommandData().Options[0].Options[0].UserValue(s)
 	guild, _ := s.Guild(i.GuildID)
+
+	if i.Member == nil {
+		return EmbedResponse(components.ErrorEmbed("You must be in a server to use this command."), true)
+	}
+
 	moderator := i.Member.User
 
 	if userToUntime == nil {

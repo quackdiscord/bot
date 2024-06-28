@@ -52,6 +52,11 @@ func handleWarn(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo
 
 	userToWarn := i.ApplicationCommandData().Options[0].UserValue(s)
 	reason := i.ApplicationCommandData().Options[1].StringValue()
+
+	if i.Member == nil {
+		return EmbedResponse(components.ErrorEmbed("You must be in a server to use this command."), true)
+	}
+
 	moderator := i.Member.User
 	guild, _ := s.Guild(i.GuildID)
 

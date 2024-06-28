@@ -34,6 +34,11 @@ var notesAddCmd = &discordgo.ApplicationCommandOption{
 func handleNotesAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	userToNote := i.ApplicationCommandData().Options[0].Options[0].UserValue(s)
 	content := i.ApplicationCommandData().Options[0].Options[1].StringValue()
+
+	if i.Member == nil {
+		return EmbedResponse(components.ErrorEmbed("You must be in a server to use this command."), true)
+	}
+
 	moderator := i.Member.User
 	guild, _ := s.Guild(i.GuildID)
 

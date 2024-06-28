@@ -41,6 +41,11 @@ func handleTimeoutAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 	userToTime := i.ApplicationCommandData().Options[0].Options[0].UserValue(s)
 	lengthOfTime := i.ApplicationCommandData().Options[0].Options[1].StringValue()
 	reason := "No reason provided"
+
+	if i.Member == nil {
+		return EmbedResponse(components.ErrorEmbed("You must be in a server to use this command."), true)
+	}
+
 	moderator := i.Member.User
 	guild, _ := s.Guild(i.GuildID)
 
