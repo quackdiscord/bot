@@ -3,8 +3,8 @@ package commands
 import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
+	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/storage"
-	log "github.com/sirupsen/logrus"
 )
 
 var ticketLogChannelCmd = &discordgo.ApplicationCommandOption{
@@ -40,7 +40,7 @@ func handleTicketLogChannel(s *discordgo.Session, i *discordgo.InteractionCreate
 	// Set the ticket log channel
 	err := storage.SetTicketLogChannel(i.GuildID, channel.ID)
 	if err != nil {
-		log.WithError(err).Error("Failed to set ticket log channel")
+		log.Error().AnErr("Failed to set ticket log channel", err)
 		return EmbedResponse(components.ErrorEmbed("Failed to set ticket log channel."), true)
 	}
 

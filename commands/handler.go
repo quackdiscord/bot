@@ -6,6 +6,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/config"
 	"github.com/quackdiscord/bot/lib"
+	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/services"
 )
 
@@ -29,6 +30,7 @@ func OnInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if resp != nil {
 		s.InteractionRespond(i.Interaction, resp)
 	} else {
+		log.Error().Msgf("Something went wrong while processing a command: %s", i.ApplicationCommandData().Name)
 		errMessage := config.Bot.ErrMsgPrefix + "Something went wrong while processing the command"
 		s.InteractionRespond(i.Interaction, ContentResponse(errMessage, true))
 		return

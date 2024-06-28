@@ -5,9 +5,9 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/config"
+	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/quackdiscord/bot/structs"
-	log "github.com/sirupsen/logrus"
 )
 
 func init() {
@@ -46,7 +46,7 @@ func onGuildCreate(s *discordgo.Session, gc *discordgo.GuildCreate) {
 	})
 
 	if err != nil {
-		log.WithError(err).Error("Failed to create guild")
+		log.Error().AnErr("Failed to create guild", err)
 	}
 
 	// update the guild count channel
@@ -55,8 +55,8 @@ func onGuildCreate(s *discordgo.Session, gc *discordgo.GuildCreate) {
 	})
 
 	if err != nil {
-		log.WithError(err).Error("Failed to update guild count channel")
+		log.Error().AnErr("Failed to update guild count channel", err)
 	}
 
-	log.Info("Guild created " + gc.Guild.ID)
+	log.Info().Msgf("Guild created %s", gc.Guild.ID)
 }

@@ -6,9 +6,9 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
 	"github.com/quackdiscord/bot/lib"
+	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/quackdiscord/bot/structs"
-	log "github.com/sirupsen/logrus"
 )
 
 var timeoutAddCmd = &discordgo.ApplicationCommandOption{
@@ -76,14 +76,14 @@ func handleTimeoutAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 	until, _ := lib.ParseTime(lengthOfTime)
 	err := s.GuildMemberTimeout(guild.ID, userToTime.ID, &until)
 	if err != nil {
-		log.WithError(err).Error("Failed to time out user")
+		log.Error().AnErr("Failed to time out user", err)
 		return EmbedResponse(components.ErrorEmbed("Failed to time out user.\n```"+err.Error()+"```"), true)
 	}
 
 	// save the case
 	err = storage.CreateCase(caseData)
 	if err != nil {
-		log.Error("Failed to save case", err)
+		log.Error().AnErr("Failed to save case", err)
 		return EmbedResponse(components.ErrorEmbed("Failed to save case.\n```"+err.Error()+"```"), true)
 	}
 

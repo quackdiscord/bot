@@ -5,7 +5,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/config"
-	log "github.com/sirupsen/logrus"
+	"github.com/quackdiscord/bot/log"
 )
 
 var Discord *discordgo.Session
@@ -39,23 +39,22 @@ func ConnectDiscord(events []interface{}) {
 	Discord.StateEnabled = true
 	Discord.State.MaxMessageCount = 5000
 
-	for i, h := range events {
+	for _, h := range events {
 		Discord.AddHandler(h)
-		log.Infof("Added %d/%d event handlers", i+1, len(events))
 	}
 
 	err := Discord.Open()
 	if err != nil {
-		log.WithError(err).Fatal("Error opening connection to Discord")
+		log.Fatal().AnErr("Error opening connection to Discord", err)
 	}
 
 	// register commands
 	if registerCmds == "true" {
 		if env == "prod" {
-			log.Infof("Registering %d global commands", len(Commands))
+			log.Info().Msgf("Registering %d global commands", len(Commands))
 			RegisterCommands(Discord, "") // register globally
 		} else {
-			log.Infof("Registering %d dev commands", len(Commands))
+			log.Info().Msgf("Registering %d dev commands", len(Commands))
 			RegisterCommands(Discord, config.Bot.DevGuildID) // just register for the dev guild
 		}
 	}
@@ -66,14 +65,14 @@ func RegisterCommands(s *discordgo.Session, g string) {
 	for _, v := range Commands {
 		_, err := s.ApplicationCommandCreate(s.State.User.ID, g, v.ApplicationCommand)
 		if err != nil {
-			log.WithError(err).Fatal("Error registering command: " + v.Name)
+			log.Fatal().AnErr("Error registering command: "+v.Name, err)
 		}
 		i += 1
-		log.Infof("Registered %d/%d commands", i, len(Commands))
+		log.Info().Msgf("Registered %d/%d commands", i, len(Commands))
 	}
 }
 
 func DisconnectDiscord() {
 	Discord.Close()
-	log.Info("Disconnected from Discord")
+	log.Info().Msg("Disconnected from Discord")
 }

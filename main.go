@@ -6,8 +6,8 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/quackdiscord/bot/events"
+	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/services"
-	log "github.com/sirupsen/logrus"
 )
 
 func init() {
@@ -20,16 +20,16 @@ func init() {
 	// set the environment
 	env := os.Getenv("ENVIORNMENT")
 
-	log.SetOutput(os.Stdout)
-	log.SetLevel(log.InfoLevel)
+	// log.SetOutput(os.Stdout)
+	// log.SetLevel(log.InfoLevel)
 
-	log.SetFormatter(&log.TextFormatter{
-		ForceColors:   true,
-		FullTimestamp: true,
-	})
+	// log.SetFormatter(&log.TextFormatter{
+	// 	ForceColors:   true,
+	// 	FullTimestamp: true,
+	// })
 
 	if env == "dev" {
-		log.Warn("Running in development mode")
+		log.Warn().Msg("Running in development mode")
 	}
 }
 
@@ -44,16 +44,16 @@ func main() {
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt)
-	log.Info("Press Ctrl+C to exit")
+	log.Info().Msg("Press Ctrl+C to exit")
 
 	// handle shutdown
 	<-stop
-	log.Warn("Shutting down")
+	log.Warn().Msg("Shutting down")
 	services.DisconnectDiscord()
 	services.DisconnectDB()
 	services.DisconnectRedis()
 	services.DisconnectKafka()
 
-	log.Info("Goodbye!")
+	log.Info().Msg("Goodbye!")
 
 }

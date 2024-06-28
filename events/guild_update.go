@@ -1,12 +1,10 @@
 package events
 
 import (
-	"fmt"
-
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/quackdiscord/bot/structs"
-	log "github.com/sirupsen/logrus"
 )
 
 func init() {
@@ -45,8 +43,8 @@ func onGuildUpdate(s *discordgo.Session, up *discordgo.GuildUpdate) {
 	})
 
 	if err != nil {
-		log.WithError(err).Error("Failed to update guild")
+		log.Error().AnErr("Failed to update guild", err)
 	}
 
-	log.Info(fmt.Sprintf("Guild %s updated", up.Guild.ID))
+	log.Info().Msgf("Guild %s updated", up.Guild.ID)
 }

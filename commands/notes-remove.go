@@ -3,8 +3,8 @@ package commands
 import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
+	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/storage"
-	log "github.com/sirupsen/logrus"
 )
 
 var notesRemoveCmd = &discordgo.ApplicationCommandOption{
@@ -52,7 +52,7 @@ func handleNotesRemoveLatest(s *discordgo.Session, i *discordgo.InteractionCreat
 	// find the note first
 	n, err := storage.FindLatestNote(guild.ID)
 	if err != nil {
-		log.WithError(err).Error("Failed to find latest note")
+		log.Error().AnErr("Failed to find latest note", err)
 		return EmbedResponse(components.ErrorEmbed("Failed to find latest note."), true)
 	}
 
@@ -62,7 +62,7 @@ func handleNotesRemoveLatest(s *discordgo.Session, i *discordgo.InteractionCreat
 
 	_, err = storage.DeleteLatestNote(guild.ID)
 	if err != nil {
-		log.WithError(err).Error("Failed to delete latest note")
+		log.Error().AnErr("Failed to delete latest note", err)
 		return EmbedResponse(components.ErrorEmbed("Failed to delete latest note."), true)
 	}
 
@@ -80,7 +80,7 @@ func handleNotesRemoveUser(s *discordgo.Session, i *discordgo.InteractionCreate)
 
 	_, err := storage.DeleteNoteByUserID(user.ID, guild.ID)
 	if err != nil {
-		log.WithError(err).Error("Failed to delete users notes")
+		log.Error().AnErr("Failed to delete users notes", err)
 		return EmbedResponse(components.ErrorEmbed("Failed to delete user's notes."), true)
 	}
 
@@ -96,7 +96,7 @@ func handleNotesRemoveID(s *discordgo.Session, i *discordgo.InteractionCreate) *
 	// find the case first
 	n, err := storage.FindNoteByID(noteID, guild.ID)
 	if err != nil {
-		log.WithError(err).Error("Failed to find note")
+		log.Error().AnErr("Failed to find note", err)
 		return EmbedResponse(components.ErrorEmbed("Failed to find note."), true)
 	}
 
@@ -106,7 +106,7 @@ func handleNotesRemoveID(s *discordgo.Session, i *discordgo.InteractionCreate) *
 
 	_, err = storage.DeleteNoteByID(noteID, guild.ID)
 	if err != nil {
-		log.WithError(err).Error("Failed to delete note")
+		log.Error().AnErr("Failed to delete note", err)
 		return EmbedResponse(components.ErrorEmbed("Failed to delete note."), true)
 	}
 

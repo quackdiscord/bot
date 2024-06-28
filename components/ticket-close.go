@@ -6,8 +6,8 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/config"
+	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/storage"
-	log "github.com/sirupsen/logrus"
 )
 
 func init() {
@@ -19,7 +19,7 @@ func handleTicketClose(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 	// get ticket settings
 	tsettings, err := storage.FindTicketSettingsByGuildID(i.GuildID)
 	if err != nil {
-		log.WithError(err).Error("Failed to get ticket settings")
+		log.Error().AnErr("Failed to get ticket settings", err)
 		return ComplexResponse(&discordgo.InteractionResponseData{
 			Flags:   discordgo.MessageFlagsEphemeral,
 			Content: config.Bot.ErrMsgPrefix + "Failed to get ticket settings. Please try again later.",
@@ -36,7 +36,7 @@ func handleTicketClose(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 	// get the ticket
 	ticket, err := storage.FindTicketByThreadID(i.ChannelID)
 	if err != nil {
-		log.WithError(err).Error("Failed to get ticket")
+		log.Error().AnErr("Failed to get ticket", err)
 		return ComplexResponse(&discordgo.InteractionResponseData{
 			Flags:   discordgo.MessageFlagsEphemeral,
 			Content: config.Bot.ErrMsgPrefix + "Failed to get ticket. Please try again later.",
@@ -59,7 +59,7 @@ func handleTicketClose(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 	// close the ticket
 	msgs, err := storage.CloseTicket(ticket.ID, ticket.ThreadID, user.ID)
 	if err != nil {
-		log.WithError(err).Error("Failed to close ticket")
+		log.Error().AnErr("Failed to close ticket", err)
 		return ComplexResponse(&discordgo.InteractionResponseData{
 			Flags:   discordgo.MessageFlagsEphemeral,
 			Content: config.Bot.ErrMsgPrefix + "Failed to close ticket. Please try again later.",
@@ -90,21 +90,15 @@ func handleTicketClose(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 
 	if err != nil {
 		// Handle error
-		log.WithError(err).Error("Failed to edit message")
+		log.Error().AnErr("Failed to edit message", err)
 	}
 
-	log.WithFields(
-		log.Fields{
-			"guild":  i.GuildID,
-			"user":   user.ID,
-			"ticket": ticket.ID,
-		},
-	).Info("Ticket closed")
+	log.Info().Str("guild", i.GuildID).Str("user", user.ID).Str("ticket", ticket.ID).Msg("Ticket closed")
 
 	// delete the thread
 	_, err = s.ChannelDelete(ticket.ThreadID)
 	if err != nil {
-		log.WithError(err).Error("Failed to delete thread")
+		log.Error().AnErr("Failed to delete thread", err)
 		return ComplexResponse(&discordgo.InteractionResponseData{
 			Flags:   discordgo.MessageFlagsEphemeral,
 			Content: config.Bot.ErrMsgPrefix + "Failed to delete thread. Please try again later.",

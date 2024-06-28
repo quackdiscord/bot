@@ -5,9 +5,9 @@ import (
 	"crypto/tls"
 	"os"
 
+	"github.com/quackdiscord/bot/log"
 	"github.com/segmentio/kafka-go"
 	"github.com/segmentio/kafka-go/sasl/scram"
-	log "github.com/sirupsen/logrus"
 )
 
 var Kafka *KafkaService
@@ -23,7 +23,7 @@ func ConnectKafka() {
 	topic := os.Getenv("KAFKA_TOPIC")
 	mechanism, err := scram.Mechanism(scram.SHA256, username, password)
 	if err != nil {
-		log.WithError(err).Fatal("Error creating Kafka SASL mechanism")
+		log.Fatal().AnErr("Error creating Kafka SASL mechanism", err)
 	}
 
 	Kafka = &KafkaService{
@@ -37,7 +37,7 @@ func ConnectKafka() {
 		},
 	}
 
-	log.Info("Connected to Kafka")
+	log.Info().Msg("Connected to Kafka")
 }
 
 func (k *KafkaService) Produce(ctx context.Context, key, value []byte) error {
@@ -46,7 +46,7 @@ func (k *KafkaService) Produce(ctx context.Context, key, value []byte) error {
 		Value: value,
 	})
 	if err != nil {
-		log.WithError(err).Error("Error producing Kafka message")
+		log.Error().AnErr("Error producing Kafka message", err)
 		return err
 	}
 	return nil
@@ -54,8 +54,8 @@ func (k *KafkaService) Produce(ctx context.Context, key, value []byte) error {
 
 func DisconnectKafka() {
 	if err := Kafka.writer.Close(); err != nil {
-		log.WithError(err).Error("Error closing Kafka writer")
+		log.Error().AnErr("Error closing Kafka writer", err)
 	}
 
-	log.Info("Disconnected from Kafka")
+	log.Info().Msg("Disconnected from Kafka")
 }

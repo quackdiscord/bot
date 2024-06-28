@@ -5,7 +5,7 @@ import (
 	"sync"
 
 	"github.com/bwmarrin/discordgo"
-	log "github.com/sirupsen/logrus"
+	"github.com/quackdiscord/bot/log"
 )
 
 const MaxMessageCacheSize = 5_000
@@ -31,7 +31,7 @@ type MessageCache struct {
 
 func ReadyMessageCache() {
 	MsgCache = NewMessageCache()
-	log.Info("Message cache ready")
+	log.Info().Msg("Message cache ready")
 }
 
 func NewMessageCache() *MessageCache {

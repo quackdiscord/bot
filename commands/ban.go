@@ -6,10 +6,10 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
 	"github.com/quackdiscord/bot/lib"
+	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/quackdiscord/bot/structs"
-	log "github.com/sirupsen/logrus"
 )
 
 func init() {
@@ -98,7 +98,7 @@ func handleBan(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.
 		// ban the user
 		err = s.GuildBanCreateWithReason(i.GuildID, userToBan.ID, reason, 1)
 		if err != nil {
-			log.WithError(err).Error("Failed to ban user")
+			log.Error().AnErr("Failed to ban user", err)
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to ban user.\n```" + err.Error() + "```")},
 			})
@@ -108,7 +108,7 @@ func handleBan(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.
 		// save the case
 		err = storage.CreateCase(caseData)
 		if err != nil {
-			log.WithError(err).Error("Failed to save case")
+			log.Error().AnErr("Failed to save case", err)
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to save case.\n```" + err.Error() + "```")},
 			})

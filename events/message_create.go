@@ -7,6 +7,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/config"
+	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/shirou/gopsutil/cpu"
@@ -30,6 +31,7 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		prefix := "!!!"
 		if m.Content == prefix+"stats" {
 			statsCommand(s, m)
+			log.Info().Msg("Owner stats command executed")
 		}
 	}
 }

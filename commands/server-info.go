@@ -5,7 +5,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
-	log "github.com/sirupsen/logrus"
+	"github.com/quackdiscord/bot/log"
 )
 
 var serverInfoCmd = &discordgo.ApplicationCommandOption{
@@ -17,7 +17,7 @@ var serverInfoCmd = &discordgo.ApplicationCommandOption{
 func handleServerInfo(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	guild, err := s.GuildWithCounts(i.GuildID)
 	if err != nil {
-		log.WithError(err).Error("Failed to fetch a guild")
+		log.Error().AnErr("Failed to fetch a guild", err)
 		return EmbedResponse(components.ErrorEmbed("Failed to fetch guild info."), true)
 	}
 

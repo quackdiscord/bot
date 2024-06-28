@@ -8,9 +8,9 @@ require (
 	github.com/go-redis/redis/v8 v8.11.5
 	github.com/go-sql-driver/mysql v1.8.1
 	github.com/joho/godotenv v1.5.1
+	github.com/rs/zerolog v1.33.0
 	github.com/segmentio/kafka-go v0.4.47
 	github.com/shirou/gopsutil v3.21.11+incompatible
-	github.com/sirupsen/logrus v1.9.3
 )
 
 require (
@@ -20,6 +20,8 @@ require (
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/gorilla/websocket v1.4.2 // indirect
 	github.com/klauspost/compress v1.15.9 // indirect
+	github.com/mattn/go-colorable v0.1.13 // indirect
+	github.com/mattn/go-isatty v0.0.19 // indirect
 	github.com/pierrec/lz4/v4 v4.1.15 // indirect
 	github.com/tklauser/go-sysconf v0.3.13 // indirect
 	github.com/tklauser/numcpus v0.7.0 // indirect

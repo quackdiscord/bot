@@ -6,7 +6,7 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
-	log "github.com/sirupsen/logrus"
+	"github.com/quackdiscord/bot/log"
 )
 
 var DB *sql.DB
@@ -15,7 +15,7 @@ func ConnectDB() {
 	// start a connection pool
 	db, err := sql.Open("mysql", os.Getenv("DATABASE_DSN"))
 	if err != nil {
-		log.Fatalf("Failed to connect to the database: %v", err)
+		log.Fatal().AnErr("Failed to connect to database", err)
 	}
 
 	//important settings ig
@@ -26,10 +26,10 @@ func ConnectDB() {
 	// ping the database to make sure it's connected
 	err = db.Ping()
 	if err != nil {
-		log.Fatalf("Failed to ping the database: %v", err)
+		log.Fatal().AnErr("Failed to ping database", err)
 	}
 
-	log.Info("Connected to database")
+	log.Info().Msg("Connected to database")
 
 	// set the database
 	DB = db
@@ -37,5 +37,5 @@ func ConnectDB() {
 
 func DisconnectDB() {
 	DB.Close()
-	log.Info("Disconnected from database")
+	log.Info().Msg("Disconnected from database")
 }

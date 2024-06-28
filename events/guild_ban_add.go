@@ -5,10 +5,10 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/lib"
+	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/quackdiscord/bot/structs"
-	log "github.com/sirupsen/logrus"
 )
 
 func init() {
@@ -25,7 +25,7 @@ type MemberBanned struct {
 func onGuildBanAdd(s *discordgo.Session, m *discordgo.GuildBanAdd) {
 	c, err := storage.FindLatestCase(m.GuildID)
 	if err != nil {
-		log.WithError(err).Error("Failed to fetch latest case")
+		log.Error().AnErr("Failed to fetch latest case", err)
 		return
 	}
 

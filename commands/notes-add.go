@@ -6,9 +6,9 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
 	"github.com/quackdiscord/bot/lib"
+	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/quackdiscord/bot/structs"
-	log "github.com/sirupsen/logrus"
 )
 
 var notesAddCmd = &discordgo.ApplicationCommandOption{
@@ -49,7 +49,7 @@ func handleNotesAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *disco
 
 	err := storage.CreateNote(noteData)
 	if err != nil {
-		log.WithError(err).Error("Failed to create note")
+		log.Error().AnErr("Failed to create note", err)
 		return EmbedResponse(components.ErrorEmbed("Failed to save note.\n```"+err.Error()+"```"), true)
 	}
 

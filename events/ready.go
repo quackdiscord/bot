@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
-	log "github.com/sirupsen/logrus"
+	"github.com/quackdiscord/bot/log"
 )
 
 func init() {
@@ -37,7 +37,7 @@ func onReady(s *discordgo.Session, r *discordgo.Ready) {
 
 	s.UpdateCustomStatus(actvs[rand.Intn(len(actvs))])
 
-	log.Info("Signed in as " + s.State.User.String())
+	log.Info().Msgf("Signed in as %s", s.State.User.String())
 
 	// every 10 minutes, rotate the activity
 	go func() {

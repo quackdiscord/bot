@@ -6,10 +6,10 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
 	"github.com/quackdiscord/bot/lib"
+	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/quackdiscord/bot/structs"
-	log "github.com/sirupsen/logrus"
 )
 
 func init() {
@@ -94,7 +94,7 @@ func handleWarn(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo
 	// save the case
 	err = storage.CreateCase(caseData)
 	if err != nil {
-		log.WithError(err).Error("Failed to create case")
+		log.Error().AnErr("Failed to create case", err)
 		return EmbedResponse(components.ErrorEmbed("Failed to save case.\n```"+err.Error()+"```"), true)
 	}
 

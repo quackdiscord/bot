@@ -3,8 +3,8 @@ package commands
 import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
+	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/storage"
-	log "github.com/sirupsen/logrus"
 )
 
 var casesRemoveCmd = &discordgo.ApplicationCommandOption{
@@ -52,7 +52,7 @@ func handleCasesRemoveLatest(s *discordgo.Session, i *discordgo.InteractionCreat
 	// find the case first
 	c, err := storage.FindLatestCase(guild.ID)
 	if err != nil {
-		log.WithError(err).Error("Failed to find latest case")
+		log.Error().AnErr("Failed to find latest case", err)
 		return EmbedResponse(components.ErrorEmbed("Failed to find latest case."), true)
 	}
 
@@ -62,7 +62,7 @@ func handleCasesRemoveLatest(s *discordgo.Session, i *discordgo.InteractionCreat
 
 	_, err = storage.DeleteLatestCase(guild.ID)
 	if err != nil {
-		log.WithError(err).Error("Failed to delete latest case")
+		log.Error().AnErr("Failed to delete latest case", err)
 		return EmbedResponse(components.ErrorEmbed("Failed to delete latest case."), true)
 	}
 
@@ -78,7 +78,7 @@ func handleCasesRemoveID(s *discordgo.Session, i *discordgo.InteractionCreate) *
 	// find the case first
 	c, err := storage.FindCaseByID(caseID, guild.ID)
 	if err != nil {
-		log.WithError(err).Error("Failed to find case")
+		log.Error().AnErr("Failed to find case", err)
 		return EmbedResponse(components.ErrorEmbed("Failed to find case."), true)
 	}
 
@@ -88,7 +88,7 @@ func handleCasesRemoveID(s *discordgo.Session, i *discordgo.InteractionCreate) *
 
 	_, err = storage.DeleteCaseByID(caseID, guild.ID)
 	if err != nil {
-		log.WithError(err).Error("Failed to delete case")
+		log.Error().AnErr("Failed to delete case", err)
 		return EmbedResponse(components.ErrorEmbed("Failed to delete case."), true)
 	}
 
@@ -103,7 +103,7 @@ func handleCasesRemoveUser(s *discordgo.Session, i *discordgo.InteractionCreate)
 
 	_, err := storage.DeleteCasesByUserID(user.ID, guild.ID)
 	if err != nil {
-		log.WithError(err).Error("Failed to delete users cases")
+		log.Error().AnErr("Failed to delete users cases", err)
 		return EmbedResponse(components.ErrorEmbed("Failed to delete user's cases."), true)
 	}
 

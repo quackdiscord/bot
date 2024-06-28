@@ -6,9 +6,9 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
+	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/quackdiscord/bot/structs"
-	log "github.com/sirupsen/logrus"
 )
 
 var casesViewCmd = &discordgo.ApplicationCommandOption{
@@ -53,7 +53,7 @@ var casesViewCmd = &discordgo.ApplicationCommandOption{
 func handleCasesViewLatest(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	c, err := storage.FindLatestCase(i.GuildID)
 	if err != nil {
-		log.WithError(err).Error("Failed to fetch latest case")
+		log.Error().AnErr("Failed to fetch latest case", err)
 		return EmbedResponse(components.ErrorEmbed("Failed to fetch latest case."), true)
 	}
 
@@ -67,7 +67,7 @@ func handleCasesViewID(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 
 	c, err := storage.FindCaseByID(caseID, i.GuildID)
 	if err != nil {
-		log.WithError(err).Error("Failed to fetch case by id")
+		log.Error().AnErr("Failed to fetch case by id", err)
 		return EmbedResponse(components.ErrorEmbed("Failed to fetch case."), true)
 	}
 
@@ -81,7 +81,7 @@ func handleCasesViewUser(s *discordgo.Session, i *discordgo.InteractionCreate) *
 
 	cases, err := storage.FindCasesByUserID(user.ID, i.GuildID)
 	if err != nil {
-		log.WithError(err).Error("Failed to fetch user cases")
+		log.Error().AnErr("Failed to fetch user cases", err)
 		return EmbedResponse(components.ErrorEmbed("Failed to fetch user's cases."), true)
 	}
 

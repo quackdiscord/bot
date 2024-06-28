@@ -6,8 +6,8 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
+	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/storage"
-	log "github.com/sirupsen/logrus"
 )
 
 var ticketQueueCmd = &discordgo.ApplicationCommandOption{
@@ -22,7 +22,7 @@ func handleTicketQueue(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 	// get the queue
 	queue, err := storage.GetOpenTickets(i.GuildID)
 	if err != nil {
-		log.WithError(err).Error("Failed to get ticket queue")
+		log.Error().AnErr("Failed to get ticket queue", err)
 		return EmbedResponse(components.ErrorEmbed("Failed to get ticket queue."), true)
 	}
 

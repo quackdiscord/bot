@@ -31,7 +31,7 @@ func handleLog(s *discordgo.Session, i *discordgo.InteractionCreate) (resp *disc
 	case "channel":
 		return handleLogChannel(s, i)
 	case "disable":
-		return handleLogDisable(s, i)
+		return handleLogDisable(i) // doesnt need session
 	}
 
 	return ContentResponse("oh... this is awkward.", true)

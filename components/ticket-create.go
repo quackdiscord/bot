@@ -6,9 +6,9 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/config"
 	"github.com/quackdiscord/bot/lib"
+	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/quackdiscord/bot/structs"
-	log "github.com/sirupsen/logrus"
 )
 
 func init() {
@@ -21,7 +21,7 @@ func handleTicketCreate(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 	// get ticket settings
 	tsettings, err := storage.FindTicketSettingsByGuildID(i.GuildID)
 	if err != nil {
-		log.WithError(err).Error("Failed to get ticket settings")
+		log.Error().AnErr("Failed to get ticket settings", err)
 		return ComplexResponse(&discordgo.InteractionResponseData{
 			Flags:   discordgo.MessageFlagsEphemeral,
 			Content: config.Bot.ErrMsgPrefix + "Failed to get ticket settings. Please try again later.",
@@ -45,7 +45,7 @@ func handleTicketCreate(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 	// make sure the user does not already have a ticket
 	currTicket, err := storage.GetUsersTicket(user.ID, i.GuildID)
 	if err != nil {
-		log.WithError(err).Error("Failed to get users ticket")
+		log.Error().AnErr("Failed to get users ticket", err)
 		return ComplexResponse(&discordgo.InteractionResponseData{
 			Flags:   discordgo.MessageFlagsEphemeral,
 			Content: config.Bot.ErrMsgPrefix + "Failed to get users ticket.",
@@ -66,7 +66,7 @@ func handleTicketCreate(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 		Type:                discordgo.ChannelTypeGuildPrivateThread,
 	})
 	if err != nil || thread == nil {
-		log.WithError(err).Error("Failed to create thread")
+		log.Error().AnErr("Failed to create thread", err)
 		return ComplexResponse(&discordgo.InteractionResponseData{
 			Flags:   discordgo.MessageFlagsEphemeral,
 			Content: config.Bot.ErrMsgPrefix + "Failed to create thread.",
@@ -89,7 +89,7 @@ func handleTicketCreate(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 		logMsgID = msg.ID
 
 		if err != nil {
-			log.WithError(err).Error("Failed to send message to ticket log channel")
+			log.Error().AnErr("Failed to send message to ticket log channel", err)
 			return ComplexResponse(&discordgo.InteractionResponseData{
 				Flags:   discordgo.MessageFlagsEphemeral,
 				Content: config.Bot.ErrMsgPrefix + "Failed to send message to ticket log channel.",
@@ -109,7 +109,7 @@ func handleTicketCreate(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 
 	err = storage.CreateTicket(t)
 	if err != nil {
-		log.WithError(err).Error("Failed to create ticket")
+		log.Error().AnErr("Failed to create ticket", err)
 		return ComplexResponse(&discordgo.InteractionResponseData{
 			Flags:   discordgo.MessageFlagsEphemeral,
 			Content: config.Bot.ErrMsgPrefix + "Failed to create ticket.",
@@ -133,20 +133,14 @@ func handleTicketCreate(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 	})
 
 	if err != nil {
-		log.WithError(err).Error("Failed to send message to thread")
+		log.Error().AnErr("Failed to send message to thread", err)
 		return ComplexResponse(&discordgo.InteractionResponseData{
 			Flags:   discordgo.MessageFlagsEphemeral,
 			Content: config.Bot.ErrMsgPrefix + "Failed to send message to thread.",
 		})
 	}
 
-	log.WithFields(
-		log.Fields{
-			"guild":  i.GuildID,
-			"user":   user.ID,
-			"ticket": id,
-		},
-	).Info("Ticket created")
+	log.Info().Str("guild", i.GuildID).Str("user", user.ID).Str("ticket", id).Msg("Ticket created")
 
 	return ComplexResponse(&discordgo.InteractionResponseData{
 		Flags:   discordgo.MessageFlagsEphemeral,

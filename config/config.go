@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"os"
 
-	log "github.com/sirupsen/logrus"
+	"github.com/quackdiscord/bot/log"
 )
 
 type Config struct {
@@ -32,10 +32,10 @@ func init() {
 		decoder := json.NewDecoder(file)
 		err = decoder.Decode(&Bot)
 		if err != nil {
-			log.WithError(err).Fatal("Error decoding config.json")
+			log.Error().AnErr("Failed to decode config.json", err)
 		}
-		log.Info("Loaded config.json")
+		log.Info().Msg("Loaded config.json")
 	} else {
-		log.Error("Could not open config.json, using default config")
+		log.Error().Msg("Failed to open config.json")
 	}
 }

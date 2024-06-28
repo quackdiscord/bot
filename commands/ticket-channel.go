@@ -5,8 +5,8 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
+	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/storage"
-	log "github.com/sirupsen/logrus"
 )
 
 var ticketChannelCmd = &discordgo.ApplicationCommandOption{
@@ -47,7 +47,7 @@ func handleTicketChannel(s *discordgo.Session, i *discordgo.InteractionCreate) *
 	// Set the ticket channel
 	err := storage.SetTicketChannel(i.GuildID, channel.ID)
 	if err != nil {
-		log.WithError(err).Error("Failed to set ticket channel")
+		log.Error().AnErr("Failed to set ticket channel", err)
 		return EmbedResponse(components.ErrorEmbed("Failed to set ticket channel."), true)
 	}
 
@@ -68,7 +68,7 @@ func handleTicketChannel(s *discordgo.Session, i *discordgo.InteractionCreate) *
 	})
 
 	if err != nil {
-		log.WithError(err).Error("Failed to send message to ticket channel")
+		log.Error().AnErr("Failed to send message to ticket channel", err)
 		return EmbedResponse(components.ErrorEmbed("Failed to send message to ticket channel."), true)
 	}
 

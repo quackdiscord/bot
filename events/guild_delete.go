@@ -5,8 +5,8 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/config"
+	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/storage"
-	log "github.com/sirupsen/logrus"
 )
 
 func init() {
@@ -17,7 +17,7 @@ func onGuildDelete(s *discordgo.Session, gd *discordgo.GuildDelete) {
 	// delete the guild
 	err := storage.DeleteGuild(gd.Guild.ID)
 	if err != nil {
-		log.WithError(err).Error("Failed to delete guild")
+		log.Error().AnErr("Failed to delete guild", err)
 	}
 
 	// update the guild count channel
@@ -26,8 +26,8 @@ func onGuildDelete(s *discordgo.Session, gd *discordgo.GuildDelete) {
 	})
 
 	if err != nil {
-		log.WithError(err).Error("Failed to update guild count channel")
+		log.Error().AnErr("Failed to update guild count channel", err)
 	}
 
-	log.Info("Guild deleted " + gd.Guild.ID)
+	log.Info().Msgf("Guild deleted %s", gd.Guild.ID)
 }

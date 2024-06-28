@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/services"
-	log "github.com/sirupsen/logrus"
 )
 
 func CmdRun(s *discordgo.Session, i *discordgo.InteractionCreate, d time.Duration) {
@@ -15,19 +15,14 @@ func CmdRun(s *discordgo.Session, i *discordgo.InteractionCreate, d time.Duratio
 	// increment the command run counter
 	err := services.Redis.HIncrBy(context.Background(), "seeds:cmds", data.Name, 1).Err()
 	if err != nil {
-		log.WithError(err).Error("Failed to increment command run counter")
+		log.Error().AnErr("Failed to increment command run counter", err)
 		return
 	}
 	err = services.Redis.HIncrBy(context.Background(), "seeds:cmds", "total", 1).Err()
 	if err != nil {
-		log.WithError(err).Error("Failed to increment command run counter")
+		log.Error().AnErr("Failed to increment command run counter", err)
 		return
 	}
 
-	log.WithFields(log.Fields{
-		"command": data.Name,
-		"guild":   i.GuildID,
-		"user":    i.Member.User.ID,
-		"took":    d.String(),
-	}).Info("Command executed")
+	log.Info().Str("command", data.Name).Str("guild", i.GuildID).Str("user", i.Member.User.ID).Str("took", d.String()).Msg("Command executed")
 }

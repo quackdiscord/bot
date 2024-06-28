@@ -5,9 +5,9 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
+	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/quackdiscord/bot/structs"
-	log "github.com/sirupsen/logrus"
 )
 
 var logChannelCmd = &discordgo.ApplicationCommandOption{
@@ -52,14 +52,14 @@ func handleLogChannel(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 	// get the current log settings
 	logSettings, err := storage.FindLogSettingsByID(i.GuildID)
 	if err != nil {
-		log.WithError(err).Error("Failed to get log settings")
+		log.Error().AnErr("Failed to get log settings", err)
 		return EmbedResponse(components.ErrorEmbed("Failed to get log settings."), true)
 	}
 
 	// create a webhook for the given channel
 	webhook, err := s.WebhookCreate(channel.ID, "Quack Logging", s.State.User.AvatarURL(""))
 	if err != nil {
-		log.WithError(err).Error("Failed to create webhook")
+		log.Error().AnErr("Failed to create webhook", err)
 		return EmbedResponse(components.ErrorEmbed("Failed to create webhook."), true)
 	}
 	whURL := fmt.Sprintf("https://discord.com/api/webhooks/%s/%s", webhook.ID, webhook.Token)
@@ -77,7 +77,7 @@ func handleLogChannel(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 		// update the log settings
 		err = storage.UpdateLogSettings(logSettings)
 		if err != nil {
-			log.WithError(err).Error("Failed to update log settings")
+			log.Error().AnErr("Failed to update log settings", err)
 			return EmbedResponse(components.ErrorEmbed("Failed to update log settings."), true)
 		}
 
@@ -101,7 +101,7 @@ func handleLogChannel(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 		// create the log settings object
 		err = storage.CreateLogSettings(logSettings)
 		if err != nil {
-			log.WithError(err).Error("Failed to create log settings")
+			log.Error().AnErr("Failed to create log settings", err)
 			return EmbedResponse(components.ErrorEmbed("Failed to create log settings."), true)
 		}
 	}

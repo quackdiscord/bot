@@ -6,9 +6,9 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
+	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/quackdiscord/bot/structs"
-	log "github.com/sirupsen/logrus"
 )
 
 var notesViewCmd = &discordgo.ApplicationCommandOption{
@@ -53,7 +53,7 @@ var notesViewCmd = &discordgo.ApplicationCommandOption{
 func handleNotesViewLatest(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	n, err := storage.FindLatestNote(i.GuildID)
 	if err != nil {
-		log.WithError(err).Error("Failed to fetch latest note")
+		log.Error().AnErr("Failed to fetch latest note", err)
 		return EmbedResponse(components.ErrorEmbed("Failed to fetch latest note."), true)
 	}
 
@@ -67,7 +67,7 @@ func handleNotesViewUser(s *discordgo.Session, i *discordgo.InteractionCreate) *
 
 	notes, err := storage.FindNoteByUserID(user.ID, i.GuildID)
 	if err != nil {
-		log.WithError(err).Error("Failed to fetch note by user id")
+		log.Error().AnErr("Failed to fetch note by user id", err)
 		return EmbedResponse(components.ErrorEmbed("Failed to fetch notes."), true)
 	}
 
@@ -106,7 +106,7 @@ func handleNotesViewID(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 
 	n, err := storage.FindNoteByID(caseID, i.GuildID)
 	if err != nil {
-		log.WithError(err).Error("Failed to fetch note by id")
+		log.Error().AnErr("Failed to fetch note by id", err)
 		return EmbedResponse(components.ErrorEmbed("Failed to fetch note."), true)
 	}
 

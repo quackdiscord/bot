@@ -6,7 +6,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
-	log "github.com/sirupsen/logrus"
+	"github.com/quackdiscord/bot/log"
 )
 
 var purgeEmojiCmd = &discordgo.ApplicationCommandOption{
@@ -50,7 +50,7 @@ func handlePurgeEmoji(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 		// fetch the past 100 messages (discord limit)
 		msgs, err := s.ChannelMessages(channel, 100, "", "", "")
 		if err != nil {
-			log.WithError(err).Error("Failed to fetch messages for purge")
+			log.Error().AnErr("Failed to fetch messages for purge", err)
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to fetch messages.")},
 			})
@@ -76,7 +76,7 @@ func handlePurgeEmoji(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 		// delete the messages
 		err = s.ChannelMessagesBulkDelete(channel, msgIds)
 		if err != nil {
-			log.WithError(err).Error("Failed to delete messages")
+			log.Error().AnErr("Failed to delete messages", err)
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to delete messages.")},
 			})
