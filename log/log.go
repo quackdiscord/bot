@@ -12,13 +12,8 @@ import (
 var log zerolog.Logger
 
 func init() {
-	env := "prod"
+	log = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).With().Timestamp().Caller().Logger()
 
-	if env == "dev" {
-		log = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).With().Timestamp().Caller().Logger()
-	} else {
-		log = zerolog.New(os.Stderr).With().Timestamp().Logger()
-	}
 }
 
 // fields is a map of field names to values
