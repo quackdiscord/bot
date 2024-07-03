@@ -53,8 +53,18 @@ func handleTicketClose(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 	// get the user and the owner
 	// the user is the person who clicked the button the owner is the person who created the ticket
 	// they may be the same they may be different
+	var user *discordgo.User
+	if i.Member != nil {
+		user = i.Member.User
+	} else {
+		user = i.User
+	}
+
 	owner, _ := s.GuildMember(i.GuildID, ticket.OwnerID)
-	user := i.Member.User
+	// if owner is nil, that means the user is not in the guild so use the person who clicked the button
+	if owner == nil {
+		owner = i.Member
+	}
 
 	// close the ticket
 	msgs, err := storage.CloseTicket(ticket.ID, ticket.ThreadID, user.ID)
