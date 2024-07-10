@@ -20,7 +20,6 @@ func ParseTime(durationStr string) (time.Time, error) {
 			unit = durationStr[i:]
 			// lowercase the unit
 			unit = strings.ToLower(strings.TrimSpace(unit))
-			fmt.Println(unit)
 			break
 		}
 	}
