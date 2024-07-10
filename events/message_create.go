@@ -131,7 +131,7 @@ func guildCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	// get the guild
-	guild, err := s.Guild(guildID)
+	guild, err := s.GuildWithCounts(guildID)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get guild")
 		s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Failed to get guild %s ```%s```", guildID, err))
