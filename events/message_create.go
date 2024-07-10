@@ -14,8 +14,11 @@ import (
 	"github.com/shirou/gopsutil/mem"
 )
 
+var startTime time.Time
+
 func init() {
 	Events = append(Events, onMessageCreate)
+	startTime = time.Now()
 }
 
 func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
@@ -48,6 +51,8 @@ func statsCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	memStat, _ := mem.VirtualMemory()
 	usedMemory := float64(memStat.Used)
 	totalMemory := float64(memStat.Total)
+
+	uptime := time.Since(startTime)
 
 	Servers := fmt.Sprint(len(s.State.Guilds))
 	CPUPercent := fmt.Sprintf("%.1f%%", (totalDelta-idleDelta)/totalDelta*100)
@@ -84,7 +89,8 @@ func statsCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	msg := fmt.Sprintf("```asciidoc\nQuack Stats\n\n"+
 		"CPU            ::   %s      \n"+
 		"RAM            ::   %s      \n"+
-		"Heap           ::   %s      \n\n"+
+		"Heap           ::   %s      \n"+
+		"Uptime         ::   %s      \n\n"+
 
 		"Guilds         ::   %s      \n"+
 		"Messages       ::   %d / 5000 \n"+
@@ -98,7 +104,7 @@ func statsCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 		"DB Ping        ::   %sms    \n\n"+
 
 		"Commands Run   ::   %s      \n"+
-		"```", CPUPercent, MemoryUsage, HeapUsed, Servers, msgCacheSize, memberCount, channelCount, roleCount, emojiCount, HeartbeatLatency, RedisPing, DBPing, CmdsRun)
+		"```", CPUPercent, MemoryUsage, HeapUsed, uptime.Round(time.Second).String(), Servers, msgCacheSize, memberCount, channelCount, roleCount, emojiCount, HeartbeatLatency, RedisPing, DBPing, CmdsRun)
 
 	s.ChannelMessageSend(m.ChannelID, msg)
 }
