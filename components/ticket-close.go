@@ -15,6 +15,14 @@ func init() {
 }
 
 func handleTicketClose(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
+	guild, err := s.Guild(i.GuildID)
+	if err != nil {
+		log.Error().AnErr("Failed to get guild", err)
+		return ComplexResponse(&discordgo.InteractionResponseData{
+			Flags:   discordgo.MessageFlagsEphemeral,
+			Content: config.Bot.ErrMsgPrefix + "Failed to get guild. Please try again later.",
+		})
+	}
 
 	// get ticket settings
 	tsettings, err := storage.FindTicketSettingsByGuildID(i.GuildID)
@@ -99,11 +107,35 @@ func handleTicketClose(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 	})
 
 	if err != nil {
-		// Handle error
 		log.Error().AnErr("Failed to edit message", err)
 	}
 
-	log.Info().Str("guild", i.GuildID).Str("user", user.ID).Str("ticket", ticket.ID).Msg("Ticket closed")
+	// attempt to dm the owner of the ticket
+	dmChanel, err := s.UserChannelCreate(ticket.OwnerID)
+	if err != nil {
+		log.Error().AnErr("Failed to DM owner of ticket", err)
+	} else {
+		transcript = discordgo.File{
+			Name:   "transcript-" + ticket.ID + ".txt",
+			Reader: strings.NewReader(*msgs),
+		}
+
+		embed = NewEmbed().
+			SetDescription(fmt.Sprintf("Your ticket `%s` has been closed.\n\nIf you need more help, please open a new ticket!\n\n*A transcript of the conversation has been attached.*", ticket.ID)).
+			SetColor("Main").
+			SetAuthor(guild.Name, guild.IconURL("")).
+			SetTimestamp().
+			MessageEmbed
+
+		_, err = s.ChannelMessageSendComplex(dmChanel.ID, &discordgo.MessageSend{
+			Embeds: []*discordgo.MessageEmbed{embed},
+			Files:  []*discordgo.File{&transcript},
+		})
+
+		if err != nil {
+			log.Error().AnErr("Failed to send DM to owner of ticket", err)
+		}
+	}
 
 	// delete the thread
 	_, err = s.ChannelDelete(ticket.ThreadID)
@@ -114,6 +146,8 @@ func handleTicketClose(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 			Content: config.Bot.ErrMsgPrefix + "Failed to delete thread. Please try again later.",
 		})
 	}
+
+	log.Info().Str("guild", i.GuildID).Str("user", user.ID).Str("ticket", ticket.ID).Msg("Ticket closed")
 
 	return EmptyResponse()
 }
