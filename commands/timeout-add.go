@@ -92,9 +92,29 @@ func handleTimeoutAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 		return EmbedResponse(components.ErrorEmbed("Failed to save case.\n```"+err.Error()+"```"), true)
 	}
 
-	// create the embed
+	// dms
+	dmError := ""
+	dmEmbed := components.NewEmbed().
+		SetDescription(fmt.Sprintf("You have been timed out in **%s** for ```%s```\n> Timeout will expire <t:%d:R>", guild.Name, reason, until.Unix())).
+		SetColor("Yellow").
+		SetAuthor(guild.Name, guild.IconURL("")).
+		SetFooter(fmt.Sprintf("Case ID: %s", id)).
+		SetTimestamp().MessageEmbed
+
+	// attemt to DM the user
+	dmChannel, err := s.UserChannelCreate(userToTime.ID)
+	if err != nil {
+		dmError = "\n\n> User has DMs disabled."
+	} else {
+		_, err = s.ChannelMessageSendEmbed(dmChannel.ID, dmEmbed)
+		if err != nil {
+			dmError = "\n\n> User has DMs disabled."
+		}
+	}
+
+	// create the embeds
 	embed := components.NewEmbed().
-		SetDescription(fmt.Sprintf("<@%s> has been timed out for `%s`. Timed out for `%s`.", userToTime.ID, reason, lengthOfTime)).
+		SetDescription(fmt.Sprintf("<@%s> has been timed out for `%s`. Timed out for `%s`. Expires <t:%d:R>%s", userToTime.ID, reason, lengthOfTime, until.Unix(), dmError)).
 		SetColor("Main").
 		SetAuthor(fmt.Sprintf("%s timed out %s", moderator.Username, userToTime.Username), userToTime.AvatarURL("")).
 		SetFooter("Case ID: " + id).
