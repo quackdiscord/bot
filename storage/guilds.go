@@ -9,6 +9,12 @@ import (
 
 // create a new guild
 func CreateGuild(g *structs.Guild) error {
+	// save it in redis
+	err := services.Redis.SAdd(context.Background(), "guilds", g.ID).Err()
+	if err != nil {
+		return err
+	}
+
 	// prepare the statement
 	stmtIns, err := services.DB.Prepare("INSERT INTO guilds (id, name, description, member_count, is_premium, large, vanity_url, joined_at, owner_id, shard_id, banner_url, icon, max_members, partnered, afk_channel_id, afk_timeout, mfa_level, nsfw_level, preferred_locale, rules_channel_id, system_channel_id) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
 	if err != nil {
@@ -17,12 +23,6 @@ func CreateGuild(g *structs.Guild) error {
 
 	// execute the statement
 	_, err = stmtIns.Exec(g.ID, g.Name, g.Description, g.MemberCount, g.IsPremium, g.Large, g.VanityURL, g.JoinedAt, g.OwnerID, g.ShardID, g.BannerURL, g.Icon, g.MaxMembers, g.Partnered, g.AFKChannelID, g.AFKTimeout, g.MFALevel, g.NSFWLevel, g.PerferedLocale, g.RulesChannelID, g.SystemChannelID)
-	if err != nil {
-		return err
-	}
-
-	// save it in redis
-	err = services.Redis.SAdd(context.Background(), "guilds", g.ID).Err()
 	if err != nil {
 		return err
 	}
