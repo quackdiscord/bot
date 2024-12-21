@@ -21,6 +21,12 @@ func CreateGuild(g *structs.Guild) error {
 		return err
 	}
 
+	// save it in redis
+	err = services.Redis.SAdd(context.Background(), "guilds", g.ID).Err()
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
