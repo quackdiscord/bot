@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 
+	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/structs"
 )
@@ -14,6 +15,7 @@ func CreateGuild(g *structs.Guild) error {
 	if err != nil {
 		return err
 	}
+	log.Info().Msg("added to redis")
 
 	// prepare the statement
 	stmtIns, err := services.DB.Prepare("INSERT INTO guilds (id, name, description, member_count, is_premium, large, vanity_url, joined_at, owner_id, shard_id, banner_url, icon, max_members, partnered, afk_channel_id, afk_timeout, mfa_level, nsfw_level, preferred_locale, rules_channel_id, system_channel_id) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
