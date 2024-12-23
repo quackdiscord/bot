@@ -122,6 +122,9 @@ func init() {
 	}).With().Timestamp().Caller().Logger()
 
 	SetLogCallback(func(level zerolog.Level, msg string, fields map[string]interface{}) {
+		if os.Getenv("ENVIORNMENT") == "dev" {
+			return
+		}
 		// form the log message
 		formatedFields := formatFields(fields)
 		fieldMsg := ""
