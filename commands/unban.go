@@ -10,6 +10,7 @@ import (
 	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/quackdiscord/bot/structs"
+	"github.com/quackdiscord/bot/utils"
 )
 
 func init() {
@@ -41,6 +42,10 @@ var unbanCmd = &discordgo.ApplicationCommand{
 }
 
 func handleUnban(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
+	if !utils.CheckPerms(i.Member, banMembers) {
+		return EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
+	}
+
 	// defer the response
 	LoadingResponse()
 

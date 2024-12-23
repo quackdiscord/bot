@@ -10,6 +10,7 @@ import (
 	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/quackdiscord/bot/structs"
+	"github.com/quackdiscord/bot/utils"
 )
 
 func init() {
@@ -49,6 +50,9 @@ var warnCmd = &discordgo.ApplicationCommand{
 }
 
 func handleWarn(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
+	if !utils.CheckPerms(i.Member, moderateMembers) {
+		return EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
+	}
 
 	userToWarn := i.ApplicationCommandData().Options[0].UserValue(s)
 	reason := i.ApplicationCommandData().Options[1].StringValue()

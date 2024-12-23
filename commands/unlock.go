@@ -7,6 +7,7 @@ import (
 	"github.com/quackdiscord/bot/components"
 	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/services"
+	"github.com/quackdiscord/bot/utils"
 )
 
 func init() {
@@ -32,6 +33,10 @@ var unlockCmd = &discordgo.ApplicationCommand{
 }
 
 func handleUnlock(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
+	if !utils.CheckPerms(i.Member, moderateMembers) {
+		return EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
+	}
+
 	c := i.ApplicationCommandData().Options[0].ChannelValue(s)
 	if c == nil {
 		return EmbedResponse(components.ErrorEmbed("Channel not found."), true)
