@@ -26,7 +26,7 @@ func handlePing(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo
 
 	embed := components.NewEmbed().
 		SetDescription(fmt.Sprintf("**🏓 Pong ** - Latency: `%dms`", HeartbeatLatency)).
-		SetColor("Green").
+		SetColor("Main").
 		MessageEmbed
 
 	return EmbedResponse(embed, false)
