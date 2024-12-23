@@ -31,8 +31,6 @@ func onReady(s *discordgo.Session, r *discordgo.Ready) {
 		"Give me some bread",
 		"Watching you",
 		"Leading the ducklings",
-		"New and Improved!",
-		"Quack v4 out now!",
 	}
 
 	s.UpdateCustomStatus(actvs[rand.Intn(len(actvs))])
