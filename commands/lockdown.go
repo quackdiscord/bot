@@ -1,8 +1,11 @@
 package commands
 
 import (
+	"fmt"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
+	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/services"
 )
 
@@ -29,5 +32,63 @@ var lockdownCmd = &discordgo.ApplicationCommand{
 }
 
 func handleLockdown(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
-	return EmbedResponse(components.ErrorEmbed("This command is not yet implemented."), true)
+	c := i.ApplicationCommandData().Options[0].ChannelValue(s)
+	if c == nil {
+		return EmbedResponse(components.ErrorEmbed("Channel not found."), true)
+	}
+
+	if c.Type == discordgo.ChannelTypeGuildText {
+		overwrites := c.PermissionOverwrites
+		// Find if there's an existing overwrite for the guild role
+		var foundGuild bool
+		for i, overwrite := range overwrites {
+			if overwrite.ID == c.GuildID && overwrite.Type == discordgo.PermissionOverwriteTypeRole {
+				// Modify existing overwrite to add the new denied permissions
+				overwrites[i].Deny |= discordgo.PermissionSendMessages | discordgo.PermissionSendMessagesInThreads
+				foundGuild = true
+				break
+			}
+		}
+
+		// If no existing overwrite was found for the guild role, add a new one
+		if !foundGuild {
+			overwrites = append(overwrites, &discordgo.PermissionOverwrite{
+				ID:   c.GuildID,
+				Type: discordgo.PermissionOverwriteTypeRole,
+				Deny: discordgo.PermissionSendMessages | discordgo.PermissionSendMessagesInThreads,
+			})
+		}
+
+		// Update the channel with all permission overwrites
+		_, err := s.ChannelEdit(c.ID, &discordgo.ChannelEdit{
+			PermissionOverwrites: overwrites,
+		})
+		if err != nil {
+			log.Error().AnErr("Failed to update channel permissions", err)
+			return EmbedResponse(components.ErrorEmbed("Failed to update channel permissions."), true)
+		}
+
+		// send a message in the channel
+		embed := components.NewEmbed().
+			SetTitle("This channel has been locked.").
+			SetDescription("Please wait for a moderator to unlock this channel.").
+			SetColor("Main").
+			SetTimestamp().
+			MessageEmbed
+
+		_, err = s.ChannelMessageSendEmbed(c.ID, embed)
+		if err != nil {
+			return EmbedResponse(components.ErrorEmbed("Failed to send message to channel."), true)
+		}
+
+		embed = components.NewEmbed().
+			SetDescription(fmt.Sprintf("🔒 <#%s> has been locked down.", c.ID)).
+			SetColor("Main").
+			SetTimestamp().
+			MessageEmbed
+
+		return EmbedResponse(embed, false)
+	}
+
+	return EmbedResponse(components.ErrorEmbed("This channel type is not supported."), true)
 }
