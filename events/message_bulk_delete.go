@@ -43,9 +43,14 @@ func onMessageBulkDelete(s *discordgo.Session, m *discordgo.MessageDeleteBulk) {
 			continue
 		}
 
+		avatarURL := ""
+		if message.Author != nil && message.Author.AvatarURL("") != "" {
+			avatarURL = message.Author.AvatarURL("")
+		}
+
 		data.Messages = append(data.Messages, BulkMessage{
 			ID:          message.ID,
-			Author:      structs.LogUser{ID: message.Author.ID, Username: message.Author.Username, AvatarURL: message.Author.AvatarURL("")},
+			Author:      structs.LogUser{ID: message.Author.ID, Username: message.Author.Username, AvatarURL: avatarURL},
 			Content:     message.Content,
 			Attachments: message.Attachments,
 		})

@@ -33,10 +33,15 @@ func onMessageUpdate(s *discordgo.Session, m *discordgo.MessageUpdate) {
 	// access the message cache
 	services.MsgCache.AddMessage(m.Message)
 
+	avatarURL := ""
+	if m.Author != nil && m.Author.AvatarURL("") != "" {
+		avatarURL = m.Author.AvatarURL("")
+	}
+
 	data := MsgUpdate{
 		Type:           "message_update",
 		ID:             m.ID,
-		Author:         structs.LogUser{ID: m.Author.ID, Username: m.Author.Username, AvatarURL: m.Author.AvatarURL("")},
+		Author:         structs.LogUser{ID: m.Author.ID, Username: m.Author.Username, AvatarURL: avatarURL},
 		GuildID:        m.GuildID,
 		ChannelID:      m.ChannelID,
 		OldContent:     m.BeforeUpdate.Content,

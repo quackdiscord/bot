@@ -34,10 +34,15 @@ func onMessageDelete(s *discordgo.Session, m *discordgo.MessageDelete) {
 		return
 	}
 
+	avatarURL := ""
+	if message.Author != nil && message.Author.AvatarURL("") != "" {
+		avatarURL = message.Author.AvatarURL("")
+	}
+
 	data := MsgDelete{
 		Type:        "message_delete",
 		ID:          m.ID,
-		Author:      structs.LogUser{ID: message.Author.ID, Username: message.Author.Username},
+		Author:      structs.LogUser{ID: message.Author.ID, Username: message.Author.Username, AvatarURL: avatarURL},
 		GuildID:     message.GuildID,
 		ChannelID:   message.ChannelID,
 		Content:     message.Content,
