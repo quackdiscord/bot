@@ -110,3 +110,10 @@ func (eq *EventQueue) processEvent(event Event) {
 		log.Error().Err(err).Msgf("Error processing event type %s", event.Type)
 	}
 }
+
+func (eq *EventQueue) GetQueueSize() int {
+	eq.mu.RLock()
+	defer eq.mu.RUnlock()
+
+	return len(eq.queue)
+}

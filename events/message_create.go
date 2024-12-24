@@ -69,6 +69,7 @@ func statsCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	// cache stats
 	msgCacheSize := len(services.MsgCache.Messages)
+	eventQueueSize := services.EQ.GetQueueSize()
 	memberCount := 0
 	channelCount := 0
 	roleCount := 0
@@ -103,14 +104,15 @@ func statsCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 		"Members        ::   %d      \n"+
 		"Channels       ::   %d      \n"+
 		"Roles          ::   %d      \n"+
-		"Emojis         ::   %d      \n\n"+
+		"Emojis         ::   %d      \n"+
+		"Events         ::   %d (in queue) \n\n"+
 
 		"Discord Ping   ::   %sms    \n"+
 		"Redis Ping     ::   %sms    \n"+
 		"DB Ping        ::   %sms    \n\n"+
 
 		"Commands Run   ::   %s      \n"+
-		"```", CPUPercent, MemoryUsage, HeapUsed, uptime.Round(time.Second).String(), Servers, msgCacheSize, memberCount, channelCount, roleCount, emojiCount, HeartbeatLatency, RedisPing, DBPing, CmdsRun)
+		"```", CPUPercent, MemoryUsage, HeapUsed, uptime.Round(time.Second).String(), Servers, msgCacheSize, memberCount, channelCount, roleCount, emojiCount, eventQueueSize, HeartbeatLatency, RedisPing, DBPing, CmdsRun)
 
 	s.ChannelMessageSend(m.ChannelID, msg)
 }
