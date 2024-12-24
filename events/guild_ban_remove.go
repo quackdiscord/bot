@@ -1,74 +1,87 @@
 package events
 
 import (
-	"context"
+	"fmt"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/quackdiscord/bot/lib"
-	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/quackdiscord/bot/structs"
+	"github.com/quackdiscord/bot/utils"
 )
 
 func init() {
 	Events = append(Events, onGuildBanRemove)
 }
 
-type MemberUnbanned struct {
-	Type    string          `json:"type"`
-	GuildID string          `json:"guild_id"`
-	User    *discordgo.User `json:"user"`
-	Case    *structs.Case   `json:"case"`
+func onGuildBanRemove(s *discordgo.Session, m *discordgo.GuildBanRemove) {
+	user, err := s.User(m.User.ID)
+	if err != nil {
+		return
+	}
+
+	services.EQ.Enqueue(services.Event{
+		Type:    "guild_ban_remove",
+		Data:    user,
+		GuildID: m.GuildID,
+	})
 }
 
-func onGuildBanRemove(s *discordgo.Session, m *discordgo.GuildBanRemove) {
-	c, err := storage.FindLatestCase(m.GuildID)
+func guildBanRemoveHandler(e services.Event) error {
+	settings, err := storage.FindLogSettingsByID(e.GuildID)
 	if err != nil {
-		log.Error().AnErr("Failed to fetch latest case", err)
-		return
+		return err
 	}
 
-	// if case is empty, set it to a default case
-	if c == nil {
-		c = &structs.Case{
-			ID:          "",
-			GuildID:     m.GuildID,
-			UserID:      m.User.ID,
-			ModeratorID: "",
-			Type:        3,
-			Reason:      "",
-			CreatedAt:   "",
-		}
-	} else {
-		// if the user is unbanned by something other than the bot, the latest case won't be the one for this event
-		// or if for some reason, the event is dispatched before the case is created
-		// or if the latest casae is related to this user, but its not an unban
-		if c.UserID != m.User.ID || c.Type != 3 {
-			c = &structs.Case{
-				ID:          "",
-				GuildID:     m.GuildID,
-				UserID:      m.User.ID,
-				ModeratorID: "",
-				Type:        3,
-				Reason:      "",
-				CreatedAt:   "",
-			}
-		}
+	if settings == nil || settings.MemberWebhookURL == "" {
+		return nil
 	}
 
-	data := MemberUnbanned{
-		Type:    "guild_ban_remove",
-		GuildID: m.GuildID,
-		User:    m.User,
-		Case:    c,
-	}
+	user := e.Data.(*discordgo.User)
 
-	// send kafka message
-	json, err := lib.ToJSONByteArr(data)
+	desc := fmt.Sprintf("**Member:** <@%s> (%s)", user.ID, user.Username)
+
+	// get the latest case from this server
+	c, err := storage.FindLatestCase(e.GuildID)
 	if err != nil {
-		return
+		return err
 	}
 
-	services.Kafka.Produce(context.Background(), []byte(data.Type), json)
+	// check that the case is for this user and is an unban
+	if c.UserID != user.ID || c.Type != 3 {
+		c = nil
+	}
+
+	if c != nil {
+		desc += fmt.Sprintf("\n\n**Reason:** `%s`\n**Moderator:** <@%s> (%s)\n**Case ID:** %s", c.Reason, c.ModeratorID, c.ModeratorID, c.ID)
+	}
+
+	embed := structs.Embed{
+		Title:       "Member unbanned",
+		Color:       0x2c2f33,
+		Description: desc,
+		Author: structs.EmbedAuthor{
+			Name: user.Username,
+			Icon: user.AvatarURL(""),
+		},
+		Footer: structs.EmbedFooter{
+			Text: fmt.Sprintf("User ID: %s", user.ID),
+		},
+		Thumbnail: structs.EmbedThumbnail{
+			URL: "https://cdn.discordapp.com/emojis/1064442704936828968.webp",
+		},
+		Timestamp: time.Now().Format(time.RFC3339),
+	}
+
+	if len(embed.Description) > 4096 {
+		embed.Description = embed.Description[:4096]
+	}
+
+	err = utils.SendWHEmbed(settings.MemberWebhookURL, embed)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

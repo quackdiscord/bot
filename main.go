@@ -35,12 +35,16 @@ func init() {
 
 func main() {
 	services.ReadyMessageCache()
+	services.ReadyEventQueue(1000)
 
 	// connect services
 	services.ConnectRedis()
 	services.ConnectDB()
-	services.ConnectKafka()
+	events.RegisterEvents()
 	services.ConnectDiscord(events.Events)
+
+	// start the event queue
+	go services.EQ.Start(3)
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt)
@@ -52,7 +56,7 @@ func main() {
 	services.DisconnectDiscord()
 	services.DisconnectDB()
 	services.DisconnectRedis()
-	services.DisconnectKafka()
+	services.EQ.Stop()
 
 	log.Info().Msg("Goodbye!")
 
