@@ -22,4 +22,6 @@ type Guild struct {
 	PerferedLocale  string
 	RulesChannelID  string
 	SystemChannelID string
+	// optionals
+	BanAppealLink *string
 }

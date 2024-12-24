@@ -96,14 +96,9 @@ func handleKick(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo
 		SetTimestamp().MessageEmbed
 
 	// attempt to DM the user
-	dmChannel, err := s.UserChannelCreate(userToKick.ID)
+	err := utils.DMUserEmbed(userToKick.ID, dmEmbed, s)
 	if err != nil {
 		dmError = "\n\n> User has DMs disabled."
-	} else {
-		_, err = s.ChannelMessageSendEmbed(dmChannel.ID, dmEmbed)
-		if err != nil {
-			dmError = "\n\n> User has DMs disabled."
-		}
 	}
 
 	// kick the user

@@ -9,6 +9,7 @@ import (
 	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/quackdiscord/bot/structs"
+	"github.com/quackdiscord/bot/utils"
 )
 
 var casesAddCmd = &discordgo.ApplicationCommandOption{
@@ -69,14 +70,9 @@ func handleCasesAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *disco
 		MessageEmbed
 
 	// attempt to send the user a DM
-	dmChannel, err := s.UserChannelCreate(userToWarn.ID)
+	err := utils.DMUserEmbed(userToWarn.ID, dmEmbed, s)
 	if err != nil {
 		dmError = "\n\n> User has DMs disabled."
-	} else {
-		_, err = s.ChannelMessageSendEmbed(dmChannel.ID, dmEmbed)
-		if err != nil {
-			dmError = "\n\n> User has DMs disabled."
-		}
 	}
 
 	// save the case

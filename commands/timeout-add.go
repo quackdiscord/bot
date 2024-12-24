@@ -9,6 +9,7 @@ import (
 	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/quackdiscord/bot/structs"
+	"github.com/quackdiscord/bot/utils"
 )
 
 var timeoutAddCmd = &discordgo.ApplicationCommandOption{
@@ -101,15 +102,9 @@ func handleTimeoutAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 		SetFooter(fmt.Sprintf("Case ID: %s", id)).
 		SetTimestamp().MessageEmbed
 
-	// attemt to DM the user
-	dmChannel, err := s.UserChannelCreate(userToTime.ID)
+	err = utils.DMUserEmbed(userToTime.ID, dmEmbed, s)
 	if err != nil {
 		dmError = "\n\n> User has DMs disabled."
-	} else {
-		_, err = s.ChannelMessageSendEmbed(dmChannel.ID, dmEmbed)
-		if err != nil {
-			dmError = "\n\n> User has DMs disabled."
-		}
 	}
 
 	// create the embeds

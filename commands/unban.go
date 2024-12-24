@@ -102,14 +102,9 @@ func handleUnban(s *discordgo.Session, i *discordgo.InteractionCreate) *discordg
 	}
 
 	// attempt to send the user a DM
-	dmChannel, err := s.UserChannelCreate(userToUnban.ID)
+	err = utils.DMUserEmbed(userToUnban.ID, dmEmbed, s)
 	if err != nil {
 		dmError = "\n\n> User has DMs disabled."
-	} else {
-		_, err = s.ChannelMessageSendEmbed(dmChannel.ID, dmEmbed)
-		if err != nil {
-			dmError = "\n\n> User has DMs disabled."
-		}
 	}
 
 	// save the case
