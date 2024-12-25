@@ -89,7 +89,6 @@ func handleLockdown(s *discordgo.Session, i *discordgo.InteractionCreate) *disco
 		embed = components.NewEmbed().
 			SetDescription(fmt.Sprintf("🔒 <#%s> has been locked down.", c.ID)).
 			SetColor("Main").
-			SetTimestamp().
 			MessageEmbed
 
 		return EmbedResponse(embed, false)

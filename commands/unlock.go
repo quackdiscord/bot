@@ -84,7 +84,6 @@ func handleUnlock(s *discordgo.Session, i *discordgo.InteractionCreate) *discord
 		embed = components.NewEmbed().
 			SetDescription(fmt.Sprintf("🔓 <#%s> has been unlocked.", c.ID)).
 			SetColor("Main").
-			SetTimestamp().
 			MessageEmbed
 
 		return EmbedResponse(embed, false)
