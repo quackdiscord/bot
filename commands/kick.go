@@ -98,7 +98,7 @@ func handleKick(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo
 	// attempt to DM the user
 	err := utils.DMUserEmbed(userToKick.ID, dmEmbed, s)
 	if err != nil {
-		dmError = "\n\n> User has DMs disabled."
+		dmError = "\n\n-# *User has DMs disabled.*"
 	}
 
 	// kick the user

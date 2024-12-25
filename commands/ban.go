@@ -97,7 +97,7 @@ func handleBan(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.
 		// attempt to DM the user
 		err := utils.DMUserEmbed(userToBan.ID, dmEmbed, s)
 		if err != nil {
-			dmError = "\n\n> User has DMs disabled."
+			dmError = "\n\n-# *User has DMs disabled.*"
 		}
 
 		// ban the user

@@ -72,7 +72,7 @@ func handleCasesAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *disco
 	// attempt to send the user a DM
 	err := utils.DMUserEmbed(userToWarn.ID, dmEmbed, s)
 	if err != nil {
-		dmError = "\n\n> User has DMs disabled."
+		dmError = "\n\n-# *User has DMs disabled.*"
 	}
 
 	// save the case

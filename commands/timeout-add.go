@@ -104,12 +104,12 @@ func handleTimeoutAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 
 	err = utils.DMUserEmbed(userToTime.ID, dmEmbed, s)
 	if err != nil {
-		dmError = "\n\n> User has DMs disabled."
+		dmError = "\n\n-# *User has DMs disabled.*"
 	}
 
 	// create the embeds
 	embed := components.NewEmbed().
-		SetDescription(fmt.Sprintf("<@%s> has been timed out for `%s`. Timed out for `%s`. Expires <t:%d:R>%s", userToTime.ID, reason, lengthOfTime, until.Unix(), dmError)).
+		SetDescription(fmt.Sprintf("<:timeout:1321327230642552844> <@%s> has been timed out for `%s`.\n-# Timed out for `%s`. Expires <t:%d:R>%s", userToTime.ID, reason, lengthOfTime, until.Unix(), dmError)).
 		SetColor("Main").
 		SetAuthor(fmt.Sprintf("%s timed out %s", moderator.Username, userToTime.Username), userToTime.AvatarURL("")).
 		SetFooter("Case ID: " + id).
