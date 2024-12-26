@@ -54,6 +54,10 @@ func msgBulkDeleteHandler(e services.Event) error {
 	desc := fmt.Sprintf("**Channel:** <#%s> (%s)\n", msgs[0].ChannelID, msgs[0].ChannelID)
 
 	for i, message := range msgs {
+		if message == nil {
+			continue
+		}
+
 		if message.Content != "" || len(message.Attachments) > 0 {
 			desc += fmt.Sprintf("\n%d. <@%s> (%s)", i, message.Author.ID, message.Author.Username)
 
