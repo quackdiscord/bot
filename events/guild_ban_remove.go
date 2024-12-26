@@ -29,6 +29,9 @@ func onGuildBanRemove(s *discordgo.Session, m *discordgo.GuildBanRemove) {
 }
 
 func guildBanRemoveHandler(e services.Event) error {
+	// wait 5 seconds to make sure the case as been saved
+	time.Sleep(5 * time.Second)
+
 	settings, err := storage.FindLogSettingsByID(e.GuildID)
 	if err != nil {
 		return err
