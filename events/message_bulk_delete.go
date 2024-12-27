@@ -51,6 +51,10 @@ func msgBulkDeleteHandler(e services.Event) error {
 		return nil
 	}
 
+	if msgs[0] == nil {
+		return nil
+	}
+
 	desc := fmt.Sprintf("**Channel:** <#%s> (%s)\n", msgs[0].ChannelID, msgs[0].ChannelID)
 
 	for i, message := range msgs {
