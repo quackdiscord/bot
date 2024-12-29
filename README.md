@@ -1,6 +1,6 @@
 # 🦆 Quack
 
-*Formerly Seeds*
+_Formerly Seeds_
 
 A Discord bot focused on making Discord safer. Providing exceptional tools for moderation and community protection.
 
@@ -26,9 +26,10 @@ cd bot
 
 2. Set up environment variables.
 
--   Create a `.env.local` in the root of the project.
--   Refer to [`config.ts`](./config.ts) to see all the required enviornment variables.
--   Feel free to omit any for testing.
+- Create a `.env.local` in the root of the project.
+- Refer to [`.env.example`](./env.example) to see all the required enviornment variables.
+- Refer to [`config.json`](./config.json) to see more configuration options.
+- Feel free to omit any for testing.
 
 3. Start the bot!
 
@@ -36,7 +37,7 @@ cd bot
 go run .
 ```
 
--   This will run the bot.
+- This will run the bot.
 
 ## Contributing
 
