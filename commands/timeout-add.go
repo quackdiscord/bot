@@ -67,55 +67,71 @@ func handleTimeoutAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 		return EmbedResponse(components.ErrorEmbed("You cannot time out a bot."), true)
 	}
 
-	// create the case
-	id, _ := lib.GenID()
-	caseData := &structs.Case{
-		ID:          id,
-		Type:        4,
-		Reason:      reason,
-		UserID:      userToTime.ID,
-		ModeratorID: moderator.ID,
-		GuildID:     guild.ID,
-	}
+	// wrap in a go routine to prevent blocking
+	go func() {
+		// create the case
+		id, _ := lib.GenID()
+		caseData := &structs.Case{
+			ID:          id,
+			Type:        4,
+			Reason:      reason,
+			UserID:      userToTime.ID,
+			ModeratorID: moderator.ID,
+			GuildID:     guild.ID,
+		}
 
-	// create the timeout
-	until, _ := lib.ParseTime(lengthOfTime)
-	err := s.GuildMemberTimeout(guild.ID, userToTime.ID, &until)
-	if err != nil {
-		log.Error().AnErr("Failed to time out user", err)
-		return EmbedResponse(components.ErrorEmbed("Failed to time out user.\n```"+err.Error()+"```"), true)
-	}
+		// create the timeout
+		until, _ := lib.ParseTime(lengthOfTime)
+		err := s.GuildMemberTimeout(guild.ID, userToTime.ID, &until)
+		if err != nil {
+			log.Error().AnErr("Failed to time out user", err)
+			errEmbed := components.ErrorEmbed("Failed to time out user.\n```" + err.Error() + "```")
+			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+				Embeds: &[]*discordgo.MessageEmbed{errEmbed},
+			})
+			return
+		}
 
-	// save the case
-	err = storage.CreateCase(caseData)
-	if err != nil {
-		log.Error().AnErr("Failed to save case", err)
-		return EmbedResponse(components.ErrorEmbed("Failed to save case.\n```"+err.Error()+"```"), true)
-	}
+		// save the case
+		err = storage.CreateCase(caseData)
+		if err != nil {
+			log.Error().AnErr("Failed to save case", err)
+			errEmbed := components.ErrorEmbed("Failed to save case.\n```" + err.Error() + "```")
+			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+				Embeds: &[]*discordgo.MessageEmbed{errEmbed},
+			})
+			return
+		}
 
-	// dms
-	dmError := ""
-	dmEmbed := components.NewEmbed().
-		SetDescription(fmt.Sprintf("You have been timed out in **%s** for ```%s```\n> Timeout will expire <t:%d:R>", guild.Name, reason, until.Unix())).
-		SetColor("Yellow").
-		SetAuthor(guild.Name, guild.IconURL("")).
-		SetFooter(fmt.Sprintf("Case ID: %s", id)).
-		SetTimestamp().MessageEmbed
+		// dms
+		dmError := ""
+		dmEmbed := components.NewEmbed().
+			SetDescription(fmt.Sprintf("You have been timed out in **%s** for ```%s```\n> Timeout will expire <t:%d:R>", guild.Name, reason, until.Unix())).
+			SetColor("Yellow").
+			SetAuthor(guild.Name, guild.IconURL("")).
+			SetFooter(fmt.Sprintf("Case ID: %s", id)).
+			SetTimestamp().MessageEmbed
 
-	err = utils.DMUserEmbed(userToTime.ID, dmEmbed, s)
-	if err != nil {
-		dmError = "\n\n-# *User has DMs disabled.*"
-	}
+		err = utils.DMUserEmbed(userToTime.ID, dmEmbed, s)
+		if err != nil {
+			dmError = "\n\n-# *User has DMs disabled.*"
+		}
 
-	// create the embeds
-	embed := components.NewEmbed().
-		SetDescription(fmt.Sprintf("<:timeout:1321327230642552844> <@%s> has been timed out for `%s`.\n-# Timed out for `%s`. Expires <t:%d:R>%s", userToTime.ID, reason, lengthOfTime, until.Unix(), dmError)).
-		SetColor("Main").
-		SetAuthor(fmt.Sprintf("%s timed out %s", moderator.Username, userToTime.Username), userToTime.AvatarURL("")).
-		SetFooter("Case ID: " + id).
-		SetTimestamp().
-		MessageEmbed
+		// create the embeds
+		embed := components.NewEmbed().
+			SetDescription(fmt.Sprintf("<:timeout:1321327230642552844> <@%s> has been timed out for `%s`.\n-# Timed out for `%s`. Expires <t:%d:R>%s", userToTime.ID, reason, lengthOfTime, until.Unix(), dmError)).
+			SetColor("Main").
+			SetAuthor(fmt.Sprintf("%s timed out %s", moderator.Username, userToTime.Username), userToTime.AvatarURL("")).
+			SetFooter("Case ID: " + id).
+			SetTimestamp().
+			MessageEmbed
 
-	return EmbedResponse(embed, false)
+		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Embeds: &[]*discordgo.MessageEmbed{embed},
+		})
+
+	}()
+
+	return LoadingResponse()
 
 }
