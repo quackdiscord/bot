@@ -9,9 +9,8 @@ All Quack's commands use Discord's
 
 [![Discord Bots](https://top.gg/api/widget/servers/968198214450831370.svg)](https://top.gg/bot/968198214450831370)
 [![Discord Bots](https://top.gg/api/widget/upvotes/968198214450831370.svg)](https://top.gg/bot/968198214450831370)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![GitHub issues](https://img.shields.io/github/issues/seedsdiscord/bot)](https://github.com/seedsdiscord/bot/issues)
 [![GitHub stars](https://img.shields.io/github/stars/seedsdiscord/bot)](https://github.com/seedsdiscord/bot/stargazers)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ## Running Locally
 
