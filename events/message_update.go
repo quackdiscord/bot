@@ -47,7 +47,7 @@ func msgUpdateHandler(e services.Event) error {
 
 	}
 
-	desc := fmt.Sprintf("**Author:** <@%s> (%s)", msg.Author.ID, msg.Author.Username)
+	desc := fmt.Sprintf("**Author:** <@%s> (%s)", msg.Author.ID, msg.Author.ID)
 
 	if msg.BeforeUpdate.Content != msg.Content {
 		desc += fmt.Sprintf("\n\n**Before:**\n> \"*%s*\"\n\n**After:**\n> \"*%s*\"\n", msg.BeforeUpdate.Content, msg.Content)
