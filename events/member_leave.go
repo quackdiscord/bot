@@ -16,14 +16,14 @@ func init() {
 }
 
 func onMemberLeave(s *discordgo.Session, m *discordgo.GuildMemberRemove) {
-	member, err := s.GuildMember(m.GuildID, m.User.ID)
+	user, err := s.User(m.User.ID)
 	if err != nil {
 		return
 	}
 
 	services.EQ.Enqueue(services.Event{
 		Type:    "member_leave",
-		Data:    member,
+		Data:    user,
 		GuildID: m.GuildID,
 	})
 }
@@ -38,23 +38,18 @@ func memberLeaveHandler(e services.Event) error {
 		return nil
 	}
 
-	member := e.Data.(*discordgo.Member)
-
-	desc := fmt.Sprintf("**Member:** <@%s> (%s)", member.User.ID, member.User.Username)
+	user := e.Data.(*discordgo.User)
 
 	embed := structs.Embed{
-		Title:       "Member left",
+		Title:       "<:al_member_leave:1064442673806704672> Member left",
 		Color:       0x5865f2,
-		Description: desc,
+		Description: fmt.Sprintf("<@%s> (%s)", user.ID, user.Username),
 		Author: structs.EmbedAuthor{
-			Name: member.User.Username,
-			Icon: "https://cdn.discordapp.com/avatars/" + member.User.ID + member.Avatar + ".png",
+			Name: user.Username,
+			Icon: user.AvatarURL(""),
 		},
 		Footer: structs.EmbedFooter{
-			Text: fmt.Sprintf("User ID: %s", member.User.ID),
-		},
-		Thumbnail: structs.EmbedThumbnail{
-			URL: "https://cdn.discordapp.com/emojis/1064442673806704672.webp",
+			Text: fmt.Sprintf("User ID: %s", user.ID),
 		},
 		Timestamp: time.Now().Format(time.RFC3339),
 	}

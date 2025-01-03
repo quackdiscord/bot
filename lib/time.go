@@ -77,3 +77,21 @@ func ParseTime(durationStr string) (time.Time, error) {
 	futureTime := time.Now().Add(duration)
 	return futureTime, nil
 }
+
+// GetUserCreationTime returns the time the user was created
+func GetUserCreationTime(userID string) (time.Time, error) {
+	// Convert string ID to uint64
+	id, err := strconv.ParseUint(userID, 10, 64)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("invalid user ID: %v", err)
+	}
+
+	// Discord epoch (2015-01-01)
+	discordEpoch := uint64(1420070400000)
+
+	// Timestamp is the first 42 bits of the snowflake ID
+	timestamp := (id >> 22) + discordEpoch
+
+	// Convert to milliseconds
+	return time.Unix(0, int64(timestamp)*int64(time.Millisecond)), nil
+}

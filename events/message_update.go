@@ -47,16 +47,16 @@ func msgUpdateHandler(e services.Event) error {
 
 	}
 
-	desc := fmt.Sprintf("**Channel:** <#%s> (%s)\n**Author:** <@%s> (%s)", msg.ChannelID, msg.ChannelID, msg.Author.ID, msg.Author.Username)
+	desc := fmt.Sprintf("**Author:** <@%s> (%s)", msg.Author.ID, msg.Author.Username)
 
 	if msg.BeforeUpdate.Content != msg.Content {
-		desc += fmt.Sprintf("\n\n**Content:** ```diff\n- %s\n+%s```", msg.BeforeUpdate.Content, msg.Content)
+		desc += fmt.Sprintf("\n\n**Before:**\n> \"*%s*\"\n\n**After:**\n> \"*%s*\"\n", msg.BeforeUpdate.Content, msg.Content)
 	}
 
 	desc += fmt.Sprintf("\n[Jump to message](%s)", fmt.Sprintf("https://discord.com/channels/%s/%s/%s", msg.GuildID, msg.ChannelID, msg.ID))
 
 	embed := structs.Embed{
-		Title:       "Message edited",
+		Title:       fmt.Sprintf("<:al_message_update:1065110917962022922> Message Edited in <#%s>", msg.ChannelID),
 		Color:       0x4ca99d,
 		Description: desc,
 		Author: structs.EmbedAuthor{
@@ -65,9 +65,6 @@ func msgUpdateHandler(e services.Event) error {
 		},
 		Footer: structs.EmbedFooter{
 			Text: fmt.Sprintf("Message ID: %s", msg.ID),
-		},
-		Thumbnail: structs.EmbedThumbnail{
-			URL: "https://cdn.discordapp.com/emojis/1065110917962022922.webp",
 		},
 		Timestamp: time.Now().Format(time.RFC3339),
 	}

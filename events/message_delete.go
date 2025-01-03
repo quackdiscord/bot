@@ -50,20 +50,20 @@ func msgDeleteHandler(e services.Event) error {
 		return nil
 	}
 
-	desc := fmt.Sprintf("**Channel:** <#%s> (%s)\n**Author:** <@%s> (%s)", msg.ChannelID, msg.ChannelID, msg.Author.ID, msg.Author.ID)
+	desc := fmt.Sprintf("\n**Author:** <@%s> (%s)", msg.Author.ID, msg.Author.ID)
 	if msg.Content != "" {
-		desc += fmt.Sprintf("\n\n**Content:** ```%s```", msg.Content)
+		desc += fmt.Sprintf("\n\n**Content:**\n> \"*%s*\"", msg.Content)
 	}
 
 	if len(msg.Attachments) > 0 {
 		desc += "\n\n**Attachments:**"
 		for _, attachment := range msg.Attachments {
-			desc += fmt.Sprintf("\n- [%s](%s)", attachment.Filename, attachment.URL)
+			desc += fmt.Sprintf("\n- [%s](%s)", attachment.Filename, attachment.ProxyURL)
 		}
 	}
 
 	embed := structs.Embed{
-		Title:       "Message deleted",
+		Title:       fmt.Sprintf("<:al_message_or_thread_delete:1064444110334861373> Message Deleted in <#%s>", msg.ChannelID),
 		Color:       0x914444,
 		Description: desc,
 		Author: structs.EmbedAuthor{
@@ -72,9 +72,6 @@ func msgDeleteHandler(e services.Event) error {
 		},
 		Footer: structs.EmbedFooter{
 			Text: fmt.Sprintf("Message ID: %s", msg.ID),
-		},
-		Thumbnail: structs.EmbedThumbnail{
-			URL: "https://cdn.discordapp.com/emojis/1064444110334861373.webp",
 		},
 		Timestamp: time.Now().Format(time.RFC3339),
 	}

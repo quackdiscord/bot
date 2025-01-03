@@ -55,7 +55,7 @@ func msgBulkDeleteHandler(e services.Event) error {
 		return nil
 	}
 
-	desc := fmt.Sprintf("**Channel:** <#%s> (%s)\n", msgs[0].ChannelID, msgs[0].ChannelID)
+	desc := ""
 
 	for i, message := range msgs {
 		if message == nil {
@@ -79,13 +79,10 @@ func msgBulkDeleteHandler(e services.Event) error {
 	}
 
 	embed := structs.Embed{
-		Title:       fmt.Sprintf("%d messages deleted", len(msgs)),
+		Title:       fmt.Sprintf("<:al_message_or_thread_delete:1064444110334861373> %d messages deleted in <#%s>", len(msgs), msgs[0].ChannelID),
 		Color:       0x373f69,
 		Description: desc,
-		Thumbnail: structs.EmbedThumbnail{
-			URL: "https://cdn.discordapp.com/emojis/1064444110334861373.webp",
-		},
-		Timestamp: time.Now().Format(time.RFC3339),
+		Timestamp:   time.Now().Format(time.RFC3339),
 	}
 
 	// check the length of the description

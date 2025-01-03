@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/lib"
 	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/storage"
@@ -18,13 +19,14 @@ func init() {
 
 func onMemberJoin(s *discordgo.Session, m *discordgo.GuildMemberAdd) {
 	member, err := s.GuildMember(m.GuildID, m.User.ID)
+	guild, _ := s.GuildWithCounts(m.GuildID)
 	if err != nil {
 		return
 	}
 
 	services.EQ.Enqueue(services.Event{
 		Type:    "member_join",
-		Data:    member,
+		Data:    []interface{}{member, guild},
 		GuildID: m.GuildID,
 	})
 }
@@ -39,12 +41,23 @@ func memberJoinHandler(e services.Event) error {
 		return nil
 	}
 
-	member := e.Data.(*discordgo.Member)
+	// Get the data array
+	data := e.Data.([]interface{})
 
-	desc := fmt.Sprintf("**Member:** <@%s> (%s)", member.User.ID, member.User.Username)
+	// Assert the individual elements
+	member := data[0].(*discordgo.Member)
+	guild := data[1].(*discordgo.Guild)
+
+	memberCreatedAt, err := lib.GetUserCreationTime(member.User.ID)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get user creation time")
+		return nil
+	}
+
+	desc := fmt.Sprintf("<@%s> (%s), member **#%d**\n-# Account created <t:%d:R>", member.User.ID, member.User.Username, guild.ApproximateMemberCount, memberCreatedAt.Unix())
 
 	embed := structs.Embed{
-		Title:       "Member joined",
+		Title:       "<:al_member_add:1064442704936828968> Member joined",
 		Color:       0xeb459e,
 		Description: desc,
 		Author: structs.EmbedAuthor{
@@ -53,9 +66,6 @@ func memberJoinHandler(e services.Event) error {
 		},
 		Footer: structs.EmbedFooter{
 			Text: fmt.Sprintf("User ID: %s", member.User.ID),
-		},
-		Thumbnail: structs.EmbedThumbnail{
-			URL: "https://cdn.discordapp.com/emojis/1064442704936828968.webp",
 		},
 		Timestamp: time.Now().Format(time.RFC3339),
 	}
