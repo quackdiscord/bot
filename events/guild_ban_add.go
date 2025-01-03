@@ -43,7 +43,7 @@ func guildBanAddHandler(e services.Event) error {
 
 	user := e.Data.(*discordgo.User)
 
-	desc := ""
+	desc := fmt.Sprintf("**Member:** <@%s> (%s)", user.ID, user.Username)
 
 	// get the latest case from this server
 	c, err := storage.FindLatestCase(e.GuildID)
@@ -61,7 +61,7 @@ func guildBanAddHandler(e services.Event) error {
 	}
 
 	embed := structs.Embed{
-		Title:       fmt.Sprintf("<:al_member_leave:1064442673806704672> Member banned - <@%s> (%s)", user.ID, user.ID),
+		Title:       "<:al_member_leave:1064442673806704672> Member banned",
 		Color:       0xe75151,
 		Description: desc,
 		Author: structs.EmbedAuthor{
