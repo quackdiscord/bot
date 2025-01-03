@@ -53,10 +53,10 @@ func msgUpdateHandler(e services.Event) error {
 		desc += fmt.Sprintf("\n\n**Before:**\n> \"*%s*\"\n\n**After:**\n> \"*%s*\"\n", msg.BeforeUpdate.Content, msg.Content)
 	}
 
-	desc += fmt.Sprintf("\n[Jump to message](%s)", fmt.Sprintf("https://discord.com/channels/%s/%s/%s", msg.GuildID, msg.ChannelID, msg.ID))
+	msgLink := fmt.Sprintf("https://discord.com/channels/%s/%s/%s", msg.GuildID, msg.ChannelID, msg.ID)
 
 	embed := structs.Embed{
-		Title:       fmt.Sprintf("<:al_message_update:1065110917962022922> Message Edited in <#%s>", msg.ChannelID),
+		Title:       fmt.Sprintf("<:al_message_update:1065110917962022922> Message Edited in %s", msgLink),
 		Color:       0x4ca99d,
 		Description: desc,
 		Author: structs.EmbedAuthor{
