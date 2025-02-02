@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/quackdiscord/bot/structs"
@@ -80,6 +81,11 @@ func guildBanAddHandler(e services.Event) error {
 
 	err = utils.SendWHEmbed(settings.MemberWebhookURL, embed)
 	if err != nil {
+		log.Error().Err(err).Msg("Failed to send member ban add webhook, requeueing event after delay")
+		go func(ev services.Event) {
+			time.Sleep(60 * time.Second)
+			services.EQ.Enqueue(ev)
+		}(e)
 		return err
 	}
 
