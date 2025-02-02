@@ -77,8 +77,12 @@ func memberJoinHandler(e services.Event) error {
 
 	err = utils.SendWHEmbed(settings.MemberWebhookURL, embed)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to send member join webhook")
-		return nil
+		log.Error().Err(err).Msg("Failed to send memeber leave webhook, requeueing event after delay")
+		go func(ev services.Event) {
+			time.Sleep(60 * time.Second)
+			services.EQ.Enqueue(ev)
+		}(e)
+		return err
 	}
 
 	return nil
