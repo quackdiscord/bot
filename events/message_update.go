@@ -76,6 +76,11 @@ func msgUpdateHandler(e services.Event) error {
 
 	err = utils.SendWHEmbed(settings.MessageWebhookURL, embed)
 	if err != nil {
+		// if the error is 404, then accept the error and don't requeue the event
+		if err.Error() == "unexpected response status: 404 Not Found" {
+			return nil
+		}
+
 		log.Error().Err(err).Msg("Failed to send message update webhook, requeueing event after delay")
 		go func(ev services.Event) {
 			time.Sleep(60 * time.Second)
