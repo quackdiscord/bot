@@ -14,7 +14,7 @@ All Quack's commands use Discord's
 
 ## Running Locally
 
-Quack uses Go v1.22.2 please make sure you have this installed. Please also ensure you have created a bot via [Discord's Developer Portal](https://discord.com/developers/applications).
+Quack uses Go v1.24 please make sure you have this installed. Please also ensure you have created a bot via [Discord's Developer Portal](https://discord.com/developers/applications).
 
 1. Clone.
 
