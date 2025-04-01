@@ -41,6 +41,9 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		} else if command == prefix+"guild" {
 			guildCommand(s, m)
 			log.Info().Msg("Owner guild command executed")
+		} else if command == prefix+"cmdstats" {
+			cmdStatsCommand(s, m)
+			log.Info().Msg("Owner cmdstats command executed")
 		}
 	}
 }
@@ -169,4 +172,20 @@ func guildCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	s.ChannelMessageSendEmbed(m.ChannelID, embed)
 
+}
+
+func cmdStatsCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
+	// the command to get stats for is <prefix>cmdstats <command>
+	// get the command count from redis
+
+	command := strings.Split(m.Content, " ")[1]
+
+	if command == "" {
+		s.ChannelMessageSend(m.ChannelID, "Please provide a command")
+		return
+	}
+
+	count := services.Redis.HGet(services.Redis.Context(), "seeds:cmds", command).Val()
+
+	s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Command `%s` has been run `%s` times", command, count))
 }
