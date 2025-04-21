@@ -44,6 +44,9 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		} else if command == prefix+"cmdstats" {
 			cmdStatsCommand(s, m)
 			log.Info().Msg("Owner cmdstats command executed")
+		} else if command == prefix+"modcmdstats" {
+			modCmdStatsCommand(s, m)
+			log.Info().Msg("Owner modcmdstats command executed")
 		}
 	}
 }
@@ -188,4 +191,37 @@ func cmdStatsCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	count := services.Redis.HGet(services.Redis.Context(), "seeds:cmds", command).Val()
 
 	s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Command `%s` has been run `%s` times", command, count))
+}
+
+func modCmdStatsCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
+	cmd := strings.Split(m.Content, " ")[1]
+	user := strings.Split(m.Content, " ")[2]
+	count := 0
+	typeint := 0
+
+	if cmd == "ban" {
+		typeint = 1
+	} else if cmd == "warn" {
+		typeint = 0
+	} else if cmd == "kick" {
+		typeint = 2
+	} else if cmd == "timeout" {
+		typeint = 4
+	} else {
+		s.ChannelMessageSend(m.ChannelID, "Invalid command")
+		return
+	}
+
+	user = strings.TrimPrefix(user, "<@")
+	user = strings.TrimSuffix(user, ">")
+
+	row := services.DB.QueryRow("SELECT COUNT(*) FROM cases WHERE moderator_id = ? AND type = ? AND guild_id = ?", user, typeint, m.GuildID)
+	err := row.Scan(&count)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get mod cmd stats")
+		s.ChannelMessageSend(m.ChannelID, "Failed to get mod cmd stats")
+		return
+	}
+
+	s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Command `%s` has been run `%d` times by <@%s> in this server.", cmd, count, user))
 }
