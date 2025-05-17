@@ -25,14 +25,16 @@ func init() {
 
 func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	// access the message cache
-	services.MsgCache.AddMessage(m.Message)
+	if m.Message != nil {
+		services.MsgCache.AddMessage(m.Message)
+	}
 
-	if m.Author.ID != s.State.User.ID {
+	if m.Author != nil && m.Author.ID != s.State.User.ID {
 		// store the message in redis (this will check if the message is in a ticket automatically)
 		storage.StoreTicketMessage(m.ChannelID, m.Content, m.Author.Username)
 	}
 
-	if m.Author.ID == config.Bot.BotOwnerID {
+	if m.Author != nil && m.Author.ID == config.Bot.BotOwnerID {
 		prefix := "!!!"
 		command := strings.Split(m.Content, " ")[0]
 		if command == prefix+"stats" {

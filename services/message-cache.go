@@ -43,13 +43,19 @@ func NewMessageCache() *MessageCache {
 }
 
 func (mc *MessageCache) AddMessage(msg *discordgo.Message) {
+	if msg == nil {
+		return
+	}
+
 	mc.Mutex.Lock()
 	defer mc.Mutex.Unlock()
 
 	// if message already exists in cache, move it to the front
 	if elem, exists := mc.Messages[msg.ID]; exists {
 		mc.Order.MoveToFront(elem)
-		elem.Value.(*CachedMessage).Content = msg.Content
+		if msg.Content != "" {
+			elem.Value.(*CachedMessage).Content = msg.Content
+		}
 		return
 	}
 
@@ -70,7 +76,9 @@ func (mc *MessageCache) AddMessage(msg *discordgo.Message) {
 		oldest := mc.Order.Back()
 		if oldest != nil {
 			mc.Order.Remove(oldest)
-			delete(mc.Messages, oldest.Value.(*CachedMessage).ID)
+			if cachedMsg, ok := oldest.Value.(*CachedMessage); ok {
+				delete(mc.Messages, cachedMsg.ID)
+			}
 		}
 	}
 }
