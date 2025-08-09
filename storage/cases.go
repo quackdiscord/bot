@@ -65,6 +65,66 @@ func FindCasesByUserID(userID string, guildID string) ([]*structs.Case, error) {
 	return cases, nil
 }
 
+// FindCasesByUserIDPaginated returns a page of cases for a user in a guild ordered by created_at DESC
+func FindCasesByUserIDPaginated(userID string, guildID string, limit int, offset int) ([]*structs.Case, error) {
+	if userID == "" {
+		return nil, nil
+	}
+
+	if guildID == "" {
+		return nil, nil
+	}
+
+	// prepare the statement
+	stmtOut, err := services.DB.Prepare("SELECT * FROM cases WHERE user_id = ? AND guild_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?")
+	if err != nil {
+		return nil, err
+	}
+
+	// query the database
+	rows, err := stmtOut.Query(userID, guildID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+
+	var cases []*structs.Case
+	for rows.Next() {
+		var c structs.Case
+		err = rows.Scan(&c.ID, &c.UserID, &c.ModeratorID, &c.GuildID, &c.Reason, &c.Type, &c.CreatedAt)
+		if err != nil {
+			return nil, err
+		}
+
+		cases = append(cases, &c)
+	}
+
+	return cases, nil
+}
+
+// CountCasesByUserID returns the total number of cases for a user in a guild
+func CountCasesByUserID(userID string, guildID string) (int, error) {
+	if userID == "" {
+		return 0, nil
+	}
+
+	if guildID == "" {
+		return 0, nil
+	}
+
+	stmtOut, err := services.DB.Prepare("SELECT COUNT(*) FROM cases WHERE user_id = ? AND guild_id = ?")
+	if err != nil {
+		return 0, err
+	}
+
+	var count int
+	err = stmtOut.QueryRow(userID, guildID).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+
+	return count, nil
+}
+
 func FindLatestCase(guildID string) (*structs.Case, error) {
 	if guildID == "" {
 		return nil, nil

@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -79,40 +80,63 @@ func handleCasesViewID(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 func handleCasesViewUser(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	user := i.ApplicationCommandData().Options[0].Options[0].Options[0].UserValue(s)
 
-	cases, err := storage.FindCasesByUserID(user.ID, i.GuildID)
+	// pagination setup
+	const pageSize = 5
+	page := 1
+
+	total, err := storage.CountCasesByUserID(user.ID, i.GuildID)
+	if err != nil {
+		log.Error().AnErr("Failed to count user cases", err)
+		return EmbedResponse(components.ErrorEmbed("Failed to fetch user's cases."), true)
+	}
+
+	if total == 0 {
+		embed := components.NewEmbed().SetDescription("<@" + user.ID + "> has no cases.").SetColor("Main").MessageEmbed
+		return EmbedResponse(embed, false)
+	}
+
+	cases, err := storage.FindCasesByUserIDPaginated(user.ID, i.GuildID, pageSize, 0)
 	if err != nil {
 		log.Error().AnErr("Failed to fetch user cases", err)
 		return EmbedResponse(components.ErrorEmbed("Failed to fetch user's cases."), true)
 	}
 
-	if len(cases) == 0 {
-		embed := components.NewEmbed().SetDescription("<@" + user.ID + "> has no cases.").SetColor("Main").MessageEmbed
-		return EmbedResponse(embed, false)
-	}
-
-	content := fmt.Sprintf("<@%s> has **%d** cases\n\n", user.ID, len(cases))
-
+	content := fmt.Sprintf("<@%s> has **%d** cases\n\n", user.ID, total)
 	for _, c := range cases {
 		moderator, _ := s.User(c.ModeratorID)
 		if moderator == nil {
 			moderator = &discordgo.User{Username: "Unknown"}
 		}
-
 		content += generateCaseDetails(c, moderator)
 	}
 
-	// if the content is > 2048 characters, cut it off and add "too many to show..."
-	if len(content) > 2048 {
-		content = content[:2000] + "\n\n*Too many cases to show. You should ban them...*"
-	}
+	totalPages := int(math.Ceil(float64(total) / float64(pageSize)))
 
 	embed := components.NewEmbed().
 		SetDescription(content).
 		SetTimestamp().
 		SetAuthor("Cases for "+user.Username, user.AvatarURL("")).
+		SetFooter(fmt.Sprintf("u:%s|g:%s|p:%d|ps:%d|c:%d", user.ID, i.GuildID, page, pageSize, total)).
 		SetColor("Main").MessageEmbed
 
-	return EmbedResponse(embed, false)
+	prevDisabled := page <= 1
+	nextDisabled := page >= totalPages
+
+	return &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds: []*discordgo.MessageEmbed{embed},
+			Components: []discordgo.MessageComponent{
+				discordgo.ActionsRow{
+					Components: []discordgo.MessageComponent{
+						discordgo.Button{CustomID: "cases-view-prev", Label: "Prev", Style: discordgo.SecondaryButton, Disabled: prevDisabled},
+						discordgo.Button{CustomID: "cases-view-next", Label: "Next", Style: discordgo.PrimaryButton, Disabled: nextDisabled},
+					},
+				},
+			},
+			AllowedMentions: new(discordgo.MessageAllowedMentions),
+		},
+	}
 }
 
 // generate a case embed from a case
