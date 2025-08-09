@@ -31,7 +31,7 @@ var EQ *EventQueue
 
 func ReadyEventQueue(size int) {
 	EQ = NewEventQueue(size)
-	log.Info().Msg("Event queue ready")
+	log.Info().Msgf("Event queue ready with size %d", size)
 }
 
 // NewEventQueue creates a new event queue with the specified buffer size
@@ -64,7 +64,7 @@ func (eq *EventQueue) Enqueue(event Event) {
 
 // Start begins processing events from the queue
 func (eq *EventQueue) Start(numWorkers int) {
-	for i := 0; i < numWorkers; i++ {
+	for range numWorkers {
 		eq.waitGroup.Add(1)
 		go eq.worker()
 	}

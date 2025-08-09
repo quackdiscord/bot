@@ -12,6 +12,9 @@ type Config struct {
 	DevGuildID        string `json:"dev_guild_id"`
 	ErrMsgPrefix      string `json:"error_msg_prefix"`
 	BotOwnerID        string `json:"bot_owner_id"`
+	MessageCacheSize  int    `json:"message_cache_size"`
+	EventQueueSize    int    `json:"event_queue_size"`
+	EventQueueWorkers int    `json:"event_queue_workers"`
 }
 
 var Bot Config
@@ -23,6 +26,9 @@ func init() {
 		DevGuildID:        "val",
 		ErrMsgPrefix:      "val",
 		BotOwnerID:        "val",
+		MessageCacheSize:  0,
+		EventQueueSize:    0,
+		EventQueueWorkers: 0,
 	}
 
 	// Optionally, load config from a JSON file

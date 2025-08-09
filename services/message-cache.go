@@ -8,8 +8,6 @@ import (
 	"github.com/quackdiscord/bot/log"
 )
 
-const MaxMessageCacheSize = 5_000
-
 var MsgCache *MessageCache
 
 // message cache stuff
@@ -29,16 +27,16 @@ type MessageCache struct {
 	Mutex    sync.Mutex
 }
 
-func ReadyMessageCache() {
-	MsgCache = NewMessageCache()
-	log.Info().Msg("Message cache ready")
+func ReadyMessageCache(size int) {
+	MsgCache = NewMessageCache(size)
+	log.Info().Msgf("Message cache ready with size %d", size)
 }
 
-func NewMessageCache() *MessageCache {
+func NewMessageCache(size int) *MessageCache {
 	return &MessageCache{
 		Messages: make(map[string]*list.Element),
 		Order:    list.New(),
-		MaxSize:  MaxMessageCacheSize,
+		MaxSize:  size,
 	}
 }
 

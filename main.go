@@ -5,28 +5,18 @@ import (
 	"os/signal"
 
 	"github.com/joho/godotenv"
+	c "github.com/quackdiscord/bot/config"
 	"github.com/quackdiscord/bot/events"
 	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/services"
 )
 
 func init() {
-	// load .env file
 	if err := godotenv.Load(".env"); err != nil {
-		// log.Fatal("No .env.local file found")
 		return
 	}
 
-	// set the environment
 	env := os.Getenv("ENVIORNMENT")
-
-	// log.SetOutput(os.Stdout)
-	// log.SetLevel(log.InfoLevel)
-
-	// log.SetFormatter(&log.TextFormatter{
-	// 	ForceColors:   true,
-	// 	FullTimestamp: true,
-	// })
 
 	if env == "dev" {
 		log.Warn().Msg("Running in development mode")
@@ -34,8 +24,9 @@ func init() {
 }
 
 func main() {
-	services.ReadyMessageCache()
-	services.ReadyEventQueue(1000)
+	// ready data structures
+	services.ReadyMessageCache(c.Bot.MessageCacheSize)
+	services.ReadyEventQueue(c.Bot.EventQueueSize)
 
 	// connect services
 	services.ConnectRedis()
@@ -44,7 +35,7 @@ func main() {
 	services.ConnectDiscord(events.Events)
 
 	// start the event queue
-	go services.EQ.Start(3)
+	go services.EQ.Start(c.Bot.EventQueueWorkers)
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt)
