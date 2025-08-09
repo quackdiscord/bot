@@ -30,84 +30,87 @@ func handleCasesNext(s *discordgo.Session, i *discordgo.InteractionCreate) *disc
 }
 
 func handleCasesPaginate(s *discordgo.Session, i *discordgo.InteractionCreate, delta int) *discordgo.InteractionResponse {
-	if i.Message == nil || len(i.Message.Embeds) == 0 || i.Message.Embeds[0].Footer == nil {
-		return EmptyResponse()
-	}
-
-	footer := i.Message.Embeds[0].Footer.Text
-	m := footerRe.FindStringSubmatch(footer)
-	if m == nil {
-		return EmptyResponse()
-	}
-
-	userID := m[1]
-	guildID := m[2]
-	page, _ := strconv.Atoi(m[3])
-	pageSize, _ := strconv.Atoi(m[4])
-	count, _ := strconv.Atoi(m[5])
-
-	// bounds
-	totalPages := int(math.Ceil(float64(count) / float64(pageSize)))
-	page += delta
-	if page < 1 {
-		page = 1
-	}
-	if page > totalPages {
-		page = totalPages
-	}
-
-	// fetch cases
-	offset := (page - 1) * pageSize
-	cases, err := storage.FindCasesByUserIDPaginated(userID, guildID, pageSize, offset)
-	if err != nil {
-		log.Error().AnErr("Failed to fetch paginated cases", err)
-		return UpdateResponse(&discordgo.InteractionResponseData{Embeds: []*discordgo.MessageEmbed{i.Message.Embeds[0]}})
-	}
-
-	// rebuild content
-	content := fmt.Sprintf("<@%s> has **%d** cases\n\n", userID, count)
-	for _, c := range cases {
-		moderator, _ := s.User(c.ModeratorID)
-		if moderator == nil {
-			moderator = &discordgo.User{Username: "Unknown"}
+	// immediately defer the update to avoid timeouts and do work in background
+	go func() {
+		if i.Message == nil || len(i.Message.Embeds) == 0 || i.Message.Embeds[0].Footer == nil {
+			return
 		}
-		content += generateCaseDetailsForComponents(c, moderator)
-	}
 
-	// author
-	authorName := "Cases"
-	authorIcon := ""
-	if i.Message.Embeds[0].Author != nil {
-		authorName = i.Message.Embeds[0].Author.Name
-		authorIcon = i.Message.Embeds[0].Author.IconURL
-	} else if u, _ := s.User(userID); u != nil {
-		authorName = "Cases for " + u.Username
-		authorIcon = u.AvatarURL("")
-	}
+		footer := i.Message.Embeds[0].Footer.Text
+		m := footerRe.FindStringSubmatch(footer)
+		if m == nil {
+			return
+		}
 
-	// update embed
-	embed := NewEmbed().
-		SetDescription(content).
-		SetTimestamp().
-		SetAuthor(authorName, authorIcon).
-		SetFooter(fmt.Sprintf("u:%s|g:%s|p:%d|ps:%d|c:%d", userID, guildID, page, pageSize, count)).
-		SetColor("Main").MessageEmbed
+		userID := m[1]
+		guildID := m[2]
+		page, _ := strconv.Atoi(m[3])
+		pageSize, _ := strconv.Atoi(m[4])
+		count, _ := strconv.Atoi(m[5])
 
-	prevDisabled := page <= 1
-	nextDisabled := page >= totalPages
+		// bounds
+		totalPages := int(math.Ceil(float64(count) / float64(pageSize)))
+		page += delta
+		if page < 1 {
+			page = 1
+		}
+		if page > totalPages {
+			page = totalPages
+		}
 
-	return UpdateResponse(&discordgo.InteractionResponseData{
-		Embeds: []*discordgo.MessageEmbed{embed},
-		Components: []discordgo.MessageComponent{
+		// fetch cases
+		offset := (page - 1) * pageSize
+		cases, err := storage.FindCasesByUserIDPaginated(userID, guildID, pageSize, offset)
+		if err != nil {
+			log.Error().AnErr("Failed to fetch paginated cases", err)
+			return
+		}
+
+		// rebuild content
+		content := fmt.Sprintf("<@%s> has **%d** cases\n\n", userID, count)
+		for _, c := range cases {
+			moderator, _ := s.User(c.ModeratorID)
+			if moderator == nil {
+				moderator = &discordgo.User{Username: "Unknown"}
+			}
+			content += generateCaseDetailsForComponents(c, moderator)
+		}
+
+		// author
+		authorName := "Cases"
+		authorIcon := ""
+		if i.Message.Embeds[0].Author != nil {
+			authorName = i.Message.Embeds[0].Author.Name
+			authorIcon = i.Message.Embeds[0].Author.IconURL
+		} else if u, _ := s.User(userID); u != nil {
+			authorName = "Cases for " + u.Username
+			authorIcon = u.AvatarURL("")
+		}
+
+		// update embed
+		embed := NewEmbed().
+			SetDescription(content).
+			SetTimestamp().
+			SetAuthor(authorName, authorIcon).
+			SetFooter(fmt.Sprintf("u:%s|g:%s|p:%d|ps:%d|c:%d", userID, guildID, page, pageSize, count)).
+			SetColor("Main").MessageEmbed
+
+		prevDisabled := page <= 1
+		nextDisabled := page >= totalPages
+
+		comps := []discordgo.MessageComponent{
 			discordgo.ActionsRow{
 				Components: []discordgo.MessageComponent{
 					discordgo.Button{CustomID: "cases-view-prev", Label: "Prev", Style: discordgo.SecondaryButton, Disabled: prevDisabled},
 					discordgo.Button{CustomID: "cases-view-next", Label: "Next", Style: discordgo.PrimaryButton, Disabled: nextDisabled},
 				},
 			},
-		},
-		AllowedMentions: new(discordgo.MessageAllowedMentions),
-	})
+		}
+
+		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &[]*discordgo.MessageEmbed{embed}, Components: &comps})
+	}()
+
+	return EmptyResponse()
 }
 
 // generateCaseDetailsForComponents mirrors commands.generateCaseDetails without importing commands.

@@ -52,91 +52,102 @@ var casesViewCmd = &discordgo.ApplicationCommandOption{
 }
 
 func handleCasesViewLatest(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
-	c, err := storage.FindLatestCase(i.GuildID)
-	if err != nil {
-		log.Error().AnErr("Failed to fetch latest case", err)
-		return EmbedResponse(components.ErrorEmbed("Failed to fetch latest case."), true)
-	}
+	// respond immediately and do work in background
+	go func() {
+		c, err := storage.FindLatestCase(i.GuildID)
+		if err != nil {
+			log.Error().AnErr("Failed to fetch latest case", err)
+			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to fetch latest case.")}})
+			return
+		}
 
-	embed := generateCaseEmbed(s, c)
+		embed := generateCaseEmbed(s, c)
+		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &[]*discordgo.MessageEmbed{embed}})
+	}()
 
-	return EmbedResponse(embed, false)
+	return LoadingResponse()
 }
 
 func handleCasesViewID(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	caseID := i.ApplicationCommandData().Options[0].Options[0].Options[0].StringValue()
 
-	c, err := storage.FindCaseByID(caseID, i.GuildID)
-	if err != nil {
-		log.Error().AnErr("Failed to fetch case by id", err)
-		return EmbedResponse(components.ErrorEmbed("Failed to fetch case."), true)
-	}
+	go func() {
+		c, err := storage.FindCaseByID(caseID, i.GuildID)
+		if err != nil {
+			log.Error().AnErr("Failed to fetch case by id", err)
+			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to fetch case.")}})
+			return
+		}
 
-	embed := generateCaseEmbed(s, c)
+		embed := generateCaseEmbed(s, c)
+		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &[]*discordgo.MessageEmbed{embed}})
+	}()
 
-	return EmbedResponse(embed, false)
+	return LoadingResponse()
 }
 
 func handleCasesViewUser(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	user := i.ApplicationCommandData().Options[0].Options[0].Options[0].UserValue(s)
 
-	// pagination setup
-	const pageSize = 5
-	page := 1
+	go func() {
+		// pagination setup
+		const pageSize = 5
+		page := 1
 
-	total, err := storage.CountCasesByUserID(user.ID, i.GuildID)
-	if err != nil {
-		log.Error().AnErr("Failed to count user cases", err)
-		return EmbedResponse(components.ErrorEmbed("Failed to fetch user's cases."), true)
-	}
-
-	if total == 0 {
-		embed := components.NewEmbed().SetDescription("<@" + user.ID + "> has no cases.").SetColor("Main").MessageEmbed
-		return EmbedResponse(embed, false)
-	}
-
-	cases, err := storage.FindCasesByUserIDPaginated(user.ID, i.GuildID, pageSize, 0)
-	if err != nil {
-		log.Error().AnErr("Failed to fetch user cases", err)
-		return EmbedResponse(components.ErrorEmbed("Failed to fetch user's cases."), true)
-	}
-
-	content := fmt.Sprintf("<@%s> has **%d** cases\n\n", user.ID, total)
-	for _, c := range cases {
-		moderator, _ := s.User(c.ModeratorID)
-		if moderator == nil {
-			moderator = &discordgo.User{Username: "Unknown"}
+		total, err := storage.CountCasesByUserID(user.ID, i.GuildID)
+		if err != nil {
+			log.Error().AnErr("Failed to count user cases", err)
+			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to fetch user's cases.")}})
+			return
 		}
-		content += generateCaseDetails(c, moderator)
-	}
 
-	totalPages := int(math.Ceil(float64(total) / float64(pageSize)))
+		if total == 0 {
+			embed := components.NewEmbed().SetDescription("<@" + user.ID + "> has no cases.").SetColor("Main").MessageEmbed
+			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &[]*discordgo.MessageEmbed{embed}})
+			return
+		}
 
-	embed := components.NewEmbed().
-		SetDescription(content).
-		SetTimestamp().
-		SetAuthor("Cases for "+user.Username, user.AvatarURL("")).
-		SetFooter(fmt.Sprintf("u:%s|g:%s|p:%d|ps:%d|c:%d", user.ID, i.GuildID, page, pageSize, total)).
-		SetColor("Main").MessageEmbed
+		cases, err := storage.FindCasesByUserIDPaginated(user.ID, i.GuildID, pageSize, 0)
+		if err != nil {
+			log.Error().AnErr("Failed to fetch user cases", err)
+			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to fetch user's cases.")}})
+			return
+		}
 
-	prevDisabled := page <= 1
-	nextDisabled := page >= totalPages
+		content := fmt.Sprintf("<@%s> has **%d** cases\n\n", user.ID, total)
+		for _, c := range cases {
+			moderator, _ := s.User(c.ModeratorID)
+			if moderator == nil {
+				moderator = &discordgo.User{Username: "Unknown"}
+			}
+			content += generateCaseDetails(c, moderator)
+		}
 
-	return &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-			Components: []discordgo.MessageComponent{
-				discordgo.ActionsRow{
-					Components: []discordgo.MessageComponent{
-						discordgo.Button{CustomID: "cases-view-prev", Label: "Prev", Style: discordgo.SecondaryButton, Disabled: prevDisabled},
-						discordgo.Button{CustomID: "cases-view-next", Label: "Next", Style: discordgo.PrimaryButton, Disabled: nextDisabled},
-					},
+		totalPages := int(math.Ceil(float64(total) / float64(pageSize)))
+
+		embed := components.NewEmbed().
+			SetDescription(content).
+			SetTimestamp().
+			SetAuthor("Cases for "+user.Username, user.AvatarURL("")).
+			SetFooter(fmt.Sprintf("u:%s|g:%s|p:%d|ps:%d|c:%d", user.ID, i.GuildID, page, pageSize, total)).
+			SetColor("Main").MessageEmbed
+
+		prevDisabled := page <= 1
+		nextDisabled := page >= totalPages
+
+		comps := []discordgo.MessageComponent{
+			discordgo.ActionsRow{
+				Components: []discordgo.MessageComponent{
+					discordgo.Button{CustomID: "cases-view-prev", Label: "Prev", Style: discordgo.SecondaryButton, Disabled: prevDisabled},
+					discordgo.Button{CustomID: "cases-view-next", Label: "Next", Style: discordgo.PrimaryButton, Disabled: nextDisabled},
 				},
 			},
-			AllowedMentions: new(discordgo.MessageAllowedMentions),
-		},
-	}
+		}
+
+		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &[]*discordgo.MessageEmbed{embed}, Components: &comps})
+	}()
+
+	return LoadingResponse()
 }
 
 // generate a case embed from a case
