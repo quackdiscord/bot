@@ -13,8 +13,9 @@ import (
 	"github.com/quackdiscord/bot/structs"
 )
 
-// footer format: u:<userID>|g:<guildID>|p:<page>|ps:<pageSize>|c:<count>
-var footerRe = regexp.MustCompile(`u:([^|]+)\|g:([^|]+)\|p:(\d+)\|ps:(\d+)\|c:(\d+)`)
+// description header format: <@userID> has **count** cases\n\n
+var descRe = regexp.MustCompile(`^<@([0-9]+)> has \*\*([0-9]+)\*\* cases`)
+var footerRe = regexp.MustCompile(`^Page ([0-9]+) of ([0-9]+)$`)
 
 func init() {
 	Components["cases-view-prev"] = handleCasesPrev
@@ -32,21 +33,32 @@ func handleCasesNext(s *discordgo.Session, i *discordgo.InteractionCreate) *disc
 func handleCasesPaginate(s *discordgo.Session, i *discordgo.InteractionCreate, delta int) *discordgo.InteractionResponse {
 	// immediately defer the update to avoid timeouts and do work in background
 	go func() {
-		if i.Message == nil || len(i.Message.Embeds) == 0 || i.Message.Embeds[0].Footer == nil {
+		if i.Message == nil || len(i.Message.Embeds) == 0 {
 			return
 		}
 
-		footer := i.Message.Embeds[0].Footer.Text
-		m := footerRe.FindStringSubmatch(footer)
+		desc := i.Message.Embeds[0].Description
+		m := descRe.FindStringSubmatch(desc)
 		if m == nil {
 			return
 		}
 
 		userID := m[1]
-		guildID := m[2]
-		page, _ := strconv.Atoi(m[3])
-		pageSize, _ := strconv.Atoi(m[4])
-		count, _ := strconv.Atoi(m[5])
+		count, _ := strconv.Atoi(m[2])
+		// totalPages from description not present; recompute from count and parse page from footer
+		pageSize := 5
+		guildID := i.GuildID
+
+		// parse footer
+		if i.Message.Embeds[0].Footer == nil {
+			return
+		}
+		f := i.Message.Embeds[0].Footer.Text
+		fm := footerRe.FindStringSubmatch(f)
+		if fm == nil {
+			return
+		}
+		page, _ := strconv.Atoi(fm[1])
 
 		// bounds
 		totalPages := int(math.Ceil(float64(count) / float64(pageSize)))
@@ -67,7 +79,7 @@ func handleCasesPaginate(s *discordgo.Session, i *discordgo.InteractionCreate, d
 		}
 
 		// rebuild content
-		content := fmt.Sprintf("<@%s> has **%d** cases\n\n", userID, count)
+		content := ""
 		for _, c := range cases {
 			moderator, _ := s.User(c.ModeratorID)
 			if moderator == nil {
@@ -88,11 +100,12 @@ func handleCasesPaginate(s *discordgo.Session, i *discordgo.InteractionCreate, d
 		}
 
 		// update embed
+		totalPages = int(math.Ceil(float64(count) / float64(pageSize)))
 		embed := NewEmbed().
-			SetDescription(content).
+			SetDescription(fmt.Sprintf("<@%s> has **%d** cases\n\n", userID, count)+content).
 			SetTimestamp().
 			SetAuthor(authorName, authorIcon).
-			SetFooter(fmt.Sprintf("u:%s|g:%s|p:%d|ps:%d|c:%d", userID, guildID, page, pageSize, count)).
+			SetFooter(fmt.Sprintf("Page %d of %d", page, totalPages)).
 			SetColor("Main").MessageEmbed
 
 		prevDisabled := page <= 1

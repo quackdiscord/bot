@@ -114,7 +114,7 @@ func handleCasesViewUser(s *discordgo.Session, i *discordgo.InteractionCreate) *
 			return
 		}
 
-		content := fmt.Sprintf("<@%s> has **%d** cases\n\n", user.ID, total)
+		content := ""
 		for _, c := range cases {
 			moderator, _ := s.User(c.ModeratorID)
 			if moderator == nil {
@@ -126,10 +126,10 @@ func handleCasesViewUser(s *discordgo.Session, i *discordgo.InteractionCreate) *
 		totalPages := int(math.Ceil(float64(total) / float64(pageSize)))
 
 		embed := components.NewEmbed().
-			SetDescription(content).
+			SetDescription(fmt.Sprintf("<@%s> has **%d** cases\n\n", user.ID, total)+content).
 			SetTimestamp().
 			SetAuthor("Cases for "+user.Username, user.AvatarURL("")).
-			SetFooter(fmt.Sprintf("u:%s|g:%s|p:%d|ps:%d|c:%d", user.ID, i.GuildID, page, pageSize, total)).
+			SetFooter(fmt.Sprintf("Page %d of %d", page, totalPages)).
 			SetColor("Main").MessageEmbed
 
 		prevDisabled := page <= 1
