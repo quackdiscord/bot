@@ -12,12 +12,6 @@ var Discord *discordgo.Session
 var Commands = make(map[string]*Command)
 var RegisteredCommands = make([]*discordgo.ApplicationCommand, len(Commands))
 
-// var (
-// 	MessageCache = make(map[string]*discordgo.Message)
-// 	CacheOrder   []string
-// 	CacheMutex   sync.Mutex
-// )
-
 type Command struct {
 	*discordgo.ApplicationCommand
 	Handler func(*discordgo.Session, *discordgo.InteractionCreate) *discordgo.InteractionResponse
@@ -35,7 +29,7 @@ func ConnectDiscord(events []interface{}) {
 	}
 
 	Discord, _ = discordgo.New(token)
-	Discord.Identify.Intents = discordgo.Intent(3276543) // all unpriveledged intents + message content + guild members
+	Discord.Identify.Intents = discordgo.Intent(3276543)
 	Discord.StateEnabled = true
 	Discord.State.MaxMessageCount = 5000
 

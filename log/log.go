@@ -125,6 +125,11 @@ func init() {
 		if os.Getenv("ENVIORNMENT") == "dev" {
 			return
 		}
+		if level == zerolog.DebugLevel {
+			println("debug level, skipping")
+			return
+		}
+
 		// form the log message
 		formatedFields := formatFields(fields)
 		fieldMsg := ""

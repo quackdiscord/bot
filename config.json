@@ -1,7 +1,7 @@
 {
   "guild_count_channel": "1123601662846714018",
   "dev_guild_id": "1005778938108325970",
-  "error_msg_prefix": "<:error:1228053905590718596> **Error:** ",
+  "error_msg_prefix": "<:error:1403793785216831648> **Error:** ",
   "bot_owner_id": "489264179472236557",
   "message_cache_size": 5000,
   "event_queue_size": 1000,

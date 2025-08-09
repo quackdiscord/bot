@@ -87,17 +87,42 @@ func handleBan(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.
 
 		// set up embeds
 		dmError := ""
+		dmDescription := "🚨 You have been banned from **" + guild.Name + "** for ```" + reason + "```"
 		dmEmbed := components.NewEmbed().
-			SetDescription("🚨 You have been banned from **"+guild.Name+"** for ```"+reason+"```").
+			SetDescription(dmDescription).
 			SetColor("Red").
 			SetAuthor(guild.Name, guild.IconURL("")).
 			SetFooter("Case ID: " + id).
 			SetTimestamp().MessageEmbed
 
 		// attempt to DM the user
-		err := utils.DMUserEmbed(userToBan.ID, dmEmbed, s)
+		// If appeals are configured, include appeal button in DM
+		dmComponents := []discordgo.MessageComponent{}
+		if asettings, _ := storage.FindAppealSettingsByGuildID(i.GuildID); asettings != nil {
+			dmComponents = []discordgo.MessageComponent{
+				discordgo.ActionsRow{Components: []discordgo.MessageComponent{
+					discordgo.Button{Label: "Appeal this ban", Style: discordgo.PrimaryButton, CustomID: "appeal-open:" + i.GuildID},
+				}},
+			}
+			dmDescription += "\n\nThis ban can be appealed.\n\n**If the button below doesn't work, please click [here](https://discord.com/oauth2/authorize?client_id=" + s.State.User.ID + ") and select \"Add to My Apps\", then try again.**"
+			dmEmbed.Description = dmDescription
+		}
+		log.Debug().Msgf("[ban] attempting to DM user with appeal button; guild: %s user: %s", i.GuildID, userToBan.ID)
+		dmChannel, derr := s.UserChannelCreate(userToBan.ID)
+		var err error
+		if derr == nil {
+			log.Debug().Msgf("[ban] DM channel created: %s", dmChannel.ID)
+			_, err = s.ChannelMessageSendComplex(dmChannel.ID, &discordgo.MessageSend{
+				Embeds:     []*discordgo.MessageEmbed{dmEmbed},
+				Components: dmComponents,
+			})
+		} else {
+			log.Debug().Msgf("[ban] failed to create DM channel: %s", derr.Error())
+			err = derr
+		}
 		if err != nil {
 			dmError = "\n\n-# *User has DMs disabled.*"
+			log.Debug().Msgf("[ban] failed to send DM: %s", err.Error())
 		}
 
 		// ban the user
