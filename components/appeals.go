@@ -198,10 +198,10 @@ func handleAppealSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Debug().Msgf("[handleAppealSubmit] no cases found for user: %s", i.User.ID)
 	}
 
-	embedDescription := fmt.Sprintf("<@%s> submitted a ban appeal:\n\n> %s\n\nAppeal ID: `%s`", i.User.ID, userInput, id)
+	embedDescription := fmt.Sprintf("<@%s> submitted a ban appeal:\n```%s```", i.User.ID, userInput)
 	if len(cases) > 0 && cases[0].Type == 1 {
 		// has cases and latest case is a ban
-		embedDescription += "\n\nBanned for: `" + cases[0].Reason + "`"
+		embedDescription += "\n\nBanned for: `" + cases[0].Reason + "`\n-# Case ID: `" + cases[0].ID + "`"
 	}
 
 	embed := NewEmbed().SetDescription(embedDescription).
@@ -281,9 +281,10 @@ func handleAppealAccept(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 
 	// disable buttons but keep the original embed
 	embed := NewEmbed().
-		SetDescription(fmt.Sprintf("<@%s>'s appeal was accepted by <@%s>. \n\n> %s\n\nAppeal ID: `%s`", userID, i.Member.User.ID, appealContent, appealID)).
+		SetDescription(fmt.Sprintf("<@%s>'s appeal was accepted by <@%s>.\n```%s```", userID, i.Member.User.ID, appealContent)).
 		SetColor("Green").
 		SetTimestamp().
+		SetAuthor(i.Member.User.Username, i.Member.User.AvatarURL("")).
 		MessageEmbed
 
 	return UpdateResponse(&discordgo.InteractionResponseData{
@@ -324,8 +325,9 @@ func handleAppealReject(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 
 	// disable buttons but keep the original embed
 	embed := NewEmbed().
-		SetDescription(fmt.Sprintf("<@%s>'s appeal was rejected by <@%s>. \n\n> %s\n\nAppeal ID: `%s`", userID, i.Member.User.ID, appealContent, appealID)).
+		SetDescription(fmt.Sprintf("<@%s>'s appeal was rejected by <@%s>.\n```%s```", userID, i.Member.User.ID, appealContent)).
 		SetColor("Red").
+		SetAuthor(i.Member.User.Username, i.Member.User.AvatarURL("")).
 		SetTimestamp().
 		MessageEmbed
 
