@@ -174,6 +174,15 @@ func handleAppealSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		return
 	}
 
+	// Determine latest ban case for association
+	var caseIDPtr *string
+	latestCases, err := storage.FindCasesByUserID(i.User.ID, guildID)
+	if err != nil {
+		log.Error().AnErr("Failed to find cases for association", err)
+	} else if len(latestCases) > 0 && latestCases[0].Type == 1 { // 1 = ban
+		caseIDPtr = &latestCases[0].ID
+	}
+
 	// Save appeal
 	id, _ := lib.GenID()
 	appeal := &structs.Appeal{
@@ -182,6 +191,9 @@ func handleAppealSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		UserID:  i.User.ID,
 		Content: userInput,
 		Status:  0,
+	}
+	if caseIDPtr != nil {
+		appeal.CaseID.Scan(*caseIDPtr)
 	}
 	if err := storage.CreateAppeal(appeal); err != nil {
 		log.Error().AnErr("Failed to create appeal", err)
@@ -194,19 +206,10 @@ func handleAppealSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 
 	// Send to staff channel
-	// get the users latest case in the server
-	cases, err := storage.FindCasesByUserID(i.User.ID, guildID)
-	if err != nil {
-		log.Error().AnErr("Failed to find cases", err)
-	}
-	if len(cases) == 0 {
-		log.Debug().Msgf("[handleAppealSubmit] no cases found for user: %s", i.User.ID)
-	}
-
 	embedDescription := fmt.Sprintf("<@%s> submitted a ban appeal:\n```%s```", i.User.ID, userInput)
-	if len(cases) > 0 && cases[0].Type == 1 {
+	if caseIDPtr != nil {
 		// has cases and latest case is a ban
-		embedDescription += "\n\nBanned for: `" + cases[0].Reason + "`\n-# Case ID: `" + cases[0].ID + "`"
+		embedDescription += "\n\nBanned for: `" + latestCases[0].Reason + "`\n-# <:text:1229343822337802271> Case ID: `" + *caseIDPtr + "`"
 	}
 
 	embed := NewEmbed().SetDescription(embedDescription).
@@ -281,10 +284,9 @@ func handleAppealAccept(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 	// The staff review message is in the configured guild/channel; Interaction has GuildID
 	// fetch the appeal to get user id
 	// lightweight: query for user_id and guild_id
-	var userID, guildID string
-	var appealContent string
-	row := services.DB.QueryRow("SELECT user_id, guild_id, content FROM appeals WHERE id = ?", appealID)
-	if err := row.Scan(&userID, &guildID, &appealContent); err != nil {
+	var userID, guildID, appealContent, caseID string
+	row := services.DB.QueryRow("SELECT user_id, guild_id, content, case_id FROM appeals WHERE id = ?", appealID)
+	if err := row.Scan(&userID, &guildID, &appealContent, &caseID); err != nil {
 		return ContentResponse(config.Bot.ErrMsgPrefix+"Failed to look up appeal.", true)
 	}
 
@@ -335,8 +337,19 @@ func handleAppealAccept(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 	}
 
 	// update the embed and disable the buttons
+	banCase, err := storage.FindCaseByID(caseID, guildID)
+	if err != nil {
+		log.Error().AnErr("Failed to find ban case", err)
+		// add mock data
+		banCase = &structs.Case{
+			ID:          caseID,
+			Reason:      "Not Found",
+			ModeratorID: i.Member.User.ID,
+			GuildID:     guildID,
+		}
+	}
 	embed := NewEmbed().
-		SetDescription(fmt.Sprintf("<@%s> submitted an appeal.\n```%s```", userID, appealContent)).
+		SetDescription(fmt.Sprintf("<@%s> submitted an appeal.\n```%s```\n\nBanned for: `%s`\n-# <:text:1229343822337802271> Case ID: `%s`", userID, appealContent, banCase.Reason, caseID)).
 		SetColor("Green").
 		SetTimestamp().
 		SetAuthor(fmt.Sprintf("Reviewed by %s", i.Member.User.Username), i.Member.User.AvatarURL("")).
@@ -367,11 +380,9 @@ func handleAppealReject(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 	_ = storage.UpdateAppealStatus(appealID, 2, i.Member.User.ID)
 
 	// DM user
-	var userID string
-	var appealContent string
-	var guildID string
-	row := services.DB.QueryRow("SELECT user_id, guild_id, content FROM appeals WHERE id = ?", appealID)
-	_ = row.Scan(&userID, &guildID, &appealContent)
+	var userID, guildID, appealContent, caseID string
+	row := services.DB.QueryRow("SELECT user_id, guild_id, content, case_id FROM appeals WHERE id = ?", appealID)
+	_ = row.Scan(&userID, &guildID, &appealContent, &caseID)
 	if userID != "" {
 		guild, err := s.Guild(guildID)
 		if err != nil {
@@ -387,8 +398,19 @@ func handleAppealReject(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 	}
 
 	// update the embed and disable the buttons
+	banCase, err := storage.FindCaseByID(caseID, guildID)
+	if err != nil {
+		log.Error().AnErr("Failed to find ban case", err)
+		// add mock data
+		banCase = &structs.Case{
+			ID:          caseID,
+			Reason:      "Not Found",
+			ModeratorID: i.Member.User.ID,
+			GuildID:     guildID,
+		}
+	}
 	embed := NewEmbed().
-		SetDescription(fmt.Sprintf("<@%s> submitted an appeal.\n```%s```", userID, appealContent)).
+		SetDescription(fmt.Sprintf("<@%s> submitted an appeal.\n```%s```\n\nBanned for: `%s`\n-# <:text:1229343822337802271> Case ID: `%s`", userID, appealContent, banCase.Reason, caseID)).
 		SetColor("Red").
 		SetAuthor(fmt.Sprintf("Reviewed by %s", i.Member.User.Username), i.Member.User.AvatarURL("")).
 		SetTimestamp().

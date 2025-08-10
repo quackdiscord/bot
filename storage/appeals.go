@@ -57,11 +57,16 @@ func FindAppealSettingsByGuildID(guildID string) (*structs.AppealSettings, error
 
 // CreateAppeal inserts a new appeal row
 func CreateAppeal(a *structs.Appeal) error {
-	stmt, err := services.DB.Prepare("INSERT INTO appeals (id, guild_id, user_id, content, status) VALUES (?, ?, ?, ?, ?)")
+	stmt, err := services.DB.Prepare("INSERT INTO appeals (id, guild_id, user_id, content, case_id, status) VALUES (?, ?, ?, ?, ?, ?)")
 	if err != nil {
 		return err
 	}
-	_, err = stmt.Exec(a.ID, a.GuildID, a.UserID, a.Content, a.Status)
+	var caseID *string
+	if a.CaseID.Valid {
+		v := a.CaseID.String
+		caseID = &v
+	}
+	_, err = stmt.Exec(a.ID, a.GuildID, a.UserID, a.Content, caseID, a.Status)
 	if err != nil {
 		return err
 	}
@@ -90,7 +95,7 @@ func SetAppealReviewMessage(id string, messageID string) error {
 
 // FindAppealsByUserID fetches appeals for a user
 func FindAppealsByUserID(userID string, guildID string) ([]*structs.Appeal, error) {
-	stmt, err := services.DB.Prepare("SELECT id, guild_id, user_id, content, status, created_at, resolved_at, resolved_by, review_message_id FROM appeals WHERE user_id = ? AND guild_id = ?")
+	stmt, err := services.DB.Prepare("SELECT id, guild_id, user_id, content, case_id, status, created_at, resolved_at, resolved_by, review_message_id FROM appeals WHERE user_id = ? AND guild_id = ?")
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +108,7 @@ func FindAppealsByUserID(userID string, guildID string) ([]*structs.Appeal, erro
 	appeals := []*structs.Appeal{}
 	for rows.Next() {
 		var a structs.Appeal
-		err = rows.Scan(&a.ID, &a.GuildID, &a.UserID, &a.Content, &a.Status, &a.CreatedAt, &a.ResolvedAt, &a.ResolvedBy, &a.ReviewMessageID)
+		err = rows.Scan(&a.ID, &a.GuildID, &a.UserID, &a.Content, &a.CaseID, &a.Status, &a.CreatedAt, &a.ResolvedAt, &a.ResolvedBy, &a.ReviewMessageID)
 		if err != nil {
 			return nil, err
 		}
@@ -114,7 +119,7 @@ func FindAppealsByUserID(userID string, guildID string) ([]*structs.Appeal, erro
 
 // FindOpenAndRejectedAppealsByUserID fetches appeals for a user
 func FindOpenAndRejectedAppealsByUserID(userID string, guildID string) ([]*structs.Appeal, error) {
-	stmt, err := services.DB.Prepare("SELECT id, guild_id, user_id, content, status, created_at, resolved_at, resolved_by, review_message_id FROM appeals WHERE user_id = ? AND guild_id = ? AND (status = 0 OR status = 2)")
+	stmt, err := services.DB.Prepare("SELECT id, guild_id, user_id, content, case_id, status, created_at, resolved_at, resolved_by, review_message_id FROM appeals WHERE user_id = ? AND guild_id = ? AND (status = 0 OR status = 2)")
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +132,7 @@ func FindOpenAndRejectedAppealsByUserID(userID string, guildID string) ([]*struc
 	appeals := []*structs.Appeal{}
 	for rows.Next() {
 		var a structs.Appeal
-		err = rows.Scan(&a.ID, &a.GuildID, &a.UserID, &a.Content, &a.Status, &a.CreatedAt, &a.ResolvedAt, &a.ResolvedBy, &a.ReviewMessageID)
+		err = rows.Scan(&a.ID, &a.GuildID, &a.UserID, &a.Content, &a.CaseID, &a.Status, &a.CreatedAt, &a.ResolvedAt, &a.ResolvedBy, &a.ReviewMessageID)
 		if err != nil {
 			return nil, err
 		}

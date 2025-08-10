@@ -9,6 +9,7 @@ type Appeal struct {
 	GuildID         string
 	UserID          string
 	Content         string
+	CaseID          sql.NullString
 	Status          int8
 	CreatedAt       string
 	ResolvedAt      sql.NullString
