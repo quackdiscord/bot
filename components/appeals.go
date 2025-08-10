@@ -58,7 +58,7 @@ func handleAppealOpen(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 	return &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseModal,
 		Data: &discordgo.InteractionResponseData{
-			CustomID: "appeal-modal:" + guildID,
+			CustomID: "appeal-modal:" + guildID + ":" + i.ChannelID + ":" + i.Message.ID,
 			Title:    "Ban Appeal",
 			Components: []discordgo.MessageComponent{
 				discordgo.ActionsRow{Components: []discordgo.MessageComponent{
@@ -82,12 +82,17 @@ func handleAppealSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Registered in events router for modal submissions
 	data := i.ModalSubmitData()
 	log.Debug().Msgf("[handleAppealSubmit] components top-level count: %d", len(data.Components))
-	parts := strings.SplitN(data.CustomID, ":", 2)
-	if len(parts) != 2 {
+	parts := strings.Split(data.CustomID, ":")
+	if len(parts) < 2 {
 		log.Debug().Msgf("[handleAppealSubmit] invalid custom id: %s", data.CustomID)
 		return
 	}
 	guildID := parts[1]
+	var origChannelID, origMessageID string
+	if len(parts) >= 4 {
+		origChannelID = parts[2]
+		origMessageID = parts[3]
+	}
 	log.Debug().Msgf("[handleAppealSubmit] guildID: %s", guildID)
 
 	// fetch settings
@@ -225,16 +230,39 @@ func handleAppealSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Debug().Msgf("[handleAppealSubmit] ChannelMessageSendComplex error: %s", err.Error())
 	}
 
-	// Ack user
-	ackEmbed := NewEmbed().
-		SetDescription("Your appeal has been submitted. A moderator will review it soon.").
-		SetColor("Main").
-		MessageEmbed
-	ack := &discordgo.InteractionResponseData{Embeds: []*discordgo.MessageEmbed{ackEmbed}}
-	if i.GuildID != "" {
-		ack.Flags = discordgo.MessageFlagsEphemeral
+	// Acknowledge the modal submission with a lightweight ephemeral message
+	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Flags:   discordgo.MessageFlagsEphemeral,
+			Content: "Appeal submitted. A moderator will review it soon.",
+		},
+	}); err != nil {
+		log.Debug().Msgf("[handleAppealSubmit] failed to ack modal submit: %s", err.Error())
 	}
-	s.InteractionRespond(i.Interaction, ComplexResponse(ack))
+
+	// Edit original DM message embed and disable button if available
+	if origChannelID != "" && origMessageID != "" {
+		if origMsg, err := s.ChannelMessage(origChannelID, origMessageID); err == nil {
+			if len(origMsg.Embeds) > 0 {
+				// Disable button
+				disabledComponents := []discordgo.MessageComponent{
+					discordgo.ActionsRow{Components: []discordgo.MessageComponent{
+						discordgo.Button{Label: "Appeal Submitted", Style: discordgo.SuccessButton, CustomID: "appeal-open:" + guildID, Disabled: true},
+					}},
+				}
+				embeds := []*discordgo.MessageEmbed{origMsg.Embeds[0]}
+				_, _ = s.ChannelMessageEditComplex(&discordgo.MessageEdit{
+					ID:         origMessageID,
+					Channel:    origChannelID,
+					Embeds:     &embeds,
+					Components: &disabledComponents,
+				})
+			}
+		} else {
+			log.Debug().Msgf("[handleAppealSubmit] failed to fetch original message: %s", err.Error())
+		}
+	}
 }
 
 func handleAppealAccept(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
@@ -277,7 +305,17 @@ func handleAppealAccept(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 	inviteLink := "https://discord.gg/" + invites[0].Code
 
 	// DM user
-	_ = utils.DMUser(userID, "## ✅ Your appeal was accepted.\nYou can now [rejoin]("+inviteLink+") the server.", s)
+	guild, err := s.Guild(guildID)
+	if err != nil {
+		log.Error().AnErr("Failed to get guild", err)
+	}
+	dmEmbed := NewEmbed().
+		SetTitle("Ban Appeal Accepted").
+		SetDescription("You can rejoin the server using [this link]("+inviteLink+").").
+		SetColor("Green").
+		SetAuthor(guild.Name, guild.IconURL("")).
+		MessageEmbed
+	_ = utils.DMUserEmbed(userID, dmEmbed, s)
 
 	// add a case for the user
 	id, _ := lib.GenID()
@@ -331,12 +369,21 @@ func handleAppealReject(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 	// DM user
 	var userID string
 	var appealContent string
-	row := services.DB.QueryRow("SELECT user_id, content FROM appeals WHERE id = ?", appealID)
-	_ = row.Scan(&userID, &appealContent)
+	var guildID string
+	row := services.DB.QueryRow("SELECT user_id, guild_id, content FROM appeals WHERE id = ?", appealID)
+	_ = row.Scan(&userID, &guildID, &appealContent)
 	if userID != "" {
-		_ = utils.DMUserEmbed(userID, NewEmbed().
-			SetDescription("❌ Your appeal was rejected. Please contact a moderator if you believe this is an error.").
-			SetColor("Red").SetTimestamp().MessageEmbed, s)
+		guild, err := s.Guild(guildID)
+		if err != nil {
+			log.Error().AnErr("Failed to get guild", err)
+		}
+		dmEmbed := NewEmbed().
+			SetTitle("Ban Appeal Rejected").
+			SetDescription("Please contact a moderator if you believe this is an error.").
+			SetColor("Red").
+			SetAuthor(guild.Name, guild.IconURL("")).
+			MessageEmbed
+		_ = utils.DMUserEmbed(userID, dmEmbed, s)
 	}
 
 	// update the embed and disable the buttons

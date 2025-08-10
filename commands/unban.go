@@ -75,53 +75,87 @@ func handleUnban(s *discordgo.Session, i *discordgo.InteractionCreate) *discordg
 		return EmbedResponse(components.ErrorEmbed("You can't unban me using this command."), true)
 	}
 
-	// create the case
-	id, _ := lib.GenID()
-	caseData := &structs.Case{
-		ID:          id,
-		Type:        3,
-		Reason:      reason,
-		UserID:      userToUnban.ID,
-		ModeratorID: moderator.ID,
-		GuildID:     guild.ID,
-	}
+	go func() {
+		// create the case
+		id, _ := lib.GenID()
+		caseData := &structs.Case{
+			ID:          id,
+			Type:        3,
+			Reason:      reason,
+			UserID:      userToUnban.ID,
+			ModeratorID: moderator.ID,
+			GuildID:     guild.ID,
+		}
 
-	dmError := ""
-	dmEmbed := components.NewEmbed().
-		SetDescription("You have been unbanned from **"+guild.Name+"** for ```"+reason+"```").
-		SetColor("Green").
-		SetAuthor(guild.Name, guild.IconURL("")).
-		SetFooter("Case ID: " + id).
-		SetTimestamp().MessageEmbed
+		invites, err := s.GuildInvites(guild.ID)
+		if err != nil {
+			log.Error().AnErr("Failed to generate invite link", err)
+		}
+		inviteLink := "https://discord.gg/" + invites[0].Code
+		dmError := ""
+		dmEmbed := components.NewEmbed().
+			SetDescription("You have been unbanned from **"+guild.Name+"** for ```"+reason+"```\n\nYou can rejoin the server using [this link]("+inviteLink+").").
+			SetColor("Green").
+			SetAuthor(guild.Name, guild.IconURL("")).
+			SetFooter("Case ID: " + id).
+			SetTimestamp().MessageEmbed
 
-	// unban the user
-	err := s.GuildBanDelete(guild.ID, userToUnban.ID)
-	if err != nil {
-		log.Error().AnErr("Failed to unban user", err)
-		return EmbedResponse(components.ErrorEmbed("Failed to unban user.\n```"+err.Error()+"```"), true)
-	}
+		// unban the user
+		err = s.GuildBanDelete(guild.ID, userToUnban.ID)
+		if err != nil {
+			log.Error().AnErr("Failed to unban user", err)
+			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to unban user.\n```" + err.Error() + "```")},
+			})
+			return
+		}
 
-	// attempt to send the user a DM
-	err = utils.DMUserEmbed(userToUnban.ID, dmEmbed, s)
-	if err != nil {
-		dmError = "\n\n-# *User has DMs disabled.*"
-	}
+		// attempt to send the user a DM
+		err = utils.DMUserEmbed(userToUnban.ID, dmEmbed, s)
+		if err != nil {
+			dmError = "\n\n-# *User has DMs disabled.*"
+		}
 
-	// save the case
-	err = storage.CreateCase(caseData)
-	if err != nil {
-		log.Error().AnErr("Failed to create case", err)
-		return EmbedResponse(components.ErrorEmbed("Failed to save case.\n```"+err.Error()+"```"), true)
-	}
+		// save the case
+		err = storage.CreateCase(caseData)
+		if err != nil {
+			log.Error().AnErr("Failed to create case", err)
+			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to save case.\n```" + err.Error() + "```")},
+			})
+			return
+		}
 
-	// send the response
-	embed := components.NewEmbed().
-		SetDescription(fmt.Sprintf("<@%s> has been unbanned for `%s`%s", userToUnban.ID, reason, dmError)).
-		SetColor("Main").
-		SetAuthor(fmt.Sprintf("%s unbanned %s", moderator.Username, userToUnban.Username), userToUnban.AvatarURL("")).
-		SetFooter("Case ID: " + id).
-		SetTimestamp().
-		MessageEmbed
+		// look in the appeals table for an appeal with the user ID and guild ID
+		appeals, err := storage.FindAppealsByUserID(userToUnban.ID, guild.ID)
+		if err != nil {
+			log.Error().AnErr("Failed to find appeals", err)
+		}
+		if len(appeals) > 0 {
+			// look for any pending or rejected appeals
+			for _, appeal := range appeals {
+				if appeal.Status == 0 || appeal.Status == 2 {
+					// update the appeal status to accepted
+					err = storage.UpdateAppealStatus(appeal.ID, 1, moderator.ID)
+					if err != nil {
+						log.Error().AnErr("Failed to update appeal status", err)
+					}
+				}
+			}
+		}
 
-	return EmbedResponse(embed, false)
+		// send the response
+		embed := components.NewEmbed().
+			SetDescription(fmt.Sprintf("<@%s> has been unbanned for `%s`%s", userToUnban.ID, reason, dmError)).
+			SetColor("Main").
+			SetAuthor(fmt.Sprintf("%s unbanned %s", moderator.Username, userToUnban.Username), userToUnban.AvatarURL("")).
+			SetFooter("Case ID: " + id).
+			SetTimestamp().
+			MessageEmbed
+		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Embeds: &[]*discordgo.MessageEmbed{embed},
+		})
+	}()
+
+	return LoadingResponse()
 }
