@@ -206,7 +206,7 @@ func handleAppealSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 	embed := NewEmbed().SetDescription(embedDescription).
 		SetColor("Main").
-		SetAuthor(i.User.Username, i.User.AvatarURL("")).
+		SetAuthor("Ban Appeal", i.User.AvatarURL("")).
 		SetTimestamp().
 		MessageEmbed
 
@@ -279,20 +279,36 @@ func handleAppealAccept(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 	// DM user
 	_ = utils.DMUser(userID, "## ✅ Your appeal was accepted.\nYou can now [rejoin]("+inviteLink+") the server.", s)
 
-	// disable buttons but keep the original embed
+	// add a case for the user
+	id, _ := lib.GenID()
+	caseData := &structs.Case{
+		ID:          id,
+		Type:        3,
+		Reason:      "Ban appeal accepted. ID: " + appealID,
+		UserID:      userID,
+		ModeratorID: i.Member.User.ID,
+		GuildID:     guildID,
+	}
+
+	err = storage.CreateCase(caseData)
+	if err != nil {
+		log.Error().AnErr("Failed to create case", err)
+		return ContentResponse(config.Bot.ErrMsgPrefix+"Failed to create case.", true)
+	}
+
+	// update the embed and disable the buttons
 	embed := NewEmbed().
-		SetDescription(fmt.Sprintf("<@%s>'s appeal was accepted by <@%s>.\n```%s```", userID, i.Member.User.ID, appealContent)).
+		SetDescription(fmt.Sprintf("<@%s> submitted an appeal.\n```%s```", userID, appealContent)).
 		SetColor("Green").
 		SetTimestamp().
-		SetAuthor(i.Member.User.Username, i.Member.User.AvatarURL("")).
+		SetAuthor(fmt.Sprintf("Reviewed by %s", i.Member.User.Username), i.Member.User.AvatarURL("")).
 		MessageEmbed
 
 	return UpdateResponse(&discordgo.InteractionResponseData{
 		Embeds: []*discordgo.MessageEmbed{embed},
 		Components: []discordgo.MessageComponent{
 			discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-				discordgo.Button{CustomID: "appeal-accept:" + appealID, Label: "Accept", Style: discordgo.SuccessButton, Disabled: true},
-				discordgo.Button{CustomID: "appeal-reject:" + appealID, Label: "Reject", Style: discordgo.DangerButton, Disabled: true},
+				discordgo.Button{CustomID: "appeal-accept:" + appealID, Label: "Accepted", Style: discordgo.SuccessButton, Disabled: true},
 			}},
 		},
 	})
@@ -323,11 +339,11 @@ func handleAppealReject(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 			SetColor("Red").SetTimestamp().MessageEmbed, s)
 	}
 
-	// disable buttons but keep the original embed
+	// update the embed and disable the buttons
 	embed := NewEmbed().
-		SetDescription(fmt.Sprintf("<@%s>'s appeal was rejected by <@%s>.\n```%s```", userID, i.Member.User.ID, appealContent)).
+		SetDescription(fmt.Sprintf("<@%s> submitted an appeal.\n```%s```", userID, appealContent)).
 		SetColor("Red").
-		SetAuthor(i.Member.User.Username, i.Member.User.AvatarURL("")).
+		SetAuthor(fmt.Sprintf("Reviewed by %s", i.Member.User.Username), i.Member.User.AvatarURL("")).
 		SetTimestamp().
 		MessageEmbed
 
@@ -335,8 +351,7 @@ func handleAppealReject(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 		Embeds: []*discordgo.MessageEmbed{embed},
 		Components: []discordgo.MessageComponent{
 			discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-				discordgo.Button{CustomID: "appeal-accept:" + appealID, Label: "Accept", Style: discordgo.SuccessButton, Disabled: true},
-				discordgo.Button{CustomID: "appeal-reject:" + appealID, Label: "Reject", Style: discordgo.DangerButton, Disabled: true},
+				discordgo.Button{CustomID: "appeal-reject:" + appealID, Label: "Rejected", Style: discordgo.DangerButton, Disabled: true},
 			}},
 		},
 	})
