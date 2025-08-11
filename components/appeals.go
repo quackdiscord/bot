@@ -96,7 +96,13 @@ func findLatestBanCase(userID, guildID string) *string {
 func buildStaffEmbed(userID, content string, banCase *structs.Case, caseID *string) *discordgo.MessageEmbed {
 	embedDescription := fmt.Sprintf("<@%s> submitted a ban appeal:\n```%s```", userID, content)
 	if caseID != nil && banCase != nil {
-		embedDescription += fmt.Sprintf("\n\nBanned for: `%s`\n-# <:text:1229343822337802271> Case ID: `%s`", banCase.Reason, *caseID)
+		embedDescription += fmt.Sprintf("\n\nBanned for: `%s`", banCase.Reason)
+
+		if banCase.ContextURL.Valid {
+			embedDescription += fmt.Sprintf("\n-# <:text4:1229350683057324043> [View Context](%s)", banCase.ContextURL.String)
+		}
+
+		embedDescription += fmt.Sprintf("\n-# <:text:1229343822337802271> Case ID: `%s`", *caseID)
 	}
 
 	return NewEmbed().
@@ -195,7 +201,13 @@ func parseAppealData(s *discordgo.Session, appealID string) (*appealData, error)
 func buildReviewEmbed(data *appealData, reviewerName, reviewerAvatar, color string) *discordgo.MessageEmbed {
 	description := fmt.Sprintf("<@%s> submitted an appeal.\n```%s```", data.UserID, data.Content)
 	if data.BanCase != nil {
-		description += fmt.Sprintf("\n\nBanned for: `%s`\n-# <:text:1229343822337802271> Case ID: `%s`", data.BanCase.Reason, data.CaseID)
+		description += fmt.Sprintf("\n\nBanned for: `%s`", data.BanCase.Reason)
+
+		if data.BanCase.ContextURL.Valid {
+			description += fmt.Sprintf("\n-# <:text4:1229350683057324043> [View Context](%s)", data.BanCase.ContextURL.String)
+		}
+
+		description += fmt.Sprintf("\n-# <:text:12293438223378022271> Case ID: `%s`", data.CaseID)
 	}
 
 	return NewEmbed().

@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"database/sql"
 	"fmt"
 
 	"github.com/bwmarrin/discordgo"
@@ -116,16 +117,6 @@ func handleUnban(s *discordgo.Session, i *discordgo.InteractionCreate) *discordg
 			dmError = "\n\n-# *User has DMs disabled.*"
 		}
 
-		// save the case
-		err = storage.CreateCase(caseData)
-		if err != nil {
-			log.Error().AnErr("Failed to create case", err)
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to save case.\n```" + err.Error() + "```")},
-			})
-			return
-		}
-
 		// look in the appeals table for an appeal with the user ID and guild ID
 		appeals, err := storage.FindAppealsByUserID(userToUnban.ID, guild.ID)
 		if err != nil {
@@ -152,9 +143,23 @@ func handleUnban(s *discordgo.Session, i *discordgo.InteractionCreate) *discordg
 			SetFooter("Case ID: " + id).
 			SetTimestamp().
 			MessageEmbed
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		msg, _ := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 			Embeds: &[]*discordgo.MessageEmbed{embed},
 		})
+
+		if msg != nil {
+			caseData.ContextURL = sql.NullString{String: fmt.Sprintf("https://discord.com/channels/%s/%s/%s", i.GuildID, i.ChannelID, msg.ID), Valid: true}
+		}
+
+		// ensure case saved after message URL
+		err = storage.CreateCase(caseData)
+		if err != nil {
+			log.Error().AnErr("Failed to create case", err)
+			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to save case.\n```" + err.Error() + "```")},
+			})
+			return
+		}
 	}()
 
 	return LoadingResponse()

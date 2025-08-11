@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"database/sql"
 	"fmt"
 
 	"github.com/bwmarrin/discordgo"
@@ -92,17 +93,6 @@ func handleTimeoutAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 			return
 		}
 
-		// save the case
-		err = storage.CreateCase(caseData)
-		if err != nil {
-			log.Error().AnErr("Failed to save case", err)
-			errEmbed := components.ErrorEmbed("Failed to save case.\n```" + err.Error() + "```")
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{errEmbed},
-			})
-			return
-		}
-
 		// dms
 		dmError := ""
 		dmEmbed := components.NewEmbed().
@@ -126,9 +116,24 @@ func handleTimeoutAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 			SetTimestamp().
 			MessageEmbed
 
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		// edit the response and capture message for URL
+		msg, _ := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 			Embeds: &[]*discordgo.MessageEmbed{embed},
 		})
+		if msg != nil {
+			caseData.ContextURL = sql.NullString{String: fmt.Sprintf("https://discord.com/channels/%s/%s/%s", i.GuildID, i.ChannelID, msg.ID), Valid: true}
+		}
+
+		// save the case
+		err = storage.CreateCase(caseData)
+		if err != nil {
+			log.Error().AnErr("Failed to save case", err)
+			errEmbed := components.ErrorEmbed("Failed to save case.\n```" + err.Error() + "```")
+			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+				Embeds: &[]*discordgo.MessageEmbed{errEmbed},
+			})
+			return
+		}
 
 	}()
 

@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"database/sql"
 	"fmt"
 
 	"github.com/bwmarrin/discordgo"
@@ -80,35 +81,47 @@ func handleWarn(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo
 		GuildID:     guild.ID,
 	}
 
-	dmError := ""
-	dmEmbed := components.NewEmbed().
-		SetDescription(fmt.Sprintf("You have been warned in **%s** for ```%s```\n> Please discontinue this behavior.", guild.Name, reason)).
-		SetColor("Orange").
-		SetAuthor(guild.Name, guild.IconURL("")).
-		SetFooter("Case ID: " + id).
-		SetTimestamp().
-		MessageEmbed
+	// perform work asynchronously and edit the original interaction response
+	go func() {
+		dmError := ""
+		dmEmbed := components.NewEmbed().
+			SetDescription(fmt.Sprintf("You have been warned in **%s** for ```%s```\n> Please discontinue this behavior.", guild.Name, reason)).
+			SetColor("Orange").
+			SetAuthor(guild.Name, guild.IconURL("")).
+			SetFooter("Case ID: " + id).
+			SetTimestamp().
+			MessageEmbed
 
-	// attempt to send the user a DM
-	err := utils.DMUserEmbed(userToWarn.ID, dmEmbed, s)
-	if err != nil {
-		dmError = "\n\n-# *User has DMs disabled.*"
-	}
+		// attempt to send the user a DM
+		err := utils.DMUserEmbed(userToWarn.ID, dmEmbed, s)
+		if err != nil {
+			dmError = "\n\n-# *User has DMs disabled.*"
+		}
 
-	// save the case
-	err = storage.CreateCase(caseData)
-	if err != nil {
-		log.Error().AnErr("Failed to create case", err)
-		return EmbedResponse(components.ErrorEmbed("Failed to save case.\n```"+err.Error()+"```"), true)
-	}
+		// form the embed for the command response
+		embed := components.NewEmbed().
+			SetDescription(fmt.Sprintf("<:warn:1165590684837875782> <@%s> has been warned for `%s`%s", userToWarn.ID, reason, dmError)).
+			SetColor("Main").
+			SetAuthor(fmt.Sprintf("%s warned %s", moderator.Username, userToWarn.Username), userToWarn.AvatarURL("")).
+			SetFooter("Case ID: " + id).
+			SetTimestamp().MessageEmbed
 
-	// form the embed
-	embed := components.NewEmbed().
-		SetDescription(fmt.Sprintf("<:warn:1165590684837875782> <@%s> has been warned for `%s`%s", userToWarn.ID, reason, dmError)).
-		SetColor("Main").
-		SetAuthor(fmt.Sprintf("%s warned %s", moderator.Username, userToWarn.Username), userToWarn.AvatarURL("")).
-		SetFooter("Case ID: " + id).
-		SetTimestamp().MessageEmbed
+		// edit the original response and capture the message
+		msg, _ := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Embeds: &[]*discordgo.MessageEmbed{embed},
+		})
+		if msg != nil {
+			caseData.ContextURL = sql.NullString{String: fmt.Sprintf("https://discord.com/channels/%s/%s/%s", i.GuildID, i.ChannelID, msg.ID), Valid: true}
+		}
 
-	return EmbedResponse(embed, false)
+		// save the case
+		err = storage.CreateCase(caseData)
+		if err != nil {
+			log.Error().AnErr("Failed to create case", err)
+			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to save case.\n```" + err.Error() + "```")}})
+			return
+		}
+	}()
+
+	return LoadingResponse()
 }

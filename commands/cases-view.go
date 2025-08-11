@@ -3,13 +3,13 @@ package commands
 import (
 	"fmt"
 	"math"
-	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
 	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/quackdiscord/bot/structs"
+	"github.com/quackdiscord/bot/utils"
 )
 
 var casesViewCmd = &discordgo.ApplicationCommandOption{
@@ -120,7 +120,7 @@ func handleCasesViewUser(s *discordgo.Session, i *discordgo.InteractionCreate) *
 			if moderator == nil {
 				moderator = &discordgo.User{Username: "Unknown"}
 			}
-			content += generateCaseDetails(c, moderator)
+			content += utils.GenerateCaseDetails(c, moderator)
 		}
 
 		totalPages := int(math.Ceil(float64(total) / float64(pageSize)))
@@ -164,35 +164,10 @@ func generateCaseEmbed(s *discordgo.Session, c *structs.Case) *discordgo.Message
 	}
 
 	embed := components.NewEmbed().
-		SetDescription(fmt.Sprintf("<@%s> (%s)'s Case \n\n", user.ID, user.Username)+generateCaseDetails(c, moderator)).
+		SetDescription(fmt.Sprintf("<@%s> (%s)'s Case \n\n", user.ID, user.Username)+utils.GenerateCaseDetails(c, moderator)).
 		SetAuthor(fmt.Sprintf("Case %s", c.ID), user.AvatarURL("")).
 		SetTimestamp().
 		SetColor("Main").MessageEmbed
 
 	return embed
-}
-
-func generateCaseDetails(c *structs.Case, moderator *discordgo.User) string {
-	parsedTime, _ := time.Parse("2006-01-02 15:04:05", c.CreatedAt)
-	unixTime := parsedTime.Unix()
-
-	typeStr := "Case added"
-	switch c.Type {
-	case 0:
-		typeStr = "Warned"
-	case 1:
-		typeStr = "Banned"
-	case 2:
-		typeStr = "Kicked"
-	case 3:
-		typeStr = "Unbanned"
-	case 4:
-		typeStr = "Timed out"
-	}
-
-	details := fmt.Sprintf(
-		"-# <:text6:1321325229213089802> *ID: %s*\n<:text4:1229350683057324043> **%s** <t:%d:R> by <@%s>\n<:text:1229343822337802271> `%s`\n\n",
-		c.ID, typeStr, unixTime, moderator.ID, c.Reason,
-	)
-	return details
 }

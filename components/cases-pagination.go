@@ -5,12 +5,11 @@ import (
 	"math"
 	"regexp"
 	"strconv"
-	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/storage"
-	"github.com/quackdiscord/bot/structs"
+	"github.com/quackdiscord/bot/utils"
 )
 
 // description header format: <@userID> has **count** cases\n\n
@@ -85,7 +84,7 @@ func handleCasesPaginate(s *discordgo.Session, i *discordgo.InteractionCreate, d
 			if moderator == nil {
 				moderator = &discordgo.User{Username: "Unknown"}
 			}
-			content += generateCaseDetailsForComponents(c, moderator)
+			content += utils.GenerateCaseDetails(c, moderator)
 		}
 
 		// author
@@ -124,30 +123,4 @@ func handleCasesPaginate(s *discordgo.Session, i *discordgo.InteractionCreate, d
 	}()
 
 	return EmptyResponse()
-}
-
-// generateCaseDetailsForComponents mirrors commands.generateCaseDetails without importing commands.
-func generateCaseDetailsForComponents(c *structs.Case, moderator *discordgo.User) string {
-	// duplicate minimal formatting to avoid import cycle
-	parsedTime, _ := time.Parse("2006-01-02 15:04:05", c.CreatedAt)
-	unixTime := parsedTime.Unix()
-
-	typeStr := "Case added"
-	switch c.Type {
-	case 0:
-		typeStr = "Warned"
-	case 1:
-		typeStr = "Banned"
-	case 2:
-		typeStr = "Kicked"
-	case 3:
-		typeStr = "Unbanned"
-	case 4:
-		typeStr = "Timed out"
-	}
-
-	return fmt.Sprintf(
-		"-# <:text6:1321325229213089802> *ID: %s*\n<:text4:1229350683057324043> **%s** <t:%d:R> by <@%s>\n<:text:1229343822337802271> `%s`\n\n",
-		c.ID, typeStr, unixTime, moderator.ID, c.Reason,
-	)
 }

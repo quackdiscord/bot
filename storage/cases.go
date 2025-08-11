@@ -22,7 +22,7 @@ func FindCaseByID(id string, guildID string) (*structs.Case, error) {
 
 	// query the database
 	var c structs.Case
-	err = stmtOut.QueryRow(id, guildID).Scan(&c.ID, &c.UserID, &c.ModeratorID, &c.GuildID, &c.Reason, &c.Type, &c.CreatedAt)
+	err = stmtOut.QueryRow(id, guildID).Scan(&c.ID, &c.UserID, &c.ModeratorID, &c.GuildID, &c.Reason, &c.Type, &c.CreatedAt, &c.ContextURL)
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +54,7 @@ func FindCasesByUserID(userID string, guildID string) ([]*structs.Case, error) {
 	var cases []*structs.Case
 	for rows.Next() {
 		var c structs.Case
-		err = rows.Scan(&c.ID, &c.UserID, &c.ModeratorID, &c.GuildID, &c.Reason, &c.Type, &c.CreatedAt)
+		err = rows.Scan(&c.ID, &c.UserID, &c.ModeratorID, &c.GuildID, &c.Reason, &c.Type, &c.CreatedAt, &c.ContextURL)
 		if err != nil {
 			return nil, err
 		}
@@ -90,7 +90,7 @@ func FindCasesByUserIDPaginated(userID string, guildID string, limit int, offset
 	var cases []*structs.Case
 	for rows.Next() {
 		var c structs.Case
-		err = rows.Scan(&c.ID, &c.UserID, &c.ModeratorID, &c.GuildID, &c.Reason, &c.Type, &c.CreatedAt)
+		err = rows.Scan(&c.ID, &c.UserID, &c.ModeratorID, &c.GuildID, &c.Reason, &c.Type, &c.CreatedAt, &c.ContextURL)
 		if err != nil {
 			return nil, err
 		}
@@ -138,7 +138,7 @@ func FindLatestCase(guildID string) (*structs.Case, error) {
 
 	// query the database
 	var c structs.Case
-	err = stmtOut.QueryRow(guildID).Scan(&c.ID, &c.UserID, &c.ModeratorID, &c.GuildID, &c.Reason, &c.Type, &c.CreatedAt)
+	err = stmtOut.QueryRow(guildID).Scan(&c.ID, &c.UserID, &c.ModeratorID, &c.GuildID, &c.Reason, &c.Type, &c.CreatedAt, &c.ContextURL)
 	if err != nil {
 		return nil, err
 	}
@@ -149,13 +149,13 @@ func FindLatestCase(guildID string) (*structs.Case, error) {
 func CreateCase(c *structs.Case) error {
 
 	// prepare the statement
-	stmtIns, err := services.DB.Prepare("INSERT INTO cases (id, user_id, guild_id, moderator_id, reason, type) VALUES (?, ?, ?, ?, ?, ?)")
+	stmtIns, err := services.DB.Prepare("INSERT INTO cases (id, user_id, guild_id, moderator_id, reason, type, context_url) VALUES (?, ?, ?, ?, ?, ?, ?)")
 	if err != nil {
 		return err
 	}
 
 	// execute the statement
-	_, err = stmtIns.Exec(c.ID, c.UserID, c.GuildID, c.ModeratorID, c.Reason, c.Type)
+	_, err = stmtIns.Exec(c.ID, c.UserID, c.GuildID, c.ModeratorID, c.Reason, c.Type, c.ContextURL)
 	if err != nil {
 		return err
 	}

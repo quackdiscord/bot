@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"database/sql"
 	"fmt"
 
 	"github.com/bwmarrin/discordgo"
@@ -135,16 +136,6 @@ func handleBan(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.
 			return
 		}
 
-		// save the case
-		err = storage.CreateCase(caseData)
-		if err != nil {
-			log.Error().AnErr("Failed to save case", err)
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to save case.\n```" + err.Error() + "```")},
-			})
-			return
-		}
-
 		// create the embed
 		embed := components.NewEmbed().
 			SetDescription(fmt.Sprintf("<:ban:1165590688554033183> <@%s> has been banned for `%s`%s", userToBan.ID, reason, dmError)).
@@ -154,9 +145,25 @@ func handleBan(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.
 			SetTimestamp().
 			MessageEmbed
 
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		// edit the original response and capture the message for URL
+		msg, _ := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 			Embeds: &[]*discordgo.MessageEmbed{embed},
 		})
+
+		// attach context URL and save the case
+		if msg != nil {
+			caseData.ContextURL = sql.NullString{String: fmt.Sprintf("https://discord.com/channels/%s/%s/%s", i.GuildID, i.ChannelID, msg.ID), Valid: true}
+		}
+
+		// save the case
+		err = storage.CreateCase(caseData)
+		if err != nil {
+			log.Error().AnErr("Failed to save case", err)
+			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to save case.\n```" + err.Error() + "```")},
+			})
+			return
+		}
 
 	}()
 
