@@ -38,6 +38,12 @@ var banCmd = &discordgo.ApplicationCommand{
 			Description: "The reason for the ban",
 			Required:    false,
 		},
+		{
+			Type:        discordgo.ApplicationCommandOptionBoolean,
+			Name:        "appeal",
+			Description: "Should the user be able to appeal this ban?",
+			Required:    false,
+		},
 	},
 	DefaultMemberPermissions: &banMembers,
 }
@@ -48,8 +54,20 @@ func handleBan(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.
 		return EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
 	}
 
-	userToBan := i.ApplicationCommandData().Options[0].UserValue(s)
+	data := i.ApplicationCommandData()
+	var userToBan *discordgo.User
 	reason := "No reason provided"
+	appeal := true // default allow appeals unless specified otherwise
+	for _, opt := range data.Options {
+		switch opt.Name {
+		case "user":
+			userToBan = opt.UserValue(s)
+		case "reason":
+			reason = opt.StringValue()
+		case "appeal":
+			appeal = opt.BoolValue()
+		}
+	}
 
 	if i.Member == nil {
 		return EmbedResponse(components.ErrorEmbed("You must be in a server to use this command."), true)
@@ -61,9 +79,7 @@ func handleBan(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.
 	if userToBan == nil {
 		return EmbedResponse(components.ErrorEmbed("User not found."), true)
 	}
-	if len(i.ApplicationCommandData().Options) > 1 {
-		reason = i.ApplicationCommandData().Options[1].StringValue()
-	}
+	// reason is already populated from options if provided
 
 	// make sure the user isn't banning themselves
 	if userToBan.ID == moderator.ID {
@@ -99,7 +115,7 @@ func handleBan(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.
 		// attempt to DM the user
 		// If appeals are configured, include appeal button in DM
 		dmComponents := []discordgo.MessageComponent{}
-		if asettings, _ := storage.FindAppealSettingsByGuildID(i.GuildID); asettings != nil {
+		if asettings, _ := storage.FindAppealSettingsByGuildID(i.GuildID); asettings != nil && appeal {
 			dmComponents = []discordgo.MessageComponent{
 				discordgo.ActionsRow{Components: []discordgo.MessageComponent{
 					discordgo.Button{Label: "Appeal this ban", Style: discordgo.PrimaryButton, CustomID: "appeal-open:" + i.GuildID},
@@ -122,7 +138,7 @@ func handleBan(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.
 			err = derr
 		}
 		if err != nil {
-			dmError = "\n\n-# *User has DMs disabled.*"
+			dmError = "\n\n-# *User has DMs disabled. User cannot appeal this ban.*"
 			log.Debug().Msgf("[ban] failed to send DM: %s", err.Error())
 		}
 
@@ -134,6 +150,10 @@ func handleBan(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.
 				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to ban user.\n```" + err.Error() + "```")},
 			})
 			return
+		}
+
+		if !appeal {
+			dmError = "\n\n-# *User cannot appeal this ban.*"
 		}
 
 		// create the embed
