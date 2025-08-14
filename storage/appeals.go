@@ -140,3 +140,27 @@ func FindOpenAndRejectedAppealsByUserID(userID string, guildID string) ([]*struc
 	}
 	return appeals, nil
 }
+
+// GetOpenAppeals returns all open appeals for a guild
+func GetOpenAppeals(guildID string) ([]*structs.Appeal, error) {
+	// Explicitly list columns to avoid reliance on table column order
+	stmt, err := services.DB.Prepare("SELECT id, guild_id, user_id, content, case_id, status, created_at, resolved_at, resolved_by, review_message_id FROM appeals WHERE guild_id = ? AND status = 0 ORDER BY created_at ASC")
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := stmt.Query(guildID)
+	if err != nil {
+		return nil, err
+	}
+	appeals := []*structs.Appeal{}
+	for rows.Next() {
+		var a structs.Appeal
+		err = rows.Scan(&a.ID, &a.GuildID, &a.UserID, &a.Content, &a.CaseID, &a.Status, &a.CreatedAt, &a.ResolvedAt, &a.ResolvedBy, &a.ReviewMessageID)
+		if err != nil {
+			return nil, err
+		}
+		appeals = append(appeals, &a)
+	}
+	return appeals, nil
+}

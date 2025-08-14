@@ -85,7 +85,8 @@ func CloseTicket(id string, threadID string, resolverID string) (*string, error)
 func FindTicketByID(id string) (*structs.Ticket, error) {
 
 	// prepare the statement
-	stmtOut, err := services.DB.Prepare("SELECT * FROM tickets WHERE id = ?")
+	// Explicitly list columns to avoid depending on table column order
+	stmtOut, err := services.DB.Prepare("SELECT id, thread_id, owner_id, guild_id, state, log_message_id, created_at, resolved_at, resolved_by, content FROM tickets WHERE id = ?")
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +105,8 @@ func FindTicketByID(id string) (*structs.Ticket, error) {
 // find a ticket by thread id
 func FindTicketByThreadID(threadID string) (*structs.Ticket, error) {
 	// prepare the statement
-	stmtOut, err := services.DB.Prepare("SELECT * FROM tickets WHERE thread_id = ?")
+	// Explicitly list columns to avoid depending on table column order
+	stmtOut, err := services.DB.Prepare("SELECT id, thread_id, owner_id, guild_id, state, log_message_id, created_at, resolved_at, resolved_by, content FROM tickets WHERE thread_id = ?")
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +126,8 @@ func FindTicketByThreadID(threadID string) (*structs.Ticket, error) {
 func FindOpenTickets() ([]*structs.Ticket, error) {
 
 	// prepare the statement
-	stmtOut, err := services.DB.Prepare("SELECT * FROM tickets WHERE state = 0")
+	// Explicitly list columns to avoid depending on table column order
+	stmtOut, err := services.DB.Prepare("SELECT id, thread_id, owner_id, guild_id, state, log_message_id, created_at, resolved_at, resolved_by, content FROM tickets WHERE state = 0")
 	if err != nil {
 		return nil, err
 	}
@@ -360,7 +363,8 @@ func GetUsersTicket(userID string, guildID string) (*string, error) {
 func GetOpenTickets(guildID string) ([]*structs.Ticket, error) {
 
 	// prepare the statement
-	stmtOut, err := services.DB.Prepare("SELECT * FROM tickets WHERE guild_id = ? AND state = 0 ORDER BY created_at DESC")
+	// Explicitly list columns to avoid depending on table column order
+	stmtOut, err := services.DB.Prepare("SELECT id, thread_id, owner_id, guild_id, state, log_message_id, created_at, resolved_at, resolved_by, content FROM tickets WHERE guild_id = ? AND state = 0 ORDER BY created_at DESC")
 	if err != nil {
 		return nil, err
 	}

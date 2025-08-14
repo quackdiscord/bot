@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/config"
@@ -102,7 +103,9 @@ func buildStaffEmbed(userID, content string, banCase *structs.Case, caseID *stri
 			embedDescription += fmt.Sprintf("\n-# <:text4:1229350683057324043> [View Context](%s)", banCase.ContextURL.String)
 		}
 
-		embedDescription += fmt.Sprintf("\n-# <:text:1229343822337802271> Case ID: `%s`", *caseID)
+		parsedTime, _ := time.Parse("2006-01-02 15:04:05", banCase.CreatedAt)
+		unixTime := parsedTime.Unix()
+		embedDescription += fmt.Sprintf("\n-# <:text4:1229350683057324043> Banned <t:%d:R>\n-# <:text:1229343822337802271> Case ID: `%s`", unixTime, *caseID)
 	}
 
 	return NewEmbed().
@@ -207,7 +210,9 @@ func buildReviewEmbed(data *appealData, reviewerName, reviewerAvatar, color stri
 			description += fmt.Sprintf("\n-# <:text4:1229350683057324043> [View Context](%s)", data.BanCase.ContextURL.String)
 		}
 
-		description += fmt.Sprintf("\n-# <:text:12293438223378022271> Case ID: `%s`", data.CaseID)
+		parsedTime, _ := time.Parse("2006-01-02 15:04:05", data.BanCase.CreatedAt)
+		unixTime := parsedTime.Unix()
+		description += fmt.Sprintf("\n-# <:text4:1229350683057324043> Banned <t:%d:R>\n-# <:text:1229343822337802271> Case ID: `%s`", unixTime, data.CaseID)
 	}
 
 	return NewEmbed().
