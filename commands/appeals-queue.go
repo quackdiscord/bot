@@ -46,7 +46,7 @@ func handleAppealsQueue(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 }
 
 func generateAppealsDescription(appeals []*structs.Appeal) string {
-	const maxDescriptionLen = 4096
+	const maxAppeals = 7
 
 	// get the appeals setting for the channel id
 	as, err := storage.FindAppealSettingsByGuildID(appeals[0].GuildID)
@@ -63,12 +63,14 @@ func generateAppealsDescription(appeals []*structs.Appeal) string {
 	header := fmt.Sprintf("**%d** pending appeals\n\n", len(appeals))
 	var builder strings.Builder
 	builder.WriteString(header)
-	currentLen := len(header)
 
-	shown := 0
-	for _, a := range appeals {
-		var block strings.Builder
+	// Show at most 7 appeals
+	appealsToShow := appeals
+	if len(appeals) > maxAppeals {
+		appealsToShow = appeals[:maxAppeals]
+	}
 
+	for _, a := range appealsToShow {
 		var banCase *structs.Case
 		if a.CaseID.Valid {
 			bc, err := storage.FindCaseByID(a.CaseID.String, a.GuildID)
@@ -86,35 +88,20 @@ func generateAppealsDescription(appeals []*structs.Appeal) string {
 		if banCase != nil {
 			banTime, _ := time.Parse("2006-01-02 15:04:05", banCase.CreatedAt)
 			banUnix := banTime.Unix()
-			block.WriteString(fmt.Sprintf("Created <t:%d:R> - banned <t:%d:R>\n", unixTime, banUnix))
+			builder.WriteString(fmt.Sprintf("Created <t:%d:R> - banned <t:%d:R>\n", unixTime, banUnix))
 		} else {
-			block.WriteString(fmt.Sprintf("Created <t:%d:R>\n", unixTime))
+			builder.WriteString(fmt.Sprintf("Created <t:%d:R>\n", unixTime))
 		}
 
 		if channelID != "" && a.ReviewMessageID.Valid && a.ReviewMessageID.String != "" {
-			block.WriteString(fmt.Sprintf("<:text2:1229344477131309136> [Jump to Review](https://discord.com/channels/%s/%s/%s)\n", a.GuildID, channelID, a.ReviewMessageID.String))
+			builder.WriteString(fmt.Sprintf("<:text2:1229344477131309136> [Jump to Review](https://discord.com/channels/%s/%s/%s)\n", a.GuildID, channelID, a.ReviewMessageID.String))
 		}
-		block.WriteString(fmt.Sprintf("<:text:1229343822337802271> `ID: %s`\n\n", a.ID))
-
-		candidate := block.String()
-		if currentLen+len(candidate) > maxDescriptionLen {
-			break
-		}
-
-		builder.WriteString(candidate)
-		currentLen += len(candidate)
-		shown++
+		builder.WriteString(fmt.Sprintf("<:text:1229343822337802271> `ID: %s`\n\n", a.ID))
 	}
 
-	if shown < len(appeals) {
-		footer := fmt.Sprintf("(+%d more appeals)", len(appeals)-shown)
-		// ensure footer fits; if not, try a shorter variant
-		if currentLen+len(footer)+1 > maxDescriptionLen { // +1 for potential newline
-			footer = fmt.Sprintf("(+%d more)", len(appeals)-shown)
-		}
-		if currentLen+len(footer)+1 <= maxDescriptionLen {
-			builder.WriteString(footer)
-		}
+	// Add "more" message if there are additional appeals
+	if len(appeals) > maxAppeals {
+		builder.WriteString(fmt.Sprintf("(+%d more appeals)", len(appeals)-maxAppeals))
 	}
 
 	return builder.String()
