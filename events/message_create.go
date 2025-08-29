@@ -3,6 +3,7 @@ package events
 import (
 	"fmt"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,16 +38,17 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.Author != nil && m.Author.ID == config.Bot.BotOwnerID {
 		prefix := "!!!"
 		command := strings.Split(m.Content, " ")[0]
-		if command == prefix+"stats" {
+		switch command {
+		case prefix + "stats":
 			statsCommand(s, m)
 			log.Info().Msg("Owner stats command executed")
-		} else if command == prefix+"guild" {
+		case prefix + "guild":
 			guildCommand(s, m)
 			log.Info().Msg("Owner guild command executed")
-		} else if command == prefix+"cmdstats" {
+		case prefix + "cmdstats":
 			cmdStatsCommand(s, m)
 			log.Info().Msg("Owner cmdstats command executed")
-		} else if command == prefix+"modcmdstats" {
+		case prefix + "modcmdstats":
 			modCmdStatsCommand(s, m)
 			log.Info().Msg("Owner modcmdstats command executed")
 		}
@@ -92,7 +94,6 @@ func statsCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	// pings
 	start := time.Now()
-	// ping redis
 	services.Redis.Ping(services.Redis.Context())
 	end := time.Now()
 	RedisPing := fmt.Sprint(end.Sub(start).Milliseconds())
@@ -102,7 +103,61 @@ func statsCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	end = time.Now()
 	DBPing := fmt.Sprint(end.Sub(start).Milliseconds())
 
-	msg := fmt.Sprintf("```asciidoc\nQuack Stats\n\n"+
+	// get DB size
+	row := services.DB.QueryRow("SELECT SUM(data_length + index_length) / 1024 / 1024 AS size_mb FROM information_schema.tables WHERE table_schema = 'default'")
+	var size float64
+	err := row.Scan(&size)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get DB size")
+		size = 0
+	}
+
+	// get redis size
+	redisInfo := services.Redis.Info(services.Redis.Context(), "memory").Val()
+	var redisSize float64
+	// Parse used_memory from Redis INFO output (simplified)
+	if strings.Contains(redisInfo, "used_memory:") {
+		lines := strings.Split(redisInfo, "\n")
+		for _, line := range lines {
+			if strings.HasPrefix(line, "used_memory:") {
+				sizeStr := strings.TrimPrefix(line, "used_memory:")
+				sizeStr = strings.TrimSpace(sizeStr)
+				if sizeBytes, err := strconv.ParseFloat(sizeStr, 64); err == nil {
+					redisSize = sizeBytes / 1024 / 1024 // Convert to MB
+				}
+				break
+			}
+		}
+	}
+
+	// get # of cases
+	caseCount := 0
+	row = services.DB.QueryRow("SELECT COUNT(*) FROM cases")
+	err = row.Scan(&caseCount)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get # of cases")
+		caseCount = 0
+	}
+
+	// get # of tickets
+	ticketCount := 0
+	row = services.DB.QueryRow("SELECT COUNT(*) FROM tickets")
+	err = row.Scan(&ticketCount)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get # of tickets")
+		ticketCount = 0
+	}
+
+	// get # of appeals
+	appealCount := 0
+	row = services.DB.QueryRow("SELECT COUNT(*) FROM appeals")
+	err = row.Scan(&appealCount)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get # of appeals")
+		appealCount = 0
+	}
+
+	msg := fmt.Sprintf("```asciidoc\n"+
 		"CPU            ::   %s      \n"+
 		"RAM            ::   %s      \n"+
 		"Heap           ::   %s      \n"+
@@ -119,9 +174,15 @@ func statsCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 		"Discord Ping   ::   %sms    \n"+
 		"Redis Ping     ::   %sms    \n"+
 		"DB Ping        ::   %sms    \n\n"+
+		"DB Size        ::   %.1fMB  \n"+
+		"Redis Size     ::   %.1fMB  \n\n"+
 
-		"Commands Run   ::   %s      \n"+
-		"```", CPUPercent, MemoryUsage, HeapUsed, uptime.Round(time.Second).String(), Servers, msgCacheSize, maxMsgCacheSize, memberCount, channelCount, roleCount, emojiCount, eventQueueSize, HeartbeatLatency, RedisPing, DBPing, CmdsRun)
+		"Commands Run   ::   %s      \n\n"+
+
+		"Total Cases    ::   %d      \n"+
+		"Total Tickets  ::   %d      \n"+
+		"Total Appeals  ::   %d      \n"+
+		"```", CPUPercent, MemoryUsage, HeapUsed, uptime.Round(time.Second).String(), Servers, msgCacheSize, maxMsgCacheSize, memberCount, channelCount, roleCount, emojiCount, eventQueueSize, HeartbeatLatency, RedisPing, DBPing, size, redisSize, CmdsRun, caseCount, ticketCount, appealCount)
 
 	s.ChannelMessageSend(m.ChannelID, msg)
 }
@@ -202,15 +263,16 @@ func modCmdStatsCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	count := 0
 	typeint := 0
 
-	if cmd == "ban" {
+	switch cmd {
+	case "ban":
 		typeint = 1
-	} else if cmd == "warn" {
+	case "warn":
 		typeint = 0
-	} else if cmd == "kick" {
+	case "kick":
 		typeint = 2
-	} else if cmd == "timeout" {
+	case "timeout":
 		typeint = 4
-	} else {
+	default:
 		s.ChannelMessageSend(m.ChannelID, "Invalid command")
 		return
 	}
