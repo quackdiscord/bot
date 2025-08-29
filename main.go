@@ -9,6 +9,7 @@ import (
 	"github.com/quackdiscord/bot/events"
 	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/services"
+	"github.com/quackdiscord/bot/utils"
 )
 
 func init() {
@@ -37,6 +38,10 @@ func main() {
 	// start the event queue
 	go services.EQ.Start(c.Bot.EventQueueWorkers)
 
+	// register stats collector and start the cron scheduler
+	services.RegisterStatsCollector(utils.CollectAndSaveStats)
+	services.StartCron(services.Discord)
+
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt)
 	log.Info().Msg("Press Ctrl+C to exit")
@@ -44,6 +49,7 @@ func main() {
 	// handle shutdown
 	<-stop
 	log.Warn().Msg("Shutting down")
+	services.StopCron()
 	services.DisconnectDiscord()
 	services.DisconnectDB()
 	services.DisconnectRedis()

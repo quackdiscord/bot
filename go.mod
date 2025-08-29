@@ -12,7 +12,10 @@ require (
 	github.com/shirou/gopsutil v3.21.11+incompatible
 )
 
-require github.com/stretchr/testify v1.10.0 // indirect
+require (
+	github.com/robfig/cron/v3 v3.0.1 // indirect
+	github.com/stretchr/testify v1.10.0 // indirect
+)
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect

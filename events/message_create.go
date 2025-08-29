@@ -2,10 +2,7 @@ package events
 
 import (
 	"fmt"
-	"runtime"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
@@ -13,15 +10,11 @@ import (
 	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/storage"
-	"github.com/shirou/gopsutil/cpu"
-	"github.com/shirou/gopsutil/mem"
+	"github.com/quackdiscord/bot/utils"
 )
-
-var startTime time.Time
 
 func init() {
 	Events = append(Events, onMessageCreate)
-	startTime = time.Now()
 }
 
 func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
@@ -51,139 +44,17 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		case prefix + "modcmdstats":
 			modCmdStatsCommand(s, m)
 			log.Info().Msg("Owner modcmdstats command executed")
+		case prefix + "savestats":
+			utils.CollectAndSaveStats(s)
+			s.ChannelMessageSend(m.ChannelID, "Stats saved")
+			log.Info().Msg("Owner savestats command executed")
 		}
 	}
 }
 
 func statsCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
-
-	var heap runtime.MemStats
-	runtime.ReadMemStats(&heap)
-
-	cpuStat, _ := cpu.Times(true)
-	totalDelta := float64(cpuStat[0].Total())
-	idleDelta := float64(cpuStat[0].Idle)
-
-	memStat, _ := mem.VirtualMemory()
-	usedMemory := float64(memStat.Used)
-	totalMemory := float64(memStat.Total)
-
-	uptime := time.Since(startTime)
-
-	Servers := fmt.Sprint(len(s.State.Guilds))
-	CPUPercent := fmt.Sprintf("%.1f%%", (totalDelta-idleDelta)/totalDelta*100)
-	MemoryUsage := fmt.Sprintf("%.1f%%", usedMemory/totalMemory*100)
-	HeapUsed := fmt.Sprintf("%.1fMB", float64(heap.HeapInuse)/1024/1024)
-	HeartbeatLatency := fmt.Sprint(s.HeartbeatLatency().Milliseconds())
-	CmdsRun := fmt.Sprint(services.Redis.HGet(services.Redis.Context(), "seeds:cmds", "total").Val())
-
-	// cache stats
-	msgCacheSize := len(services.MsgCache.Messages)
-	maxMsgCacheSize := config.Bot.MessageCacheSize
-	eventQueueSize := services.EQ.GetQueueSize()
-	memberCount := 0
-	channelCount := 0
-	roleCount := 0
-	emojiCount := 0
-	for _, guild := range s.State.Guilds {
-		memberCount += guild.MemberCount
-		channelCount += len(guild.Channels)
-		roleCount += len(guild.Roles)
-		emojiCount += len(guild.Emojis)
-	}
-
-	// pings
-	start := time.Now()
-	services.Redis.Ping(services.Redis.Context())
-	end := time.Now()
-	RedisPing := fmt.Sprint(end.Sub(start).Milliseconds())
-
-	start = time.Now()
-	services.DB.Ping()
-	end = time.Now()
-	DBPing := fmt.Sprint(end.Sub(start).Milliseconds())
-
-	// get DB size
-	row := services.DB.QueryRow("SELECT SUM(data_length + index_length) / 1024 / 1024 AS size_mb FROM information_schema.tables WHERE table_schema = 'default'")
-	var size float64
-	err := row.Scan(&size)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to get DB size")
-		size = 0
-	}
-
-	// get redis size
-	redisInfo := services.Redis.Info(services.Redis.Context(), "memory").Val()
-	var redisSize float64
-	// Parse used_memory from Redis INFO output (simplified)
-	if strings.Contains(redisInfo, "used_memory:") {
-		lines := strings.Split(redisInfo, "\n")
-		for _, line := range lines {
-			if strings.HasPrefix(line, "used_memory:") {
-				sizeStr := strings.TrimPrefix(line, "used_memory:")
-				sizeStr = strings.TrimSpace(sizeStr)
-				if sizeBytes, err := strconv.ParseFloat(sizeStr, 64); err == nil {
-					redisSize = sizeBytes / 1024 / 1024 // Convert to MB
-				}
-				break
-			}
-		}
-	}
-
-	// get # of cases
-	caseCount := 0
-	row = services.DB.QueryRow("SELECT COUNT(*) FROM cases")
-	err = row.Scan(&caseCount)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to get # of cases")
-		caseCount = 0
-	}
-
-	// get # of tickets
-	ticketCount := 0
-	row = services.DB.QueryRow("SELECT COUNT(*) FROM tickets")
-	err = row.Scan(&ticketCount)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to get # of tickets")
-		ticketCount = 0
-	}
-
-	// get # of appeals
-	appealCount := 0
-	row = services.DB.QueryRow("SELECT COUNT(*) FROM appeals")
-	err = row.Scan(&appealCount)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to get # of appeals")
-		appealCount = 0
-	}
-
-	msg := fmt.Sprintf("```asciidoc\n"+
-		"CPU            ::   %s      \n"+
-		"RAM            ::   %s      \n"+
-		"Heap           ::   %s      \n"+
-		"Uptime         ::   %s      \n\n"+
-
-		"Guilds         ::   %s      \n"+
-		"Messages       ::   %d / %d \n"+
-		"Members        ::   %d      \n"+
-		"Channels       ::   %d      \n"+
-		"Roles          ::   %d      \n"+
-		"Emojis         ::   %d      \n"+
-		"Events         ::   %d (in queue) \n\n"+
-
-		"Discord Ping   ::   %sms    \n"+
-		"Redis Ping     ::   %sms    \n"+
-		"DB Ping        ::   %sms    \n\n"+
-		"DB Size        ::   %.1fMB  \n"+
-		"Redis Size     ::   %.1fMB  \n\n"+
-
-		"Commands Run   ::   %s      \n\n"+
-
-		"Total Cases    ::   %d      \n"+
-		"Total Tickets  ::   %d      \n"+
-		"Total Appeals  ::   %d      \n"+
-		"```", CPUPercent, MemoryUsage, HeapUsed, uptime.Round(time.Second).String(), Servers, msgCacheSize, maxMsgCacheSize, memberCount, channelCount, roleCount, emojiCount, eventQueueSize, HeartbeatLatency, RedisPing, DBPing, size, redisSize, CmdsRun, caseCount, ticketCount, appealCount)
-
+	stats := utils.GetBotStats(s)
+	msg := utils.FormatStatsAsCodeBlock(stats)
 	s.ChannelMessageSend(m.ChannelID, msg)
 }
 
