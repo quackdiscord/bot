@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/quackdiscord/bot/log"
+	"github.com/rs/zerolog/log"
 )
 
 // Event represents a Discord event that needs to be processed

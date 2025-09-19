@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	axiomAdapter "github.com/axiomhq/axiom-go/adapters/zerolog"
 	"github.com/rs/zerolog"
 )
 
@@ -115,11 +116,23 @@ func formatFields(fields map[string]interface{}) string {
 	return strings.Join(fieldStrings, "\n")
 }
 
-func init() {
+func Initalize() {
 	log = zerolog.New(zerolog.ConsoleWriter{
 		Out:        os.Stderr,
 		TimeFormat: time.RFC3339,
 	}).With().Timestamp().Caller().Logger()
+
+	writer, err := axiomAdapter.New(
+		axiomAdapter.SetDataset(os.Getenv("AXIOM_DATASET")),
+	)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Error initializing Axiom adapter")
+	}
+
+	log = zerolog.New(io.MultiWriter(zerolog.ConsoleWriter{
+		Out:        os.Stderr,
+		TimeFormat: time.RFC3339,
+	}, writer)).With().Timestamp().Caller().Logger()
 
 	SetLogCallback(func(level zerolog.Level, msg string, fields map[string]interface{}) {
 		if os.Getenv("ENVIORNMENT") == "dev" {

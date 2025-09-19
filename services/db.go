@@ -6,7 +6,7 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/quackdiscord/bot/log"
+	"github.com/rs/zerolog/log"
 )
 
 var DB *sql.DB

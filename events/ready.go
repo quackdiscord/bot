@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/quackdiscord/bot/log"
+	"github.com/rs/zerolog/log"
 )
 
 func init() {

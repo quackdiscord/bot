@@ -4,7 +4,7 @@ import (
 	"os"
 
 	r "github.com/go-redis/redis/v8"
-	"github.com/quackdiscord/bot/log"
+	"github.com/rs/zerolog/log"
 )
 
 var Redis *r.Client

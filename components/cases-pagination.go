@@ -7,9 +7,9 @@ import (
 	"strconv"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/quackdiscord/bot/utils"
+	"github.com/rs/zerolog/log"
 )
 
 // description header format: <@userID> has **count** cases\n\n

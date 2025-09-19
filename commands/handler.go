@@ -6,8 +6,8 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/config"
 	"github.com/quackdiscord/bot/lib"
-	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/services"
+	"github.com/rs/zerolog/log"
 )
 
 // Permissions

@@ -1,8 +1,8 @@
 package events
 
 import (
-	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/services"
+	"github.com/rs/zerolog/log"
 )
 
 var Events = []interface{}{}

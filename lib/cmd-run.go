@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/services"
+	"github.com/rs/zerolog/log"
 )
 
 func CmdRun(s *discordgo.Session, i *discordgo.InteractionCreate, d time.Duration) {

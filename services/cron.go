@@ -4,8 +4,8 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/quackdiscord/bot/log"
 	"github.com/robfig/cron/v3"
+	"github.com/rs/zerolog/log"
 )
 
 var CronScheduler *cron.Cron

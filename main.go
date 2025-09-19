@@ -1,15 +1,18 @@
 package main
 
 import (
+	"io"
 	"os"
 	"os/signal"
 
+	axiomAdapter "github.com/axiomhq/axiom-go/adapters/zerolog"
 	"github.com/joho/godotenv"
 	c "github.com/quackdiscord/bot/config"
 	"github.com/quackdiscord/bot/events"
-	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/utils"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 func init() {
@@ -21,6 +24,27 @@ func init() {
 
 	if env == "dev" {
 		log.Warn().Msg("Running in development mode")
+	}
+
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	if env == "dev" {
+		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+		log.Logger = zerolog.New(os.Stderr).With().Caller().Logger()
+		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+	} else {
+		if os.Getenv("AXIOM_TOKEN") == "" {
+			log.Logger = zerolog.New(os.Stderr).With().Caller().Logger()
+			log.Warn().Msg("Axiom token not set, logging to stderr only")
+		} else {
+			writer, err := axiomAdapter.New(
+				axiomAdapter.SetDataset(os.Getenv("AXIOM_DATASET")),
+			)
+			if err != nil {
+				log.Fatal().Err(err).Msg("Error initializing Axiom adapter")
+			}
+			log.Logger = zerolog.New(io.MultiWriter(os.Stderr, writer)).With().Caller().Timestamp().Logger()
+		}
 	}
 }
 

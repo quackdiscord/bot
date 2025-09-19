@@ -5,7 +5,7 @@ import (
 	"sync"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/quackdiscord/bot/log"
+	"github.com/rs/zerolog/log"
 )
 
 var MsgCache *MessageCache

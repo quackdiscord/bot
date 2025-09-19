@@ -6,7 +6,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
-	"github.com/quackdiscord/bot/log"
+	"github.com/rs/zerolog/log"
 )
 
 var purgeEmojiCmd = &discordgo.ApplicationCommandOption{

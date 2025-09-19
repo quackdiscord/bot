@@ -7,9 +7,9 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
-	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/quackdiscord/bot/structs"
+	"github.com/rs/zerolog/log"
 )
 
 var appealsQueueCmd = &discordgo.ApplicationCommandOption{

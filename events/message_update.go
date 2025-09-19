@@ -5,11 +5,11 @@ import (
 	"time"
 
 	dgo "github.com/bwmarrin/discordgo"
-	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/quackdiscord/bot/structs"
 	"github.com/quackdiscord/bot/utils"
+	"github.com/rs/zerolog/log"
 )
 
 func init() {
