@@ -25,9 +25,14 @@ func init() {
 	if env == "dev" {
 		log.Warn().Msg("Running in development mode")
 	}
+}
+
+func initLogger() {
+	env := os.Getenv("ENVIORNMENT")
 
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+
 	if env == "dev" {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 		log.Logger = zerolog.New(os.Stderr).With().Caller().Logger()
@@ -46,9 +51,14 @@ func init() {
 			log.Logger = zerolog.New(io.MultiWriter(os.Stderr, writer)).With().Caller().Timestamp().Logger()
 		}
 	}
+
+	log.Info().Msg("Logger initialized")
 }
 
 func main() {
+	// initialize logger
+	initLogger()
+
 	// ready data structures
 	services.ReadyMessageCache(c.Bot.MessageCacheSize)
 	services.ReadyEventQueue(c.Bot.EventQueueSize)
