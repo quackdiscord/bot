@@ -28,5 +28,5 @@ func CmdRun(s *discordgo.Session, i *discordgo.InteractionCreate, d time.Duratio
 		return
 	}
 
-	log.Info().Str("command", data.Name).Str("guild", i.GuildID).Str("user", i.Member.User.ID).Str("took", d.String()).Msg("Command executed")
+	log.Info().Str("command", data.Name).Str("guild", i.GuildID).Str("user", i.Member.User.ID).Int64("took", d.Milliseconds()).Msg("Command executed")
 }
