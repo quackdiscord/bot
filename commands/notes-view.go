@@ -6,6 +6,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
+	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/quackdiscord/bot/structs"
 	"github.com/rs/zerolog/log"
@@ -54,6 +55,7 @@ func handleNotesViewLatest(s *discordgo.Session, i *discordgo.InteractionCreate)
 	n, err := storage.FindLatestNote(i.GuildID)
 	if err != nil {
 		log.Error().AnErr("Failed to fetch latest note", err)
+		services.CaptureError(err)
 		return EmbedResponse(components.ErrorEmbed("Failed to fetch latest note."), true)
 	}
 
@@ -68,6 +70,7 @@ func handleNotesViewUser(s *discordgo.Session, i *discordgo.InteractionCreate) *
 	notes, err := storage.FindNoteByUserID(user.ID, i.GuildID)
 	if err != nil {
 		log.Error().AnErr("Failed to fetch note by user id", err)
+		services.CaptureError(err)
 		return EmbedResponse(components.ErrorEmbed("Failed to fetch notes."), true)
 	}
 
@@ -107,6 +110,7 @@ func handleNotesViewID(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 	n, err := storage.FindNoteByID(caseID, i.GuildID)
 	if err != nil {
 		log.Error().AnErr("Failed to fetch note by id", err)
+		services.CaptureError(err)
 		return EmbedResponse(components.ErrorEmbed("Failed to fetch note."), true)
 	}
 

@@ -146,6 +146,7 @@ func handleBan(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.
 		err = s.GuildBanCreateWithReason(i.GuildID, userToBan.ID, reason, 1)
 		if err != nil {
 			log.Error().AnErr("Failed to ban user", err)
+			services.CaptureError(err)
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to ban user.\n```" + err.Error() + "```")},
 			})
@@ -179,6 +180,7 @@ func handleBan(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.
 		err = storage.CreateCase(caseData)
 		if err != nil {
 			log.Error().AnErr("Failed to save case", err)
+			services.CaptureError(err)
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to save case.\n```" + err.Error() + "```")},
 			})

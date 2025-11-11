@@ -6,6 +6,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
+	"github.com/quackdiscord/bot/services"
 	"github.com/rs/zerolog/log"
 )
 
@@ -51,6 +52,7 @@ func handlePurgeEmoji(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 		msgs, err := s.ChannelMessages(channel, 100, "", "", "")
 		if err != nil {
 			log.Error().AnErr("Failed to fetch messages for purge", err)
+			services.CaptureError(err)
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to fetch messages.")},
 			})
@@ -77,6 +79,7 @@ func handlePurgeEmoji(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 		err = s.ChannelMessagesBulkDelete(channel, msgIds)
 		if err != nil {
 			log.Error().AnErr("Failed to delete messages", err)
+			services.CaptureError(err)
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to delete messages.")},
 			})

@@ -23,6 +23,7 @@ func StartCron(session *discordgo.Session) {
 	})
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to schedule stats collection cron job")
+		CaptureError(err)
 		return
 	}
 

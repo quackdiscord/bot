@@ -16,6 +16,8 @@ func ConnectRedis() {
 	_, err := Redis.Ping(Redis.Context()).Result()
 	if err != nil {
 		log.Error().AnErr("Error connecting to Redis", err)
+		CaptureError(err)
+		return
 	}
 
 	log.Info().Msg("Connected to Redis")

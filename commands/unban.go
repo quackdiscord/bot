@@ -91,6 +91,7 @@ func handleUnban(s *discordgo.Session, i *discordgo.InteractionCreate) *discordg
 		invites, err := s.GuildInvites(guild.ID)
 		if err != nil {
 			log.Error().AnErr("Failed to generate invite link", err)
+			services.CaptureError(err)
 		}
 		inviteLink := "https://discord.gg/" + invites[0].Code
 		dmError := ""
@@ -105,6 +106,7 @@ func handleUnban(s *discordgo.Session, i *discordgo.InteractionCreate) *discordg
 		err = s.GuildBanDelete(guild.ID, userToUnban.ID)
 		if err != nil {
 			log.Error().AnErr("Failed to unban user", err)
+			services.CaptureError(err)
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to unban user.\n```" + err.Error() + "```")},
 			})
@@ -121,6 +123,7 @@ func handleUnban(s *discordgo.Session, i *discordgo.InteractionCreate) *discordg
 		appeals, err := storage.FindAppealsByUserID(userToUnban.ID, guild.ID)
 		if err != nil {
 			log.Error().AnErr("Failed to find appeals", err)
+			services.CaptureError(err)
 		}
 		if len(appeals) > 0 {
 			// look for any pending or rejected appeals
@@ -130,6 +133,7 @@ func handleUnban(s *discordgo.Session, i *discordgo.InteractionCreate) *discordg
 					err = storage.UpdateAppealStatus(appeal.ID, 1, moderator.ID)
 					if err != nil {
 						log.Error().AnErr("Failed to update appeal status", err)
+						services.CaptureError(err)
 					}
 				}
 			}
@@ -155,6 +159,7 @@ func handleUnban(s *discordgo.Session, i *discordgo.InteractionCreate) *discordg
 		err = storage.CreateCase(caseData)
 		if err != nil {
 			log.Error().AnErr("Failed to create case", err)
+			services.CaptureError(err)
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 				Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to save case.\n```" + err.Error() + "```")},
 			})

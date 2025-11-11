@@ -5,6 +5,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
+	"github.com/quackdiscord/bot/services"
 	"github.com/rs/zerolog/log"
 )
 
@@ -18,6 +19,7 @@ func handleServerInfo(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 	guild, err := s.GuildWithCounts(i.GuildID)
 	if err != nil {
 		log.Error().AnErr("Failed to fetch a guild", err)
+		services.CaptureError(err)
 		return EmbedResponse(components.ErrorEmbed("Failed to fetch guild info."), true)
 	}
 

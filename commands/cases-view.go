@@ -6,6 +6,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
+	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/quackdiscord/bot/structs"
 	"github.com/quackdiscord/bot/utils"
@@ -57,6 +58,7 @@ func handleCasesViewLatest(s *discordgo.Session, i *discordgo.InteractionCreate)
 		c, err := storage.FindLatestCase(i.GuildID)
 		if err != nil {
 			log.Error().AnErr("Failed to fetch latest case", err)
+			services.CaptureError(err)
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to fetch latest case.")}})
 			return
 		}
@@ -75,6 +77,7 @@ func handleCasesViewID(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 		c, err := storage.FindCaseByID(caseID, i.GuildID)
 		if err != nil {
 			log.Error().AnErr("Failed to fetch case by id", err)
+			services.CaptureError(err)
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to fetch case.")}})
 			return
 		}
@@ -97,6 +100,7 @@ func handleCasesViewUser(s *discordgo.Session, i *discordgo.InteractionCreate) *
 		total, err := storage.CountCasesByUserID(user.ID, i.GuildID)
 		if err != nil {
 			log.Error().AnErr("Failed to count user cases", err)
+			services.CaptureError(err)
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to fetch user's cases.")}})
 			return
 		}
@@ -110,6 +114,7 @@ func handleCasesViewUser(s *discordgo.Session, i *discordgo.InteractionCreate) *
 		cases, err := storage.FindCasesByUserIDPaginated(user.ID, i.GuildID, pageSize, 0)
 		if err != nil {
 			log.Error().AnErr("Failed to fetch user cases", err)
+			services.CaptureError(err)
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to fetch user's cases.")}})
 			return
 		}

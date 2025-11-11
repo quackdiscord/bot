@@ -68,6 +68,7 @@ func main() {
 	services.ConnectDB()
 	events.RegisterEvents()
 	services.ConnectDiscord(events.Events)
+	services.InitSentry()
 
 	// start the event queue
 	go services.EQ.Start(c.Bot.EventQueueWorkers)

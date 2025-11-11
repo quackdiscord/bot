@@ -97,7 +97,7 @@ func msgBulkDeleteHandler(e services.Event) error {
 			return nil
 		}
 
-		log.Error().Err(err).Msg("Failed to send message bulk delete webhook, requeueing event after delay")
+		log.Warn().Err(err).Msg("Failed to send message bulk delete webhook, requeueing event after delay")
 		go func(ev services.Event) {
 			time.Sleep(60 * time.Second)
 			services.EQ.Enqueue(ev)

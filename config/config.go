@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 
+	"github.com/getsentry/sentry-go"
 	"github.com/rs/zerolog/log"
 )
 
@@ -39,9 +40,11 @@ func init() {
 		err = decoder.Decode(&Bot)
 		if err != nil {
 			log.Error().AnErr("Failed to decode config.json", err)
+			sentry.CaptureException(err)
 		}
 		log.Info().Msg("Loaded config.json")
 	} else {
 		log.Error().Msg("Failed to open config.json")
+		sentry.CaptureException(err)
 	}
 }

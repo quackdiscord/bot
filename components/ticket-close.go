@@ -6,6 +6,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/config"
+	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/rs/zerolog/log"
 )
@@ -18,6 +19,7 @@ func handleTicketClose(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 	guild, err := s.Guild(i.GuildID)
 	if err != nil {
 		log.Error().AnErr("Failed to get guild", err)
+		services.CaptureError(err)
 		return ComplexResponse(&discordgo.InteractionResponseData{
 			Flags:   discordgo.MessageFlagsEphemeral,
 			Content: config.Bot.ErrMsgPrefix + "Failed to get guild. Please try again later.",
@@ -28,6 +30,7 @@ func handleTicketClose(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 	tsettings, err := storage.FindTicketSettingsByGuildID(i.GuildID)
 	if err != nil {
 		log.Error().AnErr("Failed to get ticket settings", err)
+		services.CaptureError(err)
 		return ComplexResponse(&discordgo.InteractionResponseData{
 			Flags:   discordgo.MessageFlagsEphemeral,
 			Content: config.Bot.ErrMsgPrefix + "Failed to get ticket settings. Please try again later.",
@@ -45,6 +48,7 @@ func handleTicketClose(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 	ticket, err := storage.FindTicketByThreadID(i.ChannelID)
 	if err != nil {
 		log.Error().AnErr("Failed to get ticket", err)
+		services.CaptureError(err)
 		return ComplexResponse(&discordgo.InteractionResponseData{
 			Flags:   discordgo.MessageFlagsEphemeral,
 			Content: config.Bot.ErrMsgPrefix + "Failed to get ticket. Please try again later.",
@@ -78,6 +82,7 @@ func handleTicketClose(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 	msgs, err := storage.CloseTicket(ticket.ID, ticket.ThreadID, user.ID)
 	if err != nil {
 		log.Error().AnErr("Failed to close ticket", err)
+		services.CaptureError(err)
 		return ComplexResponse(&discordgo.InteractionResponseData{
 			Flags:   discordgo.MessageFlagsEphemeral,
 			Content: config.Bot.ErrMsgPrefix + "Failed to close ticket. Please try again later.",
@@ -108,12 +113,14 @@ func handleTicketClose(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 
 	if err != nil {
 		log.Error().AnErr("Failed to edit message", err)
+		services.CaptureError(err)
 	}
 
 	// attempt to dm the owner of the ticket
 	dmChanel, err := s.UserChannelCreate(ticket.OwnerID)
 	if err != nil {
 		log.Error().AnErr("Failed to DM owner of ticket", err)
+		services.CaptureError(err)
 	} else {
 		transcript = discordgo.File{
 			Name:   "transcript-" + ticket.ID + ".txt",
@@ -134,6 +141,7 @@ func handleTicketClose(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 
 		if err != nil {
 			log.Error().AnErr("Failed to send DM to owner of ticket", err)
+			services.CaptureError(err)
 		}
 	}
 
@@ -141,6 +149,7 @@ func handleTicketClose(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 	_, err = s.ChannelDelete(ticket.ThreadID)
 	if err != nil {
 		log.Error().AnErr("Failed to delete thread", err)
+		services.CaptureError(err)
 		return ComplexResponse(&discordgo.InteractionResponseData{
 			Flags:   discordgo.MessageFlagsEphemeral,
 			Content: config.Bot.ErrMsgPrefix + "Failed to delete thread. Please try again later.",

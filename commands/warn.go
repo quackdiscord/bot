@@ -118,6 +118,7 @@ func handleWarn(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo
 		err = storage.CreateCase(caseData)
 		if err != nil {
 			log.Error().AnErr("Failed to create case", err)
+			services.CaptureError(err)
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to save case.\n```" + err.Error() + "```")}})
 			return
 		}

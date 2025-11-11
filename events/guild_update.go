@@ -43,7 +43,7 @@ func onGuildUpdate(s *discordgo.Session, up *discordgo.GuildUpdate) {
 	})
 
 	if err != nil {
-		log.Error().AnErr("Failed to update guild", err)
+		log.Warn().AnErr("Failed to update guild", err)
 	}
 
 	log.Info().Msgf("Guild %s updated", up.Guild.ID)

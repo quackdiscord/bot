@@ -7,6 +7,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
 	"github.com/quackdiscord/bot/lib"
+	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/quackdiscord/bot/structs"
 	"github.com/quackdiscord/bot/utils"
@@ -86,6 +87,7 @@ func handleTimeoutAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 		err := s.GuildMemberTimeout(guild.ID, userToTime.ID, &until)
 		if err != nil {
 			log.Error().AnErr("Failed to time out user", err)
+			services.CaptureError(err)
 			errEmbed := components.ErrorEmbed("Failed to time out user.\n```" + err.Error() + "```")
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 				Embeds: &[]*discordgo.MessageEmbed{errEmbed},
@@ -128,6 +130,7 @@ func handleTimeoutAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 		err = storage.CreateCase(caseData)
 		if err != nil {
 			log.Error().AnErr("Failed to save case", err)
+			services.CaptureError(err)
 			errEmbed := components.ErrorEmbed("Failed to save case.\n```" + err.Error() + "```")
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 				Embeds: &[]*discordgo.MessageEmbed{errEmbed},

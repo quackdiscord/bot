@@ -65,6 +65,7 @@ func handleUnlock(s *discordgo.Session, i *discordgo.InteractionCreate) *discord
 		})
 		if err != nil {
 			log.Error().AnErr("Failed to update channel permissions", err)
+			services.CaptureError(err)
 			return EmbedResponse(components.ErrorEmbed("Failed to update channel permissions."), true)
 		}
 

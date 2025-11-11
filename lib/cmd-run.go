@@ -16,11 +16,13 @@ func CmdRun(s *discordgo.Session, i *discordgo.InteractionCreate, d time.Duratio
 	err := services.Redis.HIncrBy(context.Background(), "seeds:cmds", data.Name, 1).Err()
 	if err != nil {
 		log.Error().AnErr("Failed to increment command run counter", err)
+		services.CaptureError(err)
 		return
 	}
 	err = services.Redis.HIncrBy(context.Background(), "seeds:cmds", "total", 1).Err()
 	if err != nil {
 		log.Error().AnErr("Failed to increment command run counter", err)
+		services.CaptureError(err)
 		return
 	}
 

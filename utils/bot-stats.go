@@ -101,6 +101,7 @@ func getDBSize() float64 {
 	var size float64
 	if err := row.Scan(&size); err != nil {
 		log.Error().Err(err).Msg("Failed to get DB size")
+		services.CaptureError(err)
 		return 0
 	}
 	return size
@@ -129,6 +130,7 @@ func getCaseCount() int {
 	var count int
 	if err := row.Scan(&count); err != nil {
 		log.Error().Err(err).Msg("Failed to get case count")
+		services.CaptureError(err)
 		return 0
 	}
 	return count
@@ -139,6 +141,7 @@ func getTicketCount() int {
 	var count int
 	if err := row.Scan(&count); err != nil {
 		log.Error().Err(err).Msg("Failed to get ticket count")
+		services.CaptureError(err)
 		return 0
 	}
 	return count
@@ -149,6 +152,7 @@ func getAppealCount() int {
 	var count int
 	if err := row.Scan(&count); err != nil {
 		log.Error().Err(err).Msg("Failed to get appeal count")
+		services.CaptureError(err)
 		return 0
 	}
 	return count
@@ -196,6 +200,7 @@ func CollectAndSaveStats(session *discordgo.Session) {
 
 	if err := storage.SaveStats(stats); err != nil {
 		log.Error().Err(err).Msg("Failed to save bot stats")
+		services.CaptureError(err)
 		return
 	}
 

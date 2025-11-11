@@ -17,7 +17,7 @@ func onGuildDelete(s *discordgo.Session, gd *discordgo.GuildDelete) {
 	// delete the guild
 	err := storage.DeleteGuild(gd.Guild.ID)
 	if err != nil {
-		log.Error().AnErr("Failed to delete guild", err)
+		log.Warn().AnErr("Failed to delete guild", err)
 	}
 
 	// update the guild count channel
@@ -26,7 +26,7 @@ func onGuildDelete(s *discordgo.Session, gd *discordgo.GuildDelete) {
 	})
 
 	if err != nil {
-		log.Error().AnErr("Failed to update guild count channel", err)
+		log.Warn().AnErr("Failed to update guild count channel", err)
 	}
 
 	log.Info().Msgf("Guild deleted %s", gd.Guild.ID)

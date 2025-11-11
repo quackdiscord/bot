@@ -3,6 +3,7 @@ package commands
 import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
+	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/quackdiscord/bot/structs"
 	"github.com/rs/zerolog/log"
@@ -39,6 +40,7 @@ func handleAppealsSetup(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 
 	if err := storage.UpsertAppealSettings(settings); err != nil {
 		log.Error().AnErr("Failed to save appeal settings", err)
+		services.CaptureError(err)
 		return EmbedResponse(components.ErrorEmbed("Failed to save appeal settings."), true)
 	}
 

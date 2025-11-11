@@ -6,6 +6,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
+	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/rs/zerolog/log"
 )
@@ -23,6 +24,7 @@ func handleTicketQueue(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 	queue, err := storage.GetOpenTickets(i.GuildID)
 	if err != nil {
 		log.Error().AnErr("Failed to get ticket queue", err)
+		services.CaptureError(err)
 		return EmbedResponse(components.ErrorEmbed("Failed to get ticket queue."), true)
 	}
 

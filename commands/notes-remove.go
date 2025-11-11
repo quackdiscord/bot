@@ -3,6 +3,7 @@ package commands
 import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
+	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/rs/zerolog/log"
 )
@@ -53,6 +54,7 @@ func handleNotesRemoveLatest(s *discordgo.Session, i *discordgo.InteractionCreat
 	n, err := storage.FindLatestNote(guild.ID)
 	if err != nil {
 		log.Error().AnErr("Failed to find latest note", err)
+		services.CaptureError(err)
 		return EmbedResponse(components.ErrorEmbed("Failed to find latest note."), true)
 	}
 
@@ -63,6 +65,7 @@ func handleNotesRemoveLatest(s *discordgo.Session, i *discordgo.InteractionCreat
 	_, err = storage.DeleteLatestNote(guild.ID)
 	if err != nil {
 		log.Error().AnErr("Failed to delete latest note", err)
+		services.CaptureError(err)
 		return EmbedResponse(components.ErrorEmbed("Failed to delete latest note."), true)
 	}
 
@@ -81,6 +84,7 @@ func handleNotesRemoveUser(s *discordgo.Session, i *discordgo.InteractionCreate)
 	_, err := storage.DeleteNoteByUserID(user.ID, guild.ID)
 	if err != nil {
 		log.Error().AnErr("Failed to delete users notes", err)
+		services.CaptureError(err)
 		return EmbedResponse(components.ErrorEmbed("Failed to delete user's notes."), true)
 	}
 
@@ -97,6 +101,7 @@ func handleNotesRemoveID(s *discordgo.Session, i *discordgo.InteractionCreate) *
 	n, err := storage.FindNoteByID(noteID, guild.ID)
 	if err != nil {
 		log.Error().AnErr("Failed to find note", err)
+		services.CaptureError(err)
 		return EmbedResponse(components.ErrorEmbed("Failed to find note."), true)
 	}
 
@@ -107,6 +112,7 @@ func handleNotesRemoveID(s *discordgo.Session, i *discordgo.InteractionCreate) *
 	_, err = storage.DeleteNoteByID(noteID, guild.ID)
 	if err != nil {
 		log.Error().AnErr("Failed to delete note", err)
+		services.CaptureError(err)
 		return EmbedResponse(components.ErrorEmbed("Failed to delete note."), true)
 	}
 

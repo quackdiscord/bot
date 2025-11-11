@@ -85,6 +85,7 @@ func findLatestBanCase(userID, guildID string) *string {
 	cases, err := storage.FindCasesByUserID(userID, guildID)
 	if err != nil {
 		log.Error().AnErr("Failed to find cases for association", err)
+		services.CaptureError(err)
 		return nil
 	}
 	if len(cases) > 0 && cases[0].Type == 1 { // 1 = ban
@@ -172,6 +173,7 @@ func parseAppealData(s *discordgo.Session, appealID string) (*appealData, error)
 	banCase, err := storage.FindCaseByID(caseID, guildID)
 	if err != nil {
 		log.Error().AnErr("Failed to find ban case", err)
+		services.CaptureError(err)
 		// Fallback case data
 		banCase = &structs.Case{
 			ID:      caseID,
@@ -185,6 +187,7 @@ func parseAppealData(s *discordgo.Session, appealID string) (*appealData, error)
 	guild, err := s.Guild(guildID)
 	if err != nil {
 		log.Error().AnErr("Failed to get guild", err)
+		services.CaptureError(err)
 	} else {
 		data.Guild = guild
 	}
@@ -193,6 +196,7 @@ func parseAppealData(s *discordgo.Session, appealID string) (*appealData, error)
 	invites, err := s.GuildInvites(guildID)
 	if err != nil {
 		log.Error().AnErr("Failed to generate invite link", err)
+		services.CaptureError(err)
 	} else if len(invites) > 0 {
 		data.InviteLink = "https://discord.gg/" + invites[0].Code
 	}
@@ -315,6 +319,7 @@ func handleAppealSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	existingAppeals, err := storage.FindOpenAndRejectedAppealsByUserID(i.User.ID, guildID)
 	if err != nil {
 		log.Error().AnErr("Failed to find appeals", err)
+		services.CaptureError(err)
 	}
 	if len(existingAppeals) > 0 {
 		respondWithError(s, i, "You either have an appeal pending or have been rejected. Please wait for a review.")
@@ -348,6 +353,7 @@ func handleAppealSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 	if err := storage.CreateAppeal(appeal); err != nil {
 		log.Error().AnErr("Failed to create appeal", err)
+		services.CaptureError(err)
 		log.Debug().Msgf("[handleAppealSubmit] CreateAppeal error: %s", err.Error())
 		respondWithError(s, i, "Failed to submit appeal. Please try again later.")
 		return
@@ -419,6 +425,7 @@ func handleAppealAccept(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 	// Unban user
 	if err := s.GuildBanDelete(data.GuildID, data.UserID); err != nil {
 		log.Error().AnErr("Failed to unban on appeal accept", err)
+		services.CaptureError(err)
 		log.Debug().Msgf("[handleAppealAccept] GuildBanDelete error: %s", err.Error())
 		return ContentResponse(config.Bot.ErrMsgPrefix+"Failed to unban user.", true)
 	}
@@ -450,6 +457,7 @@ func handleAppealAccept(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 
 	if err := storage.CreateCase(caseData); err != nil {
 		log.Error().AnErr("Failed to create case", err)
+		services.CaptureError(err)
 		return ContentResponse(config.Bot.ErrMsgPrefix+"Failed to create case.", true)
 	}
 

@@ -3,6 +3,7 @@ package commands
 import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
+	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/rs/zerolog/log"
 )
@@ -53,6 +54,7 @@ func handleCasesRemoveLatest(s *discordgo.Session, i *discordgo.InteractionCreat
 	c, err := storage.FindLatestCase(guild.ID)
 	if err != nil {
 		log.Error().AnErr("Failed to find latest case", err)
+		services.CaptureError(err)
 		return EmbedResponse(components.ErrorEmbed("Failed to find latest case."), true)
 	}
 
@@ -63,6 +65,7 @@ func handleCasesRemoveLatest(s *discordgo.Session, i *discordgo.InteractionCreat
 	_, err = storage.DeleteLatestCase(guild.ID)
 	if err != nil {
 		log.Error().AnErr("Failed to delete latest case", err)
+		services.CaptureError(err)
 		return EmbedResponse(components.ErrorEmbed("Failed to delete latest case."), true)
 	}
 
@@ -79,6 +82,7 @@ func handleCasesRemoveID(s *discordgo.Session, i *discordgo.InteractionCreate) *
 	c, err := storage.FindCaseByID(caseID, guild.ID)
 	if err != nil {
 		log.Error().AnErr("Failed to find case", err)
+		services.CaptureError(err)
 		return EmbedResponse(components.ErrorEmbed("Failed to find case."), true)
 	}
 
@@ -89,6 +93,7 @@ func handleCasesRemoveID(s *discordgo.Session, i *discordgo.InteractionCreate) *
 	_, err = storage.DeleteCaseByID(caseID, guild.ID)
 	if err != nil {
 		log.Error().AnErr("Failed to delete case", err)
+		services.CaptureError(err)
 		return EmbedResponse(components.ErrorEmbed("Failed to delete case."), true)
 	}
 
@@ -104,6 +109,7 @@ func handleCasesRemoveUser(s *discordgo.Session, i *discordgo.InteractionCreate)
 	_, err := storage.DeleteCasesByUserID(user.ID, guild.ID)
 	if err != nil {
 		log.Error().AnErr("Failed to delete users cases", err)
+		services.CaptureError(err)
 		return EmbedResponse(components.ErrorEmbed("Failed to delete user's cases."), true)
 	}
 

@@ -50,7 +50,7 @@ func memberJoinHandler(e services.Event) error {
 
 	memberCreatedAt, err := lib.GetUserCreationTime(member.User.ID)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to get user creation time")
+		log.Warn().Err(err).Msg("Failed to get user creation time")
 		return nil
 	}
 
@@ -82,7 +82,7 @@ func memberJoinHandler(e services.Event) error {
 			return nil
 		}
 
-		log.Error().Err(err).Msg("Failed to send memeber leave webhook, requeueing event after delay")
+		log.Warn().Err(err).Msg("Failed to send member leave webhook, requeueing event after delay")
 		go func(ev services.Event) {
 			time.Sleep(60 * time.Second)
 			services.EQ.Enqueue(ev)

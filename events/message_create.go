@@ -77,6 +77,7 @@ func guildCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	guild, err := s.GuildWithCounts(guildID)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get guild")
+		services.CaptureError(err)
 		s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Failed to get guild %s ```%s```", guildID, err))
 		return
 	}
@@ -92,6 +93,7 @@ func guildCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 		inv, err := s.GuildInvites(guild.ID)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to get guild invites")
+			services.CaptureError(err)
 			desc += "\n\nFailed to get guild invites"
 		} else {
 			if len(inv) > 0 {
@@ -155,6 +157,7 @@ func modCmdStatsCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	err := row.Scan(&count)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get mod cmd stats")
+		services.CaptureError(err)
 		s.ChannelMessageSend(m.ChannelID, "Failed to get mod cmd stats")
 		return
 	}

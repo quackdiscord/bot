@@ -3,6 +3,7 @@ package commands
 import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
+	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/rs/zerolog/log"
 )
@@ -41,6 +42,7 @@ func handleTicketLogChannel(s *discordgo.Session, i *discordgo.InteractionCreate
 	err := storage.SetTicketLogChannel(i.GuildID, channel.ID)
 	if err != nil {
 		log.Error().AnErr("Failed to set ticket log channel", err)
+		services.CaptureError(err)
 		return EmbedResponse(components.ErrorEmbed("Failed to set ticket log channel."), true)
 	}
 

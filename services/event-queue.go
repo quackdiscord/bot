@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	"github.com/rs/zerolog/log"
@@ -59,6 +60,7 @@ func (eq *EventQueue) Enqueue(event Event) {
 		// event queued
 	default:
 		log.Error().Msg("Event queue is full")
+		CaptureError(errors.New("event queue is full"))
 	}
 }
 
@@ -103,11 +105,14 @@ func (eq *EventQueue) processEvent(event Event) {
 
 	if !exists {
 		log.Error().Msgf("No handler found for event type %s", event.Type)
+		CaptureError(errors.New("no handler found for event type " + event.Type))
 		return
 	}
 
 	if err := handler(event); err != nil {
 		log.Error().Err(err).Msgf("Error processing event type %s", event.Type)
+		CaptureError(err)
+		return
 	}
 }
 

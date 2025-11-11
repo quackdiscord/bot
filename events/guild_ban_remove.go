@@ -86,7 +86,7 @@ func guildBanRemoveHandler(e services.Event) error {
 			return nil
 		}
 
-		log.Error().Err(err).Msg("Failed to send member ban remove webhook, requeueing event after delay")
+		log.Warn().Err(err).Msg("Failed to send member ban remove webhook, requeueing event after delay")
 		go func(ev services.Event) {
 			time.Sleep(60 * time.Second)
 			services.EQ.Enqueue(ev)

@@ -46,7 +46,7 @@ func onGuildCreate(s *discordgo.Session, gc *discordgo.GuildCreate) {
 	})
 
 	if err != nil {
-		log.Error().AnErr("Failed to create guild", err)
+		log.Warn().AnErr("Failed to create guild", err)
 	}
 
 	// update the guild count channel
@@ -55,7 +55,7 @@ func onGuildCreate(s *discordgo.Session, gc *discordgo.GuildCreate) {
 	})
 
 	if err != nil {
-		log.Error().AnErr("Failed to update guild count channel", err)
+		log.Warn().AnErr("Failed to update guild count channel", err)
 	}
 
 	log.Info().Msgf("Guild created %s", gc.Guild.ID)

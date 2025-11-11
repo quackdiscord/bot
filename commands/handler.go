@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"errors"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -32,6 +33,7 @@ func OnInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		s.InteractionRespond(i.Interaction, resp)
 	} else {
 		log.Error().Msgf("Something went wrong while processing a command: %s", i.ApplicationCommandData().Name)
+		services.CaptureError(errors.New("Something went wrong while processing a command: " + i.ApplicationCommandData().Name))
 		errMessage := config.Bot.ErrMsgPrefix + "Something went wrong while processing the command"
 		s.InteractionRespond(i.Interaction, ContentResponse(errMessage, true))
 		return

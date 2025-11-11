@@ -5,6 +5,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
+	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/quackdiscord/bot/structs"
 	"github.com/rs/zerolog/log"
@@ -41,6 +42,7 @@ func handleLogDisable(i *discordgo.InteractionCreate) *discordgo.InteractionResp
 	logSettings, err := storage.FindLogSettingsByID(i.GuildID)
 	if err != nil {
 		log.Error().AnErr("Failed to get log settings", err)
+		services.CaptureError(err)
 		return EmbedResponse(components.ErrorEmbed("Failed to get log settings."), true)
 	}
 
@@ -58,6 +60,7 @@ func handleLogDisable(i *discordgo.InteractionCreate) *discordgo.InteractionResp
 		err = storage.UpdateLogSettings(logSettings)
 		if err != nil {
 			log.Error().AnErr("Failed to update log settings", err)
+			services.CaptureError(err)
 			return EmbedResponse(components.ErrorEmbed("Failed to update log settings."), true)
 		}
 
@@ -82,6 +85,7 @@ func handleLogDisable(i *discordgo.InteractionCreate) *discordgo.InteractionResp
 		err = storage.CreateLogSettings(logSettings)
 		if err != nil {
 			log.Error().AnErr("Failed to create log settings", err)
+			services.CaptureError(err)
 			return EmbedResponse(components.ErrorEmbed("Failed to create log settings."), true)
 		}
 	}

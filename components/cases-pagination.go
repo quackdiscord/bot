@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/quackdiscord/bot/utils"
 	"github.com/rs/zerolog/log"
@@ -74,6 +75,7 @@ func handleCasesPaginate(s *discordgo.Session, i *discordgo.InteractionCreate, d
 		cases, err := storage.FindCasesByUserIDPaginated(userID, guildID, pageSize, offset)
 		if err != nil {
 			log.Error().AnErr("Failed to fetch paginated cases", err)
+			services.CaptureError(err)
 			return
 		}
 

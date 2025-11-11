@@ -5,6 +5,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
+	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/rs/zerolog/log"
 )
@@ -48,6 +49,7 @@ func handleTicketChannel(s *discordgo.Session, i *discordgo.InteractionCreate) *
 	err := storage.SetTicketChannel(i.GuildID, channel.ID)
 	if err != nil {
 		log.Error().AnErr("Failed to set ticket channel", err)
+		services.CaptureError(err)
 		return EmbedResponse(components.ErrorEmbed("Failed to set ticket channel."), true)
 	}
 
@@ -69,6 +71,7 @@ func handleTicketChannel(s *discordgo.Session, i *discordgo.InteractionCreate) *
 
 	if err != nil {
 		log.Error().AnErr("Failed to send message to ticket channel", err)
+		services.CaptureError(err)
 		return EmbedResponse(components.ErrorEmbed("Failed to send message to ticket channel."), true)
 	}
 

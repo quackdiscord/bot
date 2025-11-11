@@ -7,6 +7,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
 	"github.com/quackdiscord/bot/lib"
+	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/quackdiscord/bot/structs"
 	"github.com/quackdiscord/bot/utils"
@@ -95,6 +96,7 @@ func handleCasesAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *disco
 		err = storage.CreateCase(caseData)
 		if err != nil {
 			log.Error().AnErr("Failed to create case", err)
+			services.CaptureError(err)
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to save case.\n```" + err.Error() + "```")}})
 			return
 		}

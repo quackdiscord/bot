@@ -7,6 +7,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
+	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/quackdiscord/bot/structs"
 	"github.com/rs/zerolog/log"
@@ -24,6 +25,7 @@ func handleAppealsQueue(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 	appeals, err := storage.GetOpenAppeals(i.GuildID)
 	if err != nil {
 		log.Error().Msgf("Failed to get open appeals: %s", err.Error())
+		services.CaptureError(err)
 		return EmbedResponse(components.ErrorEmbed("Failed to get open appeals."), true)
 	}
 
@@ -52,6 +54,7 @@ func generateAppealsDescription(appeals []*structs.Appeal) string {
 	as, err := storage.FindAppealSettingsByGuildID(appeals[0].GuildID)
 	if err != nil {
 		log.Error().Msgf("Failed to find appeals settings: %s", err.Error())
+		services.CaptureError(err)
 		return "Something went wrong."
 	}
 
@@ -76,6 +79,7 @@ func generateAppealsDescription(appeals []*structs.Appeal) string {
 			bc, err := storage.FindCaseByID(a.CaseID.String, a.GuildID)
 			if err != nil {
 				log.Error().Msgf("Failed to find ban case: %s", err.Error())
+				services.CaptureError(err)
 				banCase = nil
 			} else {
 				banCase = bc

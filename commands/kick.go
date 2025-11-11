@@ -106,6 +106,7 @@ func handleKick(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo
 		err = s.GuildMemberDeleteWithReason(guild.ID, userToKick.ID, reason)
 		if err != nil {
 			log.Error().AnErr("Failed to kick user", err)
+			services.CaptureError(err)
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to kick user.\n```" + err.Error() + "```")}})
 			return
 		}
@@ -129,6 +130,7 @@ func handleKick(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo
 		err = storage.CreateCase(caseData)
 		if err != nil {
 			log.Error().AnErr("Failed to create case", err)
+			services.CaptureError(err)
 			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &[]*discordgo.MessageEmbed{components.ErrorEmbed("Failed to save case.\n```" + err.Error() + "```")}})
 			return
 		}
