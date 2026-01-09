@@ -57,12 +57,12 @@ func ConnectDiscord(events []interface{}) {
 func RegisterCommands(s *discordgo.Session, g string) {
 	i := 0
 	for _, v := range Commands {
-		_, err := s.ApplicationCommandCreate(s.State.User.ID, g, v.ApplicationCommand)
+		c, err := s.ApplicationCommandCreate(s.State.User.ID, g, v.ApplicationCommand)
 		if err != nil {
 			log.Fatal().AnErr("Error registering command: "+v.Name, err)
 		}
 		i += 1
-		log.Info().Msgf("Registered %d/%d commands", i, len(Commands))
+		log.Info().Msgf("Registered %d/%d commands (%s, %s)", i, len(Commands), v.Name, c.ID)
 	}
 }
 

@@ -23,9 +23,15 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		services.MsgCache.AddMessage(m.Message)
 	}
 
+	isHoneypot := false
 	if m.Author != nil && m.Author.ID != s.State.User.ID {
 		// store the message in redis (this will check if the message is in a ticket automatically)
 		storage.StoreTicketMessage(m.ChannelID, m.Content, m.Author.Username)
+		isHoneypot = storage.IsHoneypotChannel(m.ChannelID)
+	}
+
+	if isHoneypot {
+		HandleHoneypotMessage(s, m)
 	}
 
 	if m.Author != nil && m.Author.ID == config.Bot.BotOwnerID {

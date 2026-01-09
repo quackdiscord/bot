@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aidarkhanov/nanoid"
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/config"
 	"github.com/quackdiscord/bot/lib"
@@ -518,4 +519,15 @@ func handleAppealReject(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 			}},
 		},
 	})
+}
+
+func GenID(length ...int) (string, error) {
+	if length == nil {
+		length = append(length, 12)
+	}
+	id, err := nanoid.Generate(nanoid.DefaultAlphabet, length[0])
+	if err != nil {
+		return "", err
+	}
+	return id, nil
 }
