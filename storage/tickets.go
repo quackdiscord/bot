@@ -359,6 +359,21 @@ func GetUsersTicket(userID string, guildID string) (*string, error) {
 
 }
 
+// get a users total tickets count
+func GetUsersTotalTicketsCount(userID string, guildID string) (int, error) {
+	// prepare the statement
+	stmtOut, err := services.DB.Prepare("SELECT COUNT(*) FROM tickets WHERE owner_id = ? AND guild_id = ?")
+	if err != nil {
+		return 0, err
+	}
+	var count int
+	err = stmtOut.QueryRow(userID, guildID).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 // get all open tickets for a guild in order of created at
 func GetOpenTickets(guildID string) ([]*structs.Ticket, error) {
 
