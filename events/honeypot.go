@@ -54,14 +54,6 @@ func HandleHoneypotMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		ModeratorID: s.State.User.ID,
 	}
 
-	// for now we just ban
-	err = s.GuildBanCreateWithReason(m.GuildID, m.Author.ID, "Fell for honeypot", 1)
-	if err != nil {
-		log.Error().AnErr("Failed to ban user", err)
-		services.CaptureError(err)
-		return
-	}
-
 	dmDescription := "🚨 You have been banned from **" + guild.Name + "** for ```Falling for the honeypot```"
 	dmEmbed := components.NewEmbed().
 		SetDescription(dmDescription).
@@ -90,6 +82,14 @@ func HandleHoneypotMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		})
 	} else {
 		err = derr
+	}
+
+	// for now we just ban
+	err = s.GuildBanCreateWithReason(m.GuildID, m.Author.ID, "Fell for honeypot", 1)
+	if err != nil {
+		log.Error().AnErr("Failed to ban user", err)
+		services.CaptureError(err)
+		return
 	}
 
 	// save the case
