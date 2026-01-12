@@ -14,6 +14,8 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+var moderateMembers int64 = discordgo.PermissionModerateMembers
+
 func init() {
 	Components["user-view-cases"] = handleUserViewCases
 	Components["user-view-notes"] = handleUserViewNotes
@@ -21,6 +23,14 @@ func init() {
 }
 
 func handleUserViewCases(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
+	// check permissions
+	if !utils.CheckPerms(i.Member, moderateMembers) {
+		return ComplexResponse(&discordgo.InteractionResponseData{
+			Flags:   discordgo.MessageFlagsEphemeral,
+			Content: "You do not have the permissions required to use this button.",
+		})
+	}
+
 	// extract user ID from custom ID (format: "user-view-cases:userID")
 	parts := strings.Split(i.MessageComponentData().CustomID, ":")
 	if len(parts) < 2 {
@@ -107,6 +117,14 @@ func handleUserViewCases(s *discordgo.Session, i *discordgo.InteractionCreate) *
 }
 
 func handleUserViewNotes(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
+	// check permissions
+	if !utils.CheckPerms(i.Member, moderateMembers) {
+		return ComplexResponse(&discordgo.InteractionResponseData{
+			Flags:   discordgo.MessageFlagsEphemeral,
+			Content: "You do not have the permissions required to use this button.",
+		})
+	}
+
 	// extract user ID from custom ID (format: "user-view-notes:userID")
 	parts := strings.Split(i.MessageComponentData().CustomID, ":")
 	if len(parts) < 2 {
