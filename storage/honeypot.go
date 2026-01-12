@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 
+	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/structs"
 )
@@ -38,6 +39,8 @@ func IsHoneypotChannel(id string) bool {
 	}
 
 	// check if the channel id is in the list
+	log.Info().Msgf("Members: %v", members)
+	log.Info().Msgf("ID: %s", id)
 	return slices.Contains(members, id)
 }
 
@@ -52,7 +55,7 @@ func GetHoneypot(id string) (*structs.Honeypot, error) {
 	// execute the statement
 	row := stmt.QueryRow(id)
 	var h structs.Honeypot
-	err = row.Scan(&h.ID, &h.GuildID, &h.Action, &h.Message, &h.ActionsTaken)
+	err = row.Scan(&h.ID, &h.GuildID, &h.Action, &h.Message, &h.ActionsTaken, &h.MessageID)
 	if err != nil {
 		return nil, err
 	}
