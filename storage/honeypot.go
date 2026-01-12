@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"slices"
 
 	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/structs"
@@ -10,11 +11,11 @@ import (
 // create a new honeypot save in db and redis list
 func CreateHoneypot(h *structs.Honeypot) error {
 	// prepare the statement
-	stmtIns, err := services.DB.Prepare("INSERT INTO honeypots (id, guild_id, action, message) VALUES (?, ?, ?, ?)")
+	stmtIns, err := services.DB.Prepare("INSERT INTO honeypots (id, guild_id, action, message, actions_taken, message_id) VALUES (?, ?, ?, ?, ?, ?)")
 	if err != nil {
 		return err
 	}
-	_, err = stmtIns.Exec(h.ID, h.GuildID, h.Action, h.Message)
+	_, err = stmtIns.Exec(h.ID, h.GuildID, h.Action, h.Message, h.ActionsTaken, h.MessageID)
 	if err != nil {
 		return err
 	}
@@ -37,19 +38,13 @@ func IsHoneypotChannel(id string) bool {
 	}
 
 	// check if the channel id is in the list
-	for _, member := range members {
-		if member == id {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(members, id)
 }
 
 // get a honeypot object by id
 func GetHoneypot(id string) (*structs.Honeypot, error) {
 	// prepare the statement
-	stmt, err := services.DB.Prepare("SELECT id, guild_id, action, message FROM honeypots WHERE id = ?")
+	stmt, err := services.DB.Prepare("SELECT id, guild_id, action, message, actions_taken, message_id FROM honeypots WHERE id = ?")
 	if err != nil {
 		return nil, err
 	}
@@ -57,10 +52,45 @@ func GetHoneypot(id string) (*structs.Honeypot, error) {
 	// execute the statement
 	row := stmt.QueryRow(id)
 	var h structs.Honeypot
-	err = row.Scan(&h.ID, &h.GuildID, &h.Action, &h.Message)
+	err = row.Scan(&h.ID, &h.GuildID, &h.Action, &h.Message, &h.ActionsTaken)
 	if err != nil {
 		return nil, err
 	}
 
 	return &h, nil
+}
+
+// increment the actions taken for a honeypot
+func IncrementHoneypotActions(id string) error {
+	// prepare the statement
+	stmt, err := services.DB.Prepare("UPDATE honeypots SET actions_taken = actions_taken + 1 WHERE id = ?")
+	if err != nil {
+		return err
+	}
+
+	// execute the statement
+	_, err = stmt.Exec(id)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// get the actions taken for a honeypot
+func GetHoneypotActions(id string) (int, error) {
+	// prepare the statement
+	stmt, err := services.DB.Prepare("SELECT actions_taken FROM honeypots WHERE id = ?")
+	if err != nil {
+		return 0, err
+	}
+
+	// execute the statement
+	var actionsTaken int
+	err = stmt.QueryRow(id).Scan(&actionsTaken)
+	if err != nil {
+		return 0, err
+	}
+
+	return actionsTaken, nil
 }

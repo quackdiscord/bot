@@ -1,6 +1,8 @@
 package events
 
 import (
+	"strconv"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
 	"github.com/quackdiscord/bot/lib"
@@ -10,7 +12,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func HandleHoneypotMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
+func HandleHoneypotMessage(s *discordgo.Session, m *discordgo.MessageCreate, h *structs.Honeypot) {
 	// check the users perms
 	// if they have the "MODERATE_MEMBERS" permission, they can bypass this
 	member, err := s.GuildMember(m.GuildID, m.Author.ID)
@@ -98,6 +100,24 @@ func HandleHoneypotMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		log.Error().AnErr("Failed to save case", err)
 		services.CaptureError(err)
 		return
+	}
+
+	// increment the actions taken for the honeypot
+	err = storage.IncrementHoneypotActions(m.ChannelID)
+	if err != nil {
+		log.Error().AnErr("Failed to increment honeypot actions", err)
+		services.CaptureError(err)
+		return
+	}
+
+	// update the channel message
+	if h.MessageID != "" {
+		_, err = s.ChannelMessageEdit(m.ChannelID, h.MessageID, h.Message.String+"\n\n-# <:ban:1165590688554033183> Banned **"+strconv.Itoa(h.ActionsTaken+1)+"** users so far.")
+		if err != nil {
+			log.Error().AnErr("Failed to update honeypot message", err)
+			services.CaptureError(err)
+			return
+		}
 	}
 }
 

@@ -7,5 +7,7 @@ type Honeypot struct {
 	GuildID string
 	Action  string
 	// message is string nullable
-	Message sql.NullString
+	Message      sql.NullString
+	MessageID    string
+	ActionsTaken int
 }

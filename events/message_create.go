@@ -31,7 +31,14 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	if isHoneypot {
-		HandleHoneypotMessage(s, m)
+		honeypot, err := storage.GetHoneypot(m.ChannelID)
+		if err != nil {
+			log.Error().AnErr("Failed to get honeypot", err)
+			services.CaptureError(err)
+			return
+		}
+		HandleHoneypotMessage(s, m, honeypot)
+		return
 	}
 
 	if m.Author != nil && m.Author.ID == config.Bot.BotOwnerID {

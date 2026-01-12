@@ -2,6 +2,7 @@ package commands
 
 import (
 	"database/sql"
+	"strings"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
@@ -44,19 +45,28 @@ func handleHoneypotCreate(s *discordgo.Session, i *discordgo.InteractionCreate) 
 
 	var message sql.NullString
 	if msg != "" {
+		// parse the message for new lines and replace them with real new lines so the bot sends the message correctly
+		msg = strings.ReplaceAll(msg, "\\n", "\n")
 		message = sql.NullString{String: msg, Valid: true}
 	} else {
 		message = sql.NullString{String: "# Warning!\n\nThis is a honeypot channel meant to catch scammers.\n\n> Do not message here, you will be banned.", Valid: true}
 	}
 
 	// send the message to the channel
-	_, err = s.ChannelMessageSend(channel.ID, message.String)
+	sentMsg, err := s.ChannelMessageSend(channel.ID, message.String+"\n\n-# <:ban:1165590688554033183> Banned **0** users so far.")
+	if err != nil {
+		log.Error().AnErr("Failed to send message to honeypot channel", err)
+		services.CaptureError(err)
+		return EmbedResponse(components.ErrorEmbed("Failed to send message to honeypot channel."), true)
+	}
 
 	honeypot := &structs.Honeypot{
-		ID:      channel.ID,
-		GuildID: i.GuildID,
-		Action:  "ban",
-		Message: message,
+		ID:           channel.ID,
+		GuildID:      i.GuildID,
+		Action:       "ban",
+		Message:      message,
+		MessageID:    sentMsg.ID,
+		ActionsTaken: 0,
 	}
 
 	err = storage.CreateHoneypot(honeypot)
