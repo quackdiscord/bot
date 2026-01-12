@@ -19,5 +19,7 @@ func RegisterEvents() {
 	services.EQ.RegisterHandler("guild_ban_add", guildBanAddHandler)
 	services.EQ.RegisterHandler("guild_ban_remove", guildBanRemoveHandler)
 
+	services.EQ.RegisterHandler("channel_delete", channelDeleteHandler)
+
 	log.Info().Msg("Events registered in events queue")
 }

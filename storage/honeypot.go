@@ -94,3 +94,26 @@ func GetHoneypotActions(id string) (int, error) {
 
 	return actionsTaken, nil
 }
+
+// delete a honeypot by id and guild id
+func DeleteHoneypot(id string, guildID string) error {
+	// prepare the statement
+	stmt, err := services.DB.Prepare("DELETE FROM honeypots WHERE id = ? AND guild_id = ?")
+	if err != nil {
+		return err
+	}
+
+	// execute the statement
+	_, err = stmt.Exec(id, guildID)
+	if err != nil {
+		return err
+	}
+
+	// remove the channel id from the redis list
+	err = services.Redis.LRem(context.Background(), "honeypots", 0, id).Err()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
