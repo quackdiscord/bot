@@ -26,19 +26,19 @@ func handleTimeoutRemove(s *discordgo.Session, i *discordgo.InteractionCreate) *
 	guild, _ := s.Guild(i.GuildID)
 
 	if i.Member == nil {
-		return EmbedResponse(components.ErrorEmbed("You must be in a server to use this command."), true)
+		return components.EmbedResponse(components.ErrorEmbed("You must be in a server to use this command."), true)
 	}
 
 	moderator := i.Member.User
 
 	if userToUntime == nil {
-		return EmbedResponse(components.ErrorEmbed("User not found."), true)
+		return components.EmbedResponse(components.ErrorEmbed("User not found."), true)
 	}
 
 	// remove the timeout from the user
 	err := s.GuildMemberTimeout(guild.ID, userToUntime.ID, nil)
 	if err != nil {
-		return EmbedResponse(components.ErrorEmbed("Failed to untime out user.\n```"+err.Error()+"```"), true)
+		return components.EmbedResponse(components.ErrorEmbed("Failed to untime out user.\n```"+err.Error()+"```"), true)
 	}
 
 	// create the embed
@@ -49,5 +49,5 @@ func handleTimeoutRemove(s *discordgo.Session, i *discordgo.InteractionCreate) *
 		SetTimestamp().
 		MessageEmbed
 
-	return EmbedResponse(embed, false)
+	return components.EmbedResponse(embed, false)
 }

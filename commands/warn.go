@@ -52,14 +52,14 @@ var warnCmd = &discordgo.ApplicationCommand{
 
 func handleWarn(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	if !utils.CheckPerms(i.Member, moderateMembers) {
-		return EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
+		return components.EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
 	}
 
 	userToWarn := i.ApplicationCommandData().Options[0].UserValue(s)
 	reason := i.ApplicationCommandData().Options[1].StringValue()
 
 	if i.Member == nil {
-		return EmbedResponse(components.ErrorEmbed("You must be in a server to use this command."), true)
+		return components.EmbedResponse(components.ErrorEmbed("You must be in a server to use this command."), true)
 	}
 
 	moderator := i.Member.User
@@ -67,7 +67,7 @@ func handleWarn(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo
 
 	// make sure the user is not a bot
 	if userToWarn.Bot {
-		return EmbedResponse(components.ErrorEmbed("You can not give a bot a case."), true)
+		return components.EmbedResponse(components.ErrorEmbed("You can not give a bot a case."), true)
 	}
 
 	// create the case
@@ -124,5 +124,5 @@ func handleWarn(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo
 		}
 	}()
 
-	return LoadingResponse()
+	return components.LoadingResponse()
 }

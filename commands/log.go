@@ -30,7 +30,7 @@ var logCmd = &discordgo.ApplicationCommand{
 
 func handleLog(s *discordgo.Session, i *discordgo.InteractionCreate) (resp *discordgo.InteractionResponse) {
 	if !utils.CheckPerms(i.Member, moderateMembers) {
-		return EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
+		return components.EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
 	}
 
 	switch c := i.ApplicationCommandData().Options[0]; c.Name {
@@ -40,5 +40,5 @@ func handleLog(s *discordgo.Session, i *discordgo.InteractionCreate) (resp *disc
 		return handleLogDisable(i) // doesnt need session
 	}
 
-	return ContentResponse("oh... this is awkward.", true)
+	return components.ContentResponse("oh... this is awkward.", true)
 }

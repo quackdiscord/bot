@@ -170,7 +170,7 @@ func handleUser(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo
 		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &[]*discordgo.MessageEmbed{embed}, Components: &buttons})
 	}()
 
-	return LoadingResponse()
+	return components.LoadingResponse()
 }
 
 func formatLastCase(c *structs.Case) string {

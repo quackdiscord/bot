@@ -97,5 +97,5 @@ func handlePurgeContains(s *discordgo.Session, i *discordgo.InteractionCreate) *
 
 	}()
 
-	return LoadingResponse()
+	return components.LoadingResponse()
 }

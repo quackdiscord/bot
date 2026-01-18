@@ -97,5 +97,5 @@ func handlePurgeEmoji(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 
 	}()
 
-	return LoadingResponse()
+	return components.LoadingResponse()
 }

@@ -51,7 +51,7 @@ var banCmd = &discordgo.ApplicationCommand{
 func handleBan(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	// check if the user has the required permissions
 	if !utils.CheckPerms(i.Member, banMembers) {
-		return EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
+		return components.EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
 	}
 
 	data := i.ApplicationCommandData()
@@ -70,24 +70,24 @@ func handleBan(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.
 	}
 
 	if i.Member == nil {
-		return EmbedResponse(components.ErrorEmbed("You must be in a server to use this command."), true)
+		return components.EmbedResponse(components.ErrorEmbed("You must be in a server to use this command."), true)
 	}
 
 	moderator := i.Member.User
 	guild, _ := s.Guild(i.GuildID)
 
 	if userToBan == nil {
-		return EmbedResponse(components.ErrorEmbed("User not found."), true)
+		return components.EmbedResponse(components.ErrorEmbed("User not found."), true)
 	}
 	// reason is already populated from options if provided
 
 	// make sure the user isn't banning themselves
 	if userToBan.ID == moderator.ID {
-		return EmbedResponse(components.ErrorEmbed("You can't ban yourself."), true)
+		return components.EmbedResponse(components.ErrorEmbed("You can't ban yourself."), true)
 	}
 	// make sure the user isn't banning the bot
 	if userToBan.ID == s.State.User.ID {
-		return EmbedResponse(components.ErrorEmbed("You can't ban me using this command."), true)
+		return components.EmbedResponse(components.ErrorEmbed("You can't ban me using this command."), true)
 	}
 
 	go func() {
@@ -189,5 +189,5 @@ func handleBan(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.
 
 	}()
 
-	return LoadingResponse()
+	return components.LoadingResponse()
 }

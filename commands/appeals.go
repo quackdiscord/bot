@@ -29,15 +29,15 @@ func handleAppeals(s *discordgo.Session, i *discordgo.InteractionCreate) *discor
 	switch c := i.ApplicationCommandData().Options[0]; c.Name {
 	case "setup":
 		if !utils.CheckPerms(i.Member, administrator) {
-			return EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
+			return components.EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
 		}
 		return handleAppealsSetup(s, i)
 	case "queue":
 		if !utils.CheckPerms(i.Member, moderateMembers) {
-			return EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
+			return components.EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
 		}
 		return handleAppealsQueue(s, i)
 	}
 
-	return EmbedResponse(components.ErrorEmbed("Command does not exist"), true)
+	return components.EmbedResponse(components.ErrorEmbed("Command does not exist"), true)
 }

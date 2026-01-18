@@ -55,23 +55,23 @@ func handleCasesRemoveLatest(s *discordgo.Session, i *discordgo.InteractionCreat
 	if err != nil {
 		log.Error().AnErr("Failed to find latest case", err)
 		services.CaptureError(err)
-		return EmbedResponse(components.ErrorEmbed("Failed to find latest case."), true)
+		return components.EmbedResponse(components.ErrorEmbed("Failed to find latest case."), true)
 	}
 
 	if c == nil {
-		return EmbedResponse(components.ErrorEmbed("Latest case not found."), true)
+		return components.EmbedResponse(components.ErrorEmbed("Latest case not found."), true)
 	}
 
 	_, err = storage.DeleteLatestCase(guild.ID)
 	if err != nil {
 		log.Error().AnErr("Failed to delete latest case", err)
 		services.CaptureError(err)
-		return EmbedResponse(components.ErrorEmbed("Failed to delete latest case."), true)
+		return components.EmbedResponse(components.ErrorEmbed("Failed to delete latest case."), true)
 	}
 
 	embed := components.NewEmbed().SetDescription("Deleted latest case.").SetColor("Main").MessageEmbed
 
-	return EmbedResponse(embed, false)
+	return components.EmbedResponse(embed, false)
 }
 
 func handleCasesRemoveID(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
@@ -83,23 +83,23 @@ func handleCasesRemoveID(s *discordgo.Session, i *discordgo.InteractionCreate) *
 	if err != nil {
 		log.Error().AnErr("Failed to find case", err)
 		services.CaptureError(err)
-		return EmbedResponse(components.ErrorEmbed("Failed to find case."), true)
+		return components.EmbedResponse(components.ErrorEmbed("Failed to find case."), true)
 	}
 
 	if c == nil {
-		return EmbedResponse(components.ErrorEmbed("Case not found."), true)
+		return components.EmbedResponse(components.ErrorEmbed("Case not found."), true)
 	}
 
 	_, err = storage.DeleteCaseByID(caseID, guild.ID)
 	if err != nil {
 		log.Error().AnErr("Failed to delete case", err)
 		services.CaptureError(err)
-		return EmbedResponse(components.ErrorEmbed("Failed to delete case."), true)
+		return components.EmbedResponse(components.ErrorEmbed("Failed to delete case."), true)
 	}
 
 	embed := components.NewEmbed().SetDescription("Deleted case `" + caseID + "`.").SetColor("Main").MessageEmbed
 
-	return EmbedResponse(embed, false)
+	return components.EmbedResponse(embed, false)
 }
 
 func handleCasesRemoveUser(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
@@ -110,10 +110,10 @@ func handleCasesRemoveUser(s *discordgo.Session, i *discordgo.InteractionCreate)
 	if err != nil {
 		log.Error().AnErr("Failed to delete users cases", err)
 		services.CaptureError(err)
-		return EmbedResponse(components.ErrorEmbed("Failed to delete user's cases."), true)
+		return components.EmbedResponse(components.ErrorEmbed("Failed to delete user's cases."), true)
 	}
 
 	embed := components.NewEmbed().SetDescription(" Deleted <@" + user.ID + ">'s cases.").SetColor("Main").MessageEmbed
 
-	return EmbedResponse(embed, false)
+	return components.EmbedResponse(embed, false)
 }

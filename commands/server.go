@@ -28,5 +28,5 @@ func handleServer(s *discordgo.Session, i *discordgo.InteractionCreate) (resp *d
 		return handleServerInfo(s, i)
 	}
 
-	return EmbedResponse(components.ErrorEmbed("Command does not exist"), true)
+	return components.EmbedResponse(components.ErrorEmbed("Command does not exist"), true)
 }

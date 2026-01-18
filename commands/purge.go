@@ -33,7 +33,7 @@ var purgeCmd = &discordgo.ApplicationCommand{
 
 func handlePurge(s *discordgo.Session, i *discordgo.InteractionCreate) (resp *discordgo.InteractionResponse) {
 	if !utils.CheckPerms(i.Member, moderateMembers) {
-		return EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
+		return components.EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
 	}
 
 	switch c := i.ApplicationCommandData().Options[0]; c.Name {
@@ -55,5 +55,5 @@ func handlePurge(s *discordgo.Session, i *discordgo.InteractionCreate) (resp *di
 		return handlePurgeAttachments(s, i)
 	}
 
-	return EmbedResponse(components.ErrorEmbed("Command does not exist"), true)
+	return components.EmbedResponse(components.ErrorEmbed("Command does not exist"), true)
 }

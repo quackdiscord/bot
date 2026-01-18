@@ -89,5 +89,5 @@ func handlePurgeAll(s *discordgo.Session, i *discordgo.InteractionCreate) *disco
 
 	}()
 
-	return LoadingResponse()
+	return components.LoadingResponse()
 }

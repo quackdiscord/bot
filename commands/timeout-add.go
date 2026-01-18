@@ -46,14 +46,14 @@ func handleTimeoutAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 	reason := "No reason provided"
 
 	if i.Member == nil {
-		return EmbedResponse(components.ErrorEmbed("You must be in a server to use this command."), true)
+		return components.EmbedResponse(components.ErrorEmbed("You must be in a server to use this command."), true)
 	}
 
 	moderator := i.Member.User
 	guild, _ := s.Guild(i.GuildID)
 
 	if userToTime == nil {
-		return EmbedResponse(components.ErrorEmbed("User not found."), true)
+		return components.EmbedResponse(components.ErrorEmbed("User not found."), true)
 	}
 	if len(i.ApplicationCommandData().Options[0].Options) > 2 {
 		reason = i.ApplicationCommandData().Options[0].Options[2].StringValue()
@@ -61,12 +61,12 @@ func handleTimeoutAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 
 	// make sure the user isn't timing themselves out
 	if userToTime.ID == moderator.ID {
-		return EmbedResponse(components.ErrorEmbed("You cannot time out yourself."), true)
+		return components.EmbedResponse(components.ErrorEmbed("You cannot time out yourself."), true)
 	}
 
 	// make sure the user isn't timing out a bot
 	if userToTime.Bot {
-		return EmbedResponse(components.ErrorEmbed("You cannot time out a bot."), true)
+		return components.EmbedResponse(components.ErrorEmbed("You cannot time out a bot."), true)
 	}
 
 	// wrap in a go routine to prevent blocking
@@ -140,6 +140,6 @@ func handleTimeoutAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 
 	}()
 
-	return LoadingResponse()
+	return components.LoadingResponse()
 
 }

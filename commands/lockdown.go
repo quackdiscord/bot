@@ -34,12 +34,12 @@ var lockdownCmd = &discordgo.ApplicationCommand{
 
 func handleLockdown(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	if !utils.CheckPerms(i.Member, moderateMembers) {
-		return EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
+		return components.EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
 	}
 
 	c := i.ApplicationCommandData().Options[0].ChannelValue(s)
 	if c == nil {
-		return EmbedResponse(components.ErrorEmbed("Channel not found."), true)
+		return components.EmbedResponse(components.ErrorEmbed("Channel not found."), true)
 	}
 
 	if c.Type == discordgo.ChannelTypeGuildText {
@@ -71,7 +71,7 @@ func handleLockdown(s *discordgo.Session, i *discordgo.InteractionCreate) *disco
 		if err != nil {
 			log.Error().AnErr("Failed to update channel permissions", err)
 			services.CaptureError(err)
-			return EmbedResponse(components.ErrorEmbed("Failed to update channel permissions."), true)
+			return components.EmbedResponse(components.ErrorEmbed("Failed to update channel permissions."), true)
 		}
 
 		// send a message in the channel
@@ -84,7 +84,7 @@ func handleLockdown(s *discordgo.Session, i *discordgo.InteractionCreate) *disco
 
 		_, err = s.ChannelMessageSendEmbed(c.ID, embed)
 		if err != nil {
-			return EmbedResponse(components.ErrorEmbed("Failed to send message to channel."), true)
+			return components.EmbedResponse(components.ErrorEmbed("Failed to send message to channel."), true)
 		}
 
 		embed = components.NewEmbed().
@@ -92,8 +92,8 @@ func handleLockdown(s *discordgo.Session, i *discordgo.InteractionCreate) *disco
 			SetColor("Main").
 			MessageEmbed
 
-		return EmbedResponse(embed, false)
+		return components.EmbedResponse(embed, false)
 	}
 
-	return EmbedResponse(components.ErrorEmbed("This channel type is not supported."), true)
+	return components.EmbedResponse(components.ErrorEmbed("This channel type is not supported."), true)
 }

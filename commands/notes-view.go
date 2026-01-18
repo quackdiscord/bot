@@ -56,12 +56,12 @@ func handleNotesViewLatest(s *discordgo.Session, i *discordgo.InteractionCreate)
 	if err != nil {
 		log.Error().AnErr("Failed to fetch latest note", err)
 		services.CaptureError(err)
-		return EmbedResponse(components.ErrorEmbed("Failed to fetch latest note."), true)
+		return components.EmbedResponse(components.ErrorEmbed("Failed to fetch latest note."), true)
 	}
 
 	embed := generateNotesEmbed(s, n)
 
-	return EmbedResponse(embed, false)
+	return components.EmbedResponse(embed, false)
 }
 
 func handleNotesViewUser(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
@@ -71,12 +71,12 @@ func handleNotesViewUser(s *discordgo.Session, i *discordgo.InteractionCreate) *
 	if err != nil {
 		log.Error().AnErr("Failed to fetch note by user id", err)
 		services.CaptureError(err)
-		return EmbedResponse(components.ErrorEmbed("Failed to fetch notes."), true)
+		return components.EmbedResponse(components.ErrorEmbed("Failed to fetch notes."), true)
 	}
 
 	if len(notes) == 0 {
 		embed := components.NewEmbed().SetDescription("<:PepoG:1172051306026905620> <@" + user.ID + "> has no notes.").SetColor("DarkButNotBlack").MessageEmbed
-		return EmbedResponse(embed, false)
+		return components.EmbedResponse(embed, false)
 	}
 
 	content := fmt.Sprintf("<@%s> has **%d** notes\n\n", user.ID, len(notes))
@@ -101,7 +101,7 @@ func handleNotesViewUser(s *discordgo.Session, i *discordgo.InteractionCreate) *
 		SetAuthor("Notes for "+user.Username, user.AvatarURL("")).
 		SetColor("DarkButNotBlack").MessageEmbed
 
-	return EmbedResponse(embed, false)
+	return components.EmbedResponse(embed, false)
 }
 
 func handleNotesViewID(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
@@ -111,12 +111,12 @@ func handleNotesViewID(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 	if err != nil {
 		log.Error().AnErr("Failed to fetch note by id", err)
 		services.CaptureError(err)
-		return EmbedResponse(components.ErrorEmbed("Failed to fetch note."), true)
+		return components.EmbedResponse(components.ErrorEmbed("Failed to fetch note."), true)
 	}
 
 	embed := generateNotesEmbed(s, n)
 
-	return EmbedResponse(embed, false)
+	return components.EmbedResponse(embed, false)
 }
 
 // generate a case embed from a case

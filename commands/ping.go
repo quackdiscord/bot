@@ -29,5 +29,5 @@ func handlePing(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo
 		SetColor("Main").
 		MessageEmbed
 
-	return EmbedResponse(embed, false)
+	return components.EmbedResponse(embed, false)
 }

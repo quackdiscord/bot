@@ -25,7 +25,7 @@ func handleTicketQueue(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 	if err != nil {
 		log.Error().AnErr("Failed to get ticket queue", err)
 		services.CaptureError(err)
-		return EmbedResponse(components.ErrorEmbed("Failed to get ticket queue."), true)
+		return components.EmbedResponse(components.ErrorEmbed("Failed to get ticket queue."), true)
 	}
 
 	// if the queue is empty, return an error
@@ -34,7 +34,7 @@ func handleTicketQueue(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 			SetDescription("There are no tickets in the queue.").
 			SetColor("Main").
 			MessageEmbed
-		return EmbedResponse(embed, false)
+		return components.EmbedResponse(embed, false)
 	}
 
 	// if the queue is not empty, return the queue
@@ -56,5 +56,5 @@ func handleTicketQueue(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 		SetColor("Main").
 		MessageEmbed
 
-	return EmbedResponse(embed, false)
+	return components.EmbedResponse(embed, false)
 }

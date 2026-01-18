@@ -35,7 +35,7 @@ func handleTicketLogChannel(s *discordgo.Session, i *discordgo.InteractionCreate
 
 	// make sure the channel is a text channel
 	if channel.Type != discordgo.ChannelTypeGuildText {
-		return EmbedResponse(components.ErrorEmbed("The channel must be a text channel."), true)
+		return components.EmbedResponse(components.ErrorEmbed("The channel must be a text channel."), true)
 	}
 
 	// Set the ticket log channel
@@ -43,7 +43,7 @@ func handleTicketLogChannel(s *discordgo.Session, i *discordgo.InteractionCreate
 	if err != nil {
 		log.Error().AnErr("Failed to set ticket log channel", err)
 		services.CaptureError(err)
-		return EmbedResponse(components.ErrorEmbed("Failed to set ticket log channel."), true)
+		return components.EmbedResponse(components.ErrorEmbed("Failed to set ticket log channel."), true)
 	}
 
 	// send a message to the channel
@@ -54,7 +54,7 @@ func handleTicketLogChannel(s *discordgo.Session, i *discordgo.InteractionCreate
 
 	_, err = s.ChannelMessageSendEmbed(channel.ID, embed)
 	if err != nil {
-		return EmbedResponse(components.ErrorEmbed("Failed to send message to ticket log channel."), true)
+		return components.EmbedResponse(components.ErrorEmbed("Failed to send message to ticket log channel."), true)
 	}
 
 	embed = components.NewEmbed().
@@ -62,5 +62,5 @@ func handleTicketLogChannel(s *discordgo.Session, i *discordgo.InteractionCreate
 		SetColor("Main").
 		MessageEmbed
 
-	return EmbedResponse(embed, false)
+	return components.EmbedResponse(embed, false)
 }

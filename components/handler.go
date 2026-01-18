@@ -59,38 +59,6 @@ func OnInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 }
 
-func ComplexResponse(d *discordgo.InteractionResponseData) *discordgo.InteractionResponse {
-	return &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: d,
-	}
-}
-
-func ContentResponse(c string, e bool) *discordgo.InteractionResponse {
-	d := &discordgo.InteractionResponseData{Content: c}
-	if e {
-		d.Flags = discordgo.MessageFlagsEphemeral
-	}
-
-	return &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: d,
-	}
-}
-
-func EmptyResponse() *discordgo.InteractionResponse {
-	return &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseDeferredMessageUpdate,
-	}
-}
-
-func UpdateResponse(i *discordgo.InteractionResponseData) *discordgo.InteractionResponse {
-	return &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseUpdateMessage,
-		Data: i,
-	}
-}
-
 // HandleModalSubmit routes modal submissions to the appropriate handler(s)
 func HandleModalSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	log.Debug().Msgf("[components.HandleModalSubmit] invoked")

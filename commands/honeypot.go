@@ -30,5 +30,5 @@ func handleHoneypot(s *discordgo.Session, i *discordgo.InteractionCreate) *disco
 		return handleHoneypotCreate(s, i)
 	}
 
-	return EmbedResponse(components.ErrorEmbed("Command does not exist"), true)
+	return components.EmbedResponse(components.ErrorEmbed("Command does not exist"), true)
 }

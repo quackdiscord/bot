@@ -37,7 +37,7 @@ var casesCmd = &discordgo.ApplicationCommand{
 func handleCases(s *discordgo.Session, i *discordgo.InteractionCreate) (resp *discordgo.InteractionResponse) {
 	// check if the user has the required permissions
 	if !utils.CheckPerms(i.Member, moderateMembers) {
-		return EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
+		return components.EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
 	}
 
 	switch c := i.ApplicationCommandData().Options[0]; c.Name {
@@ -63,5 +63,5 @@ func handleCases(s *discordgo.Session, i *discordgo.InteractionCreate) (resp *di
 		}
 	}
 
-	return EmbedResponse(components.ErrorEmbed("Command does not exits"), true)
+	return components.EmbedResponse(components.ErrorEmbed("Command does not exits"), true)
 }

@@ -27,7 +27,7 @@ var timeoutCmd = &discordgo.ApplicationCommand{
 
 func handleTimeout(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	if !utils.CheckPerms(i.Member, moderateMembers) {
-		return EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
+		return components.EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
 	}
 
 	switch c := i.ApplicationCommandData().Options[0]; c.Name {
@@ -37,5 +37,5 @@ func handleTimeout(s *discordgo.Session, i *discordgo.InteractionCreate) *discor
 		return handleTimeoutRemove(s, i)
 	}
 
-	return EmbedResponse(components.ErrorEmbed("Command does not exits"), true)
+	return components.EmbedResponse(components.ErrorEmbed("Command does not exits"), true)
 }

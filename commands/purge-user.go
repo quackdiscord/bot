@@ -95,5 +95,5 @@ func handlePurgeUser(s *discordgo.Session, i *discordgo.InteractionCreate) *disc
 
 	}()
 
-	return LoadingResponse()
+	return components.LoadingResponse()
 }

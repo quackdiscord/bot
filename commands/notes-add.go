@@ -37,7 +37,7 @@ func handleNotesAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *disco
 	content := i.ApplicationCommandData().Options[0].Options[1].StringValue()
 
 	if i.Member == nil {
-		return EmbedResponse(components.ErrorEmbed("You must be in a server to use this command."), true)
+		return components.EmbedResponse(components.ErrorEmbed("You must be in a server to use this command."), true)
 	}
 
 	moderator := i.Member.User
@@ -57,7 +57,7 @@ func handleNotesAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *disco
 	if err != nil {
 		log.Error().AnErr("Failed to create note", err)
 		services.CaptureError(err)
-		return EmbedResponse(components.ErrorEmbed("Failed to save note.\n```"+err.Error()+"```"), true)
+		return components.EmbedResponse(components.ErrorEmbed("Failed to save note.\n```"+err.Error()+"```"), true)
 	}
 
 	// form the embed
@@ -69,5 +69,5 @@ func handleNotesAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *disco
 		SetTimestamp().
 		MessageEmbed
 
-	return EmbedResponse(embed, false)
+	return components.EmbedResponse(embed, false)
 }

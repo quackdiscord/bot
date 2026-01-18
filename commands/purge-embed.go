@@ -89,5 +89,5 @@ func handlePurgeEmbeds(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 
 	}()
 
-	return LoadingResponse()
+	return components.LoadingResponse()
 }

@@ -43,7 +43,7 @@ func handleLogDisable(i *discordgo.InteractionCreate) *discordgo.InteractionResp
 	if err != nil {
 		log.Error().AnErr("Failed to get log settings", err)
 		services.CaptureError(err)
-		return EmbedResponse(components.ErrorEmbed("Failed to get log settings."), true)
+		return components.EmbedResponse(components.ErrorEmbed("Failed to get log settings."), true)
 	}
 
 	// if the logSettings object is defined, update it with the new webhook url and channel id
@@ -61,7 +61,7 @@ func handleLogDisable(i *discordgo.InteractionCreate) *discordgo.InteractionResp
 		if err != nil {
 			log.Error().AnErr("Failed to update log settings", err)
 			services.CaptureError(err)
-			return EmbedResponse(components.ErrorEmbed("Failed to update log settings."), true)
+			return components.EmbedResponse(components.ErrorEmbed("Failed to update log settings."), true)
 		}
 
 	} else {
@@ -86,7 +86,7 @@ func handleLogDisable(i *discordgo.InteractionCreate) *discordgo.InteractionResp
 		if err != nil {
 			log.Error().AnErr("Failed to create log settings", err)
 			services.CaptureError(err)
-			return EmbedResponse(components.ErrorEmbed("Failed to create log settings."), true)
+			return components.EmbedResponse(components.ErrorEmbed("Failed to create log settings."), true)
 		}
 	}
 
@@ -95,5 +95,5 @@ func handleLogDisable(i *discordgo.InteractionCreate) *discordgo.InteractionResp
 		SetColor("Main").
 		MessageEmbed
 
-	return EmbedResponse(embed, false)
+	return components.EmbedResponse(embed, false)
 }

@@ -47,7 +47,7 @@ func handleLogChannel(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 
 	// make sure the channel is a text channel
 	if channel.Type != discordgo.ChannelTypeGuildText {
-		return EmbedResponse(components.ErrorEmbed("The channel must be a text channel."), true)
+		return components.EmbedResponse(components.ErrorEmbed("The channel must be a text channel."), true)
 	}
 
 	// get the current log settings
@@ -55,7 +55,7 @@ func handleLogChannel(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 	if err != nil {
 		log.Error().AnErr("Failed to get log settings", err)
 		services.CaptureError(err)
-		return EmbedResponse(components.ErrorEmbed("Failed to get log settings."), true)
+		return components.EmbedResponse(components.ErrorEmbed("Failed to get log settings."), true)
 	}
 
 	// create a webhook for the given channel
@@ -63,7 +63,7 @@ func handleLogChannel(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 	if err != nil {
 		log.Error().AnErr("Failed to create webhook", err)
 		services.CaptureError(err)
-		return EmbedResponse(components.ErrorEmbed("Failed to create webhook."), true)
+		return components.EmbedResponse(components.ErrorEmbed("Failed to create webhook."), true)
 	}
 	whURL := fmt.Sprintf("https://discord.com/api/webhooks/%s/%s", webhook.ID, webhook.Token)
 
@@ -82,7 +82,7 @@ func handleLogChannel(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 		if err != nil {
 			log.Error().AnErr("Failed to update log settings", err)
 			services.CaptureError(err)
-			return EmbedResponse(components.ErrorEmbed("Failed to update log settings."), true)
+			return components.EmbedResponse(components.ErrorEmbed("Failed to update log settings."), true)
 		}
 
 	} else {
@@ -107,7 +107,7 @@ func handleLogChannel(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 		if err != nil {
 			log.Error().AnErr("Failed to create log settings", err)
 			services.CaptureError(err)
-			return EmbedResponse(components.ErrorEmbed("Failed to create log settings."), true)
+			return components.EmbedResponse(components.ErrorEmbed("Failed to create log settings."), true)
 		}
 	}
 
@@ -119,7 +119,7 @@ func handleLogChannel(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 
 	_, err = s.ChannelMessageSendEmbed(channel.ID, embed)
 	if err != nil {
-		return EmbedResponse(components.ErrorEmbed("Failed to send message to channel."), true)
+		return components.EmbedResponse(components.ErrorEmbed("Failed to send message to channel."), true)
 	}
 
 	embed = components.NewEmbed().
@@ -127,5 +127,5 @@ func handleLogChannel(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 		SetColor("Main").
 		MessageEmbed
 
-	return EmbedResponse(embed, false)
+	return components.EmbedResponse(embed, false)
 }

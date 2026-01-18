@@ -20,7 +20,7 @@ func handleServerInfo(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 	if err != nil {
 		log.Error().AnErr("Failed to fetch a guild", err)
 		services.CaptureError(err)
-		return EmbedResponse(components.ErrorEmbed("Failed to fetch guild info."), true)
+		return components.EmbedResponse(components.ErrorEmbed("Failed to fetch guild info."), true)
 	}
 
 	desc := fmt.Sprintf(
@@ -36,5 +36,5 @@ func handleServerInfo(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 		SetTimestamp().
 		MessageEmbed
 
-	return EmbedResponse(embed, false)
+	return components.EmbedResponse(embed, false)
 }

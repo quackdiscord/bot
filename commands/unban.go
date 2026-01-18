@@ -44,24 +44,21 @@ var unbanCmd = &discordgo.ApplicationCommand{
 
 func handleUnban(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	if !utils.CheckPerms(i.Member, banMembers) {
-		return EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
+		return components.EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
 	}
-
-	// defer the response
-	LoadingResponse()
 
 	userToUnban := i.ApplicationCommandData().Options[0].UserValue(s)
 	reason := "No reason provided"
 
 	if i.Member == nil {
-		return EmbedResponse(components.ErrorEmbed("You must be in a server to use this command."), true)
+		return components.EmbedResponse(components.ErrorEmbed("You must be in a server to use this command."), true)
 	}
 
 	moderator := i.Member.User
 	guild, _ := s.Guild(i.GuildID)
 
 	if userToUnban == nil {
-		return EmbedResponse(components.ErrorEmbed("User not found."), true)
+		return components.EmbedResponse(components.ErrorEmbed("User not found."), true)
 	}
 	if len(i.ApplicationCommandData().Options) > 1 {
 		reason = i.ApplicationCommandData().Options[1].StringValue()
@@ -69,11 +66,11 @@ func handleUnban(s *discordgo.Session, i *discordgo.InteractionCreate) *discordg
 
 	// make sure the user isn't kicking themselves
 	if userToUnban.ID == moderator.ID {
-		return EmbedResponse(components.ErrorEmbed("You can't unban yourself."), true)
+		return components.EmbedResponse(components.ErrorEmbed("You can't unban yourself."), true)
 	}
 	// make sure the user isn't kicking the bot
 	if userToUnban.ID == s.State.User.ID {
-		return EmbedResponse(components.ErrorEmbed("You can't unban me using this command."), true)
+		return components.EmbedResponse(components.ErrorEmbed("You can't unban me using this command."), true)
 	}
 
 	go func() {
@@ -167,5 +164,5 @@ func handleUnban(s *discordgo.Session, i *discordgo.InteractionCreate) *discordg
 		}
 	}()
 
-	return LoadingResponse()
+	return components.LoadingResponse()
 }

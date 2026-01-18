@@ -26,7 +26,7 @@ func handleAppealsQueue(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 	if err != nil {
 		log.Error().Msgf("Failed to get open appeals: %s", err.Error())
 		services.CaptureError(err)
-		return EmbedResponse(components.ErrorEmbed("Failed to get open appeals."), true)
+		return components.EmbedResponse(components.ErrorEmbed("Failed to get open appeals."), true)
 	}
 
 	if len(appeals) == 0 {
@@ -34,7 +34,7 @@ func handleAppealsQueue(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 			SetDescription("There are no pending appeals.").
 			SetColor("Main").
 			MessageEmbed
-		return EmbedResponse(embed, false)
+		return components.EmbedResponse(embed, false)
 	}
 
 	description := generateAppealsDescription(appeals)
@@ -43,7 +43,7 @@ func handleAppealsQueue(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 		SetColor("Main").
 		SetAuthor("Appeals Queue", guild.IconURL("")).
 		MessageEmbed
-	return EmbedResponse(embed, false)
+	return components.EmbedResponse(embed, false)
 
 }
 

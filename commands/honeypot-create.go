@@ -40,7 +40,7 @@ func handleHoneypotCreate(s *discordgo.Session, i *discordgo.InteractionCreate) 
 	if err != nil {
 		log.Error().AnErr("Failed to create honeypot channel", err)
 		services.CaptureError(err)
-		return EmbedResponse(components.ErrorEmbed("Failed to create honeypot channel."), true)
+		return components.EmbedResponse(components.ErrorEmbed("Failed to create honeypot channel."), true)
 	}
 
 	var message sql.NullString
@@ -57,7 +57,7 @@ func handleHoneypotCreate(s *discordgo.Session, i *discordgo.InteractionCreate) 
 	if err != nil {
 		log.Error().AnErr("Failed to send message to honeypot channel", err)
 		services.CaptureError(err)
-		return EmbedResponse(components.ErrorEmbed("Failed to send message to honeypot channel."), true)
+		return components.EmbedResponse(components.ErrorEmbed("Failed to send message to honeypot channel."), true)
 	}
 
 	honeypot := &structs.Honeypot{
@@ -73,7 +73,7 @@ func handleHoneypotCreate(s *discordgo.Session, i *discordgo.InteractionCreate) 
 	if err != nil {
 		log.Error().AnErr("Failed to create honeypot", err)
 		services.CaptureError(err)
-		return EmbedResponse(components.ErrorEmbed("Failed to create honeypot."), true)
+		return components.EmbedResponse(components.ErrorEmbed("Failed to create honeypot."), true)
 	}
 
 	embed := components.NewEmbed().
@@ -81,5 +81,5 @@ func handleHoneypotCreate(s *discordgo.Session, i *discordgo.InteractionCreate) 
 		SetColor("Main").
 		MessageEmbed
 
-	return EmbedResponse(embed, false)
+	return components.EmbedResponse(embed, false)
 }

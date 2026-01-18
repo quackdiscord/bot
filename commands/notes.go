@@ -36,7 +36,7 @@ var notesCmd = &discordgo.ApplicationCommand{
 
 func handleNotes(s *discordgo.Session, i *discordgo.InteractionCreate) (resp *discordgo.InteractionResponse) {
 	if !utils.CheckPerms(i.Member, moderateMembers) {
-		return EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
+		return components.EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
 	}
 
 	switch c := i.ApplicationCommandData().Options[0]; c.Name {
@@ -62,5 +62,5 @@ func handleNotes(s *discordgo.Session, i *discordgo.InteractionCreate) (resp *di
 		}
 	}
 
-	return EmbedResponse(components.ErrorEmbed("Command does not exits"), true)
+	return components.EmbedResponse(components.ErrorEmbed("Command does not exits"), true)
 }

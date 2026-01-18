@@ -89,5 +89,5 @@ func handlePurgeAttachments(s *discordgo.Session, i *discordgo.InteractionCreate
 
 	}()
 
-	return LoadingResponse()
+	return components.LoadingResponse()
 }

@@ -89,5 +89,5 @@ func handlePurgeQuack(s *discordgo.Session, i *discordgo.InteractionCreate) *dis
 
 	}()
 
-	return LoadingResponse()
+	return components.LoadingResponse()
 }

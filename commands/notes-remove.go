@@ -55,18 +55,18 @@ func handleNotesRemoveLatest(s *discordgo.Session, i *discordgo.InteractionCreat
 	if err != nil {
 		log.Error().AnErr("Failed to find latest note", err)
 		services.CaptureError(err)
-		return EmbedResponse(components.ErrorEmbed("Failed to find latest note."), true)
+		return components.EmbedResponse(components.ErrorEmbed("Failed to find latest note."), true)
 	}
 
 	if n == nil {
-		return EmbedResponse(components.ErrorEmbed("Latest note not found."), true)
+		return components.EmbedResponse(components.ErrorEmbed("Latest note not found."), true)
 	}
 
 	_, err = storage.DeleteLatestNote(guild.ID)
 	if err != nil {
 		log.Error().AnErr("Failed to delete latest note", err)
 		services.CaptureError(err)
-		return EmbedResponse(components.ErrorEmbed("Failed to delete latest note."), true)
+		return components.EmbedResponse(components.ErrorEmbed("Failed to delete latest note."), true)
 	}
 
 	embed := components.NewEmbed().
@@ -74,7 +74,7 @@ func handleNotesRemoveLatest(s *discordgo.Session, i *discordgo.InteractionCreat
 		SetColor("DarkButNotBlack").
 		MessageEmbed
 
-	return EmbedResponse(embed, false)
+	return components.EmbedResponse(embed, false)
 }
 
 func handleNotesRemoveUser(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
@@ -85,12 +85,12 @@ func handleNotesRemoveUser(s *discordgo.Session, i *discordgo.InteractionCreate)
 	if err != nil {
 		log.Error().AnErr("Failed to delete users notes", err)
 		services.CaptureError(err)
-		return EmbedResponse(components.ErrorEmbed("Failed to delete user's notes."), true)
+		return components.EmbedResponse(components.ErrorEmbed("Failed to delete user's notes."), true)
 	}
 
 	embed := components.NewEmbed().SetDescription("<:PepoG:1172051306026905620> Deleted <@" + user.ID + ">'s notes.").SetColor("DarkButNotBlack").MessageEmbed
 
-	return EmbedResponse(embed, false)
+	return components.EmbedResponse(embed, false)
 }
 
 func handleNotesRemoveID(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
@@ -102,21 +102,21 @@ func handleNotesRemoveID(s *discordgo.Session, i *discordgo.InteractionCreate) *
 	if err != nil {
 		log.Error().AnErr("Failed to find note", err)
 		services.CaptureError(err)
-		return EmbedResponse(components.ErrorEmbed("Failed to find note."), true)
+		return components.EmbedResponse(components.ErrorEmbed("Failed to find note."), true)
 	}
 
 	if n == nil {
-		return EmbedResponse(components.ErrorEmbed("Note not found."), true)
+		return components.EmbedResponse(components.ErrorEmbed("Note not found."), true)
 	}
 
 	_, err = storage.DeleteNoteByID(noteID, guild.ID)
 	if err != nil {
 		log.Error().AnErr("Failed to delete note", err)
 		services.CaptureError(err)
-		return EmbedResponse(components.ErrorEmbed("Failed to delete note."), true)
+		return components.EmbedResponse(components.ErrorEmbed("Failed to delete note."), true)
 	}
 
 	embed := components.NewEmbed().SetDescription("<:PepoG:1172051306026905620> Deleted note `" + noteID + "`.").SetColor("DarkButNotBlack").MessageEmbed
 
-	return EmbedResponse(embed, false)
+	return components.EmbedResponse(embed, false)
 }

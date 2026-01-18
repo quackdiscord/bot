@@ -67,7 +67,7 @@ func handleCasesViewLatest(s *discordgo.Session, i *discordgo.InteractionCreate)
 		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &[]*discordgo.MessageEmbed{embed}})
 	}()
 
-	return LoadingResponse()
+	return components.LoadingResponse()
 }
 
 func handleCasesViewID(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
@@ -86,7 +86,7 @@ func handleCasesViewID(s *discordgo.Session, i *discordgo.InteractionCreate) *di
 		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &[]*discordgo.MessageEmbed{embed}})
 	}()
 
-	return LoadingResponse()
+	return components.LoadingResponse()
 }
 
 func handleCasesViewUser(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
@@ -152,7 +152,7 @@ func handleCasesViewUser(s *discordgo.Session, i *discordgo.InteractionCreate) *
 		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &[]*discordgo.MessageEmbed{embed}, Components: &comps})
 	}()
 
-	return LoadingResponse()
+	return components.LoadingResponse()
 }
 
 // generate a case embed from a case

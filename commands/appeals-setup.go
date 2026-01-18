@@ -29,7 +29,7 @@ func handleAppealsSetup(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 	channel := data.Options[0].ChannelValue(s)
 
 	if channel.Type != discordgo.ChannelTypeGuildText {
-		return EmbedResponse(components.ErrorEmbed("The channel must be a text channel."), true)
+		return components.EmbedResponse(components.ErrorEmbed("The channel must be a text channel."), true)
 	}
 
 	settings := &structs.AppealSettings{
@@ -41,7 +41,7 @@ func handleAppealsSetup(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 	if err := storage.UpsertAppealSettings(settings); err != nil {
 		log.Error().AnErr("Failed to save appeal settings", err)
 		services.CaptureError(err)
-		return EmbedResponse(components.ErrorEmbed("Failed to save appeal settings."), true)
+		return components.EmbedResponse(components.ErrorEmbed("Failed to save appeal settings."), true)
 	}
 
 	embed := components.NewEmbed().
@@ -49,5 +49,5 @@ func handleAppealsSetup(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 		SetColor("Main").
 		MessageEmbed
 
-	return EmbedResponse(embed, false)
+	return components.EmbedResponse(embed, false)
 }

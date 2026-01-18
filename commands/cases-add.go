@@ -40,7 +40,7 @@ func handleCasesAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *disco
 	reason := i.ApplicationCommandData().Options[0].Options[1].StringValue()
 
 	if i.Member == nil {
-		return EmbedResponse(components.ErrorEmbed("You must be in a server to use this command."), true)
+		return components.EmbedResponse(components.ErrorEmbed("You must be in a server to use this command."), true)
 	}
 
 	moderator := i.Member.User
@@ -48,7 +48,7 @@ func handleCasesAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *disco
 
 	// make sure the user is not a bot
 	if userToWarn.Bot {
-		return EmbedResponse(components.ErrorEmbed("You can not give a bot a case."), true)
+		return components.EmbedResponse(components.ErrorEmbed("You can not give a bot a case."), true)
 	}
 
 	go func() {
@@ -102,5 +102,5 @@ func handleCasesAdd(s *discordgo.Session, i *discordgo.InteractionCreate) *disco
 		}
 	}()
 
-	return LoadingResponse()
+	return components.LoadingResponse()
 }

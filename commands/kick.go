@@ -44,7 +44,7 @@ var kickCmd = &discordgo.ApplicationCommand{
 
 func handleKick(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	if !utils.CheckPerms(i.Member, kickMembers) {
-		return EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
+		return components.EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
 	}
 
 	// we'll defer the response and edit later
@@ -53,14 +53,14 @@ func handleKick(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo
 	reason := "No reason provided"
 
 	if i.Member == nil {
-		return EmbedResponse(components.ErrorEmbed("You must be in a server to use this command."), true)
+		return components.EmbedResponse(components.ErrorEmbed("You must be in a server to use this command."), true)
 	}
 
 	moderator := i.Member.User
 	guild, _ := s.Guild(i.GuildID)
 
 	if userToKick == nil {
-		return EmbedResponse(components.ErrorEmbed("User not found."), true)
+		return components.EmbedResponse(components.ErrorEmbed("User not found."), true)
 	}
 	if len(i.ApplicationCommandData().Options) > 1 {
 		reason = i.ApplicationCommandData().Options[1].StringValue()
@@ -68,11 +68,11 @@ func handleKick(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo
 
 	// make sure the user isn't kicking themselves
 	if userToKick.ID == moderator.ID {
-		return EmbedResponse(components.ErrorEmbed("You can't kick yourself."), true)
+		return components.EmbedResponse(components.ErrorEmbed("You can't kick yourself."), true)
 	}
 	// make sure the user isn't kicking the bot
 	if userToKick.ID == s.State.User.ID {
-		return EmbedResponse(components.ErrorEmbed("You can't kick me using this command."), true)
+		return components.EmbedResponse(components.ErrorEmbed("You can't kick me using this command."), true)
 	}
 
 	go func() {
@@ -136,5 +136,5 @@ func handleKick(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo
 		}
 	}()
 
-	return LoadingResponse()
+	return components.LoadingResponse()
 }

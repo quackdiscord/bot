@@ -53,5 +53,5 @@ func handleStats(s *discordgo.Session, i *discordgo.InteractionCreate) *discordg
 		AddField("Links", "[🌐 Website](https://quackbot.xyz) | [<:invite:823987169978613851> Invite](https://quackbot.xyz/invite) | [<:discord:823989269626355793> Support](https://quackbot.xyz/discord)").
 		MessageEmbed
 
-	return EmbedResponse(embed, false)
+	return components.EmbedResponse(embed, false)
 }
