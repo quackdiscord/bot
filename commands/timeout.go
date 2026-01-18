@@ -3,6 +3,7 @@ package commands
 import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
+	"github.com/quackdiscord/bot/lib"
 	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/utils"
 )
@@ -22,11 +23,11 @@ var timeoutCmd = &discordgo.ApplicationCommand{
 		timeoutAddCmd,
 		timeoutRemoveCmd,
 	},
-	DefaultMemberPermissions: &moderateMembers,
+	DefaultMemberPermissions: &lib.Permissions.ModerateMembers,
 }
 
 func handleTimeout(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
-	if !utils.CheckPerms(i.Member, moderateMembers) {
+	if !utils.CheckPerms(i.Member, lib.Permissions.ModerateMembers) {
 		return components.EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
 	}
 

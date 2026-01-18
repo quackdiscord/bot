@@ -405,7 +405,7 @@ func handleAppealSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
 // handleAppealAccept processes appeal acceptance
 func handleAppealAccept(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	// Permission check
-	if i.Member == nil || (i.Member.Permissions&discordgo.PermissionBanMembers) != discordgo.PermissionBanMembers {
+	if !utils.CheckPerms(i.Member, lib.Permissions.BanMembers) {
 		return ContentResponse(config.Bot.ErrMsgPrefix+"You don't have permission to accept appeals.", true)
 	}
 
@@ -477,7 +477,7 @@ func handleAppealAccept(s *discordgo.Session, i *discordgo.InteractionCreate) *d
 // handleAppealReject processes appeal rejection
 func handleAppealReject(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	// Permission check
-	if i.Member == nil || (i.Member.Permissions&discordgo.PermissionBanMembers) != discordgo.PermissionBanMembers {
+	if !utils.CheckPerms(i.Member, lib.Permissions.BanMembers) {
 		return ContentResponse(config.Bot.ErrMsgPrefix+"You don't have permission to reject appeals.", true)
 	}
 

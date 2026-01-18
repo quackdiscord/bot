@@ -3,6 +3,7 @@ package commands
 import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
+	"github.com/quackdiscord/bot/lib"
 	"github.com/quackdiscord/bot/services"
 )
 
@@ -17,7 +18,7 @@ var honeypotCmd = &discordgo.ApplicationCommand{
 	Type:                     discordgo.ChatApplicationCommand,
 	Name:                     "honeypot",
 	Description:              "Honeypot commands",
-	DefaultMemberPermissions: &moderateMembers,
+	DefaultMemberPermissions: &lib.Permissions.ModerateMembers,
 	Options: []*discordgo.ApplicationCommandOption{
 		honeypotCreateCmd,
 		// honeyPotUpdateCmd,

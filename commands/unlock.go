@@ -5,6 +5,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
+	"github.com/quackdiscord/bot/lib"
 	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/utils"
 	"github.com/rs/zerolog/log"
@@ -21,7 +22,7 @@ var unlockCmd = &discordgo.ApplicationCommand{
 	Type:                     discordgo.ChatApplicationCommand,
 	Name:                     "unlock",
 	Description:              "Unlock a channel to allow new messages",
-	DefaultMemberPermissions: &moderateMembers,
+	DefaultMemberPermissions: &lib.Permissions.ModerateMembers,
 	Options: []*discordgo.ApplicationCommandOption{
 		{
 			Type:        discordgo.ApplicationCommandOptionChannel,
@@ -33,7 +34,7 @@ var unlockCmd = &discordgo.ApplicationCommand{
 }
 
 func handleUnlock(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
-	if !utils.CheckPerms(i.Member, moderateMembers) {
+	if !utils.CheckPerms(i.Member, lib.Permissions.ModerateMembers) {
 		return components.EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
 	}
 
@@ -48,7 +49,7 @@ func handleUnlock(s *discordgo.Session, i *discordgo.InteractionCreate) *discord
 		for i, overwrite := range overwrites {
 			if overwrite.ID == c.GuildID && overwrite.Type == discordgo.PermissionOverwriteTypeRole {
 				// Remove the send message permissions from Deny
-				overwrites[i].Deny &^= discordgo.PermissionSendMessages | discordgo.PermissionSendMessagesInThreads
+				overwrites[i].Deny &^= lib.Permissions.SendMessages | lib.Permissions.SendMessagesInThreads
 
 				// If this overwrite now has no permissions, remove it completely
 				if overwrites[i].Allow == 0 && overwrites[i].Deny == 0 {

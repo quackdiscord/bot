@@ -3,6 +3,7 @@ package commands
 import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
+	"github.com/quackdiscord/bot/lib"
 	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/utils"
 )
@@ -18,7 +19,7 @@ var purgeCmd = &discordgo.ApplicationCommand{
 	Type:                     discordgo.ChatApplicationCommand,
 	Name:                     "purge",
 	Description:              "Purge messages from the server",
-	DefaultMemberPermissions: &moderateMembers,
+	DefaultMemberPermissions: &lib.Permissions.ModerateMembers,
 	Options: []*discordgo.ApplicationCommandOption{
 		purgeAllCmd,
 		purgeUserCmd,
@@ -32,7 +33,7 @@ var purgeCmd = &discordgo.ApplicationCommand{
 }
 
 func handlePurge(s *discordgo.Session, i *discordgo.InteractionCreate) (resp *discordgo.InteractionResponse) {
-	if !utils.CheckPerms(i.Member, moderateMembers) {
+	if !utils.CheckPerms(i.Member, lib.Permissions.ModerateMembers) {
 		return components.EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
 	}
 

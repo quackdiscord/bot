@@ -12,12 +12,6 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// Permissions
-var banMembers int64 = discordgo.PermissionBanMembers
-var kickMembers int64 = discordgo.PermissionKickMembers
-var moderateMembers int64 = discordgo.PermissionModerateMembers
-var administrator int64 = discordgo.PermissionAdministrator
-
 func OnInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// start a timer to track how long the command takes
 	start := time.Now()

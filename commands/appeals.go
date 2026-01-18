@@ -3,6 +3,7 @@ package commands
 import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
+	"github.com/quackdiscord/bot/lib"
 	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/utils"
 )
@@ -18,7 +19,7 @@ var appealsCmd = &discordgo.ApplicationCommand{
 	Type:                     discordgo.ChatApplicationCommand,
 	Name:                     "appeals",
 	Description:              "Ban appeals configuration",
-	DefaultMemberPermissions: &moderateMembers,
+	DefaultMemberPermissions: &lib.Permissions.ModerateMembers,
 	Options: []*discordgo.ApplicationCommandOption{
 		appealsSetupCmd,
 		appealsQueueCmd,
@@ -28,12 +29,12 @@ var appealsCmd = &discordgo.ApplicationCommand{
 func handleAppeals(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	switch c := i.ApplicationCommandData().Options[0]; c.Name {
 	case "setup":
-		if !utils.CheckPerms(i.Member, administrator) {
+		if !utils.CheckPerms(i.Member, lib.Permissions.Administrator) {
 			return components.EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
 		}
 		return handleAppealsSetup(s, i)
 	case "queue":
-		if !utils.CheckPerms(i.Member, moderateMembers) {
+		if !utils.CheckPerms(i.Member, lib.Permissions.ModerateMembers) {
 			return components.EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
 		}
 		return handleAppealsQueue(s, i)

@@ -30,7 +30,7 @@ func HandleHoneypotMessage(s *discordgo.Session, m *discordgo.MessageCreate, h *
 	}
 
 	perms := computeMemberPerms(guild, member)
-	if perms&discordgo.PermissionAdministrator != 0 || perms&discordgo.PermissionModerateMembers != 0 {
+	if perms&lib.Permissions.Administrator != 0 || perms&lib.Permissions.ModerateMembers != 0 {
 		log.Info().Msg("User has permission, bypassing honeypot")
 		return
 	}
@@ -148,7 +148,7 @@ func computeMemberPerms(guild *discordgo.Guild, member *discordgo.Member) int64 
 	}
 
 	// admin has all permissions
-	if perms&discordgo.PermissionAdministrator != 0 {
+	if perms&lib.Permissions.Administrator != 0 {
 		return discordgo.PermissionAll
 	}
 

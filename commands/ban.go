@@ -45,12 +45,12 @@ var banCmd = &discordgo.ApplicationCommand{
 			Required:    false,
 		},
 	},
-	DefaultMemberPermissions: &banMembers,
+	DefaultMemberPermissions: &lib.Permissions.BanMembers,
 }
 
 func handleBan(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	// check if the user has the required permissions
-	if !utils.CheckPerms(i.Member, banMembers) {
+	if !utils.CheckPerms(i.Member, lib.Permissions.BanMembers) {
 		return components.EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
 	}
 

@@ -3,6 +3,7 @@ package commands
 import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
+	"github.com/quackdiscord/bot/lib"
 	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/utils"
 )
@@ -21,7 +22,7 @@ var logCmd = &discordgo.ApplicationCommand{
 	Type:                     discordgo.ChatApplicationCommand,
 	Name:                     "log",
 	Description:              "Logging system commands",
-	DefaultMemberPermissions: &moderateMembers,
+	DefaultMemberPermissions: &lib.Permissions.ModerateMembers,
 	Options: []*discordgo.ApplicationCommandOption{
 		logChannelCmd,
 		logDisableCmd,
@@ -29,7 +30,7 @@ var logCmd = &discordgo.ApplicationCommand{
 }
 
 func handleLog(s *discordgo.Session, i *discordgo.InteractionCreate) (resp *discordgo.InteractionResponse) {
-	if !utils.CheckPerms(i.Member, moderateMembers) {
+	if !utils.CheckPerms(i.Member, lib.Permissions.ModerateMembers) {
 		return components.EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
 	}
 

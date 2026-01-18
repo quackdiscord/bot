@@ -5,6 +5,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
+	"github.com/quackdiscord/bot/lib"
 	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/utils"
 	"github.com/rs/zerolog/log"
@@ -21,7 +22,7 @@ var lockdownCmd = &discordgo.ApplicationCommand{
 	Type:                     discordgo.ChatApplicationCommand,
 	Name:                     "lockdown",
 	Description:              "Lockdown a channel to prevent new messages",
-	DefaultMemberPermissions: &moderateMembers,
+	DefaultMemberPermissions: &lib.Permissions.ModerateMembers,
 	Options: []*discordgo.ApplicationCommandOption{
 		{
 			Type:        discordgo.ApplicationCommandOptionChannel,
@@ -33,7 +34,7 @@ var lockdownCmd = &discordgo.ApplicationCommand{
 }
 
 func handleLockdown(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
-	if !utils.CheckPerms(i.Member, moderateMembers) {
+	if !utils.CheckPerms(i.Member, lib.Permissions.ModerateMembers) {
 		return components.EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
 	}
 
@@ -49,7 +50,7 @@ func handleLockdown(s *discordgo.Session, i *discordgo.InteractionCreate) *disco
 		for i, overwrite := range overwrites {
 			if overwrite.ID == c.GuildID && overwrite.Type == discordgo.PermissionOverwriteTypeRole {
 				// Modify existing overwrite to add the new denied permissions
-				overwrites[i].Deny |= discordgo.PermissionSendMessages | discordgo.PermissionSendMessagesInThreads
+				overwrites[i].Deny |= lib.Permissions.SendMessages | lib.Permissions.SendMessagesInThreads
 				foundGuild = true
 				break
 			}
@@ -60,7 +61,7 @@ func handleLockdown(s *discordgo.Session, i *discordgo.InteractionCreate) *disco
 			overwrites = append(overwrites, &discordgo.PermissionOverwrite{
 				ID:   c.GuildID,
 				Type: discordgo.PermissionOverwriteTypeRole,
-				Deny: discordgo.PermissionSendMessages | discordgo.PermissionSendMessagesInThreads,
+				Deny: lib.Permissions.SendMessages | lib.Permissions.SendMessagesInThreads,
 			})
 		}
 

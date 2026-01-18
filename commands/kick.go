@@ -39,11 +39,11 @@ var kickCmd = &discordgo.ApplicationCommand{
 			Required:    false,
 		},
 	},
-	DefaultMemberPermissions: &kickMembers,
+	DefaultMemberPermissions: &lib.Permissions.KickMembers,
 }
 
 func handleKick(s *discordgo.Session, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
-	if !utils.CheckPerms(i.Member, kickMembers) {
+	if !utils.CheckPerms(i.Member, lib.Permissions.KickMembers) {
 		return components.EmbedResponse(components.ErrorEmbed("You do not have the permissions required to use this command."), true)
 	}
 
