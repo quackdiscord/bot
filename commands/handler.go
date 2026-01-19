@@ -13,10 +13,9 @@ import (
 )
 
 func OnInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	// start a timer to track how long the command takes
 	start := time.Now()
-
 	data := i.ApplicationCommandData()
+
 	cmd, ok := services.Commands[data.Name]
 	if !ok {
 		s.InteractionRespond(i.Interaction, components.ContentResponse(config.Bot.ErrMsgPrefix+"Command does not exist", true))

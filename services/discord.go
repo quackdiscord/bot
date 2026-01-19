@@ -17,7 +17,7 @@ type Command struct {
 	Handler func(*discordgo.Session, *discordgo.InteractionCreate) *discordgo.InteractionResponse
 }
 
-func ConnectDiscord(events []interface{}) {
+func ConnectDiscord(events []any) {
 	token := ""
 	env := os.Getenv("ENVIORNMENT")
 	registerCmds := os.Getenv("REGISTER_CMDS")
