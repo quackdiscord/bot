@@ -7,6 +7,7 @@ import (
 
 	axiomAdapter "github.com/axiomhq/axiom-go/adapters/zerolog"
 	"github.com/joho/godotenv"
+	"github.com/quackdiscord/bot/api"
 	c "github.com/quackdiscord/bot/config"
 	"github.com/quackdiscord/bot/events"
 	"github.com/quackdiscord/bot/services"
@@ -69,6 +70,9 @@ func main() {
 	events.RegisterEvents()
 	services.ConnectDiscord(events.Events)
 	services.InitSentry()
+
+	// start the api
+	go api.Start()
 
 	// start the event queue
 	go services.EQ.Start(c.Bot.EventQueueWorkers)
