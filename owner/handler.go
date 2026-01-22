@@ -14,7 +14,7 @@ type Command struct {
 }
 
 var Commands = make(map[string]*Command)
-var Prefix = "++"
+var Prefix = "+"
 
 func Handle(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.Author != nil && m.Author.ID == config.Bot.BotOwnerID && strings.HasPrefix(m.Content, Prefix) {
