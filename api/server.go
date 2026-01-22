@@ -4,16 +4,20 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
+	"github.com/quackdiscord/bot/api/middleware"
+	"github.com/quackdiscord/bot/api/routes"
+	"github.com/quackdiscord/bot/services"
+	"github.com/rs/zerolog/log"
 )
 
 func Start() {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
-	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Hello, World!"))
-	})
+	r.Mount("/", routes.Router())
 
-	http.ListenAndServe(":8080", r)
+	log.Info().Msg("API server started on port 8080")
+	if err := http.ListenAndServe(":8080", r); err != nil {
+		log.Error().Err(err).Msg("Failed to start API server")
+		services.CaptureError(err)
+	}
 }
