@@ -7,6 +7,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/components"
 	"github.com/quackdiscord/bot/config"
+	"github.com/quackdiscord/bot/owner"
 	"github.com/quackdiscord/bot/services"
 	"github.com/quackdiscord/bot/storage"
 	"github.com/quackdiscord/bot/utils"
@@ -61,6 +62,9 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			utils.CollectAndSaveStats(s)
 			s.ChannelMessageSend(m.ChannelID, "Stats saved")
 			log.Info().Msg("Owner savestats command executed")
+		case prefix + "curl":
+			owner.Curl(s, m)
+			log.Info().Msg("Owner curl command executed")
 		}
 	}
 }
