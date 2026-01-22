@@ -4,8 +4,8 @@ import (
 	"context"
 	"slices"
 
-	"github.com/quackdiscord/bot/log"
 	"github.com/quackdiscord/bot/services"
+	"github.com/rs/zerolog/log"
 	"github.com/quackdiscord/bot/structs"
 )
 
