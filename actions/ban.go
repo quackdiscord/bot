@@ -25,9 +25,10 @@ type BanResult struct {
 }
 
 func Ban(s *discordgo.Session, p BanParams) BanResult {
-	if p.UserID == p.ModeratorID {
+	switch p.UserID {
+	case p.ModeratorID:
 		return BanResult{Error: errors.New("you cannot ban yourself")}
-	} else if p.UserID == s.State.User.ID {
+	case s.State.User.ID:
 		return BanResult{Error: errors.New("you cannot ban the bot")}
 	}
 
