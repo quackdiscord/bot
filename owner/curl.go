@@ -8,8 +8,14 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// command: !!!curl <url>
-func Curl(s *discordgo.Session, m *discordgo.MessageCreate) {
+func init() {
+	Commands["curl"] = &Command{
+		Name:    "curl",
+		Handler: curl,
+	}
+}
+
+func curl(s *discordgo.Session, m *discordgo.MessageCreate) {
 	url := strings.Split(m.Content, " ")[1]
 	if url == "" || !strings.HasPrefix(url, "https://") {
 		s.ChannelMessageSend(m.ChannelID, "Please provide a valid URL")
