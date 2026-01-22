@@ -234,3 +234,19 @@ func DeleteLatestCase(guildID string) (bool, error) {
 	return true, nil
 
 }
+
+func UpdateCase(c *structs.Case) error {
+	// prepare the statement
+	stmtUpd, err := services.DB.Prepare("UPDATE cases SET context_url = ? WHERE id = ? AND guild_id = ?")
+	if err != nil {
+		return err
+	}
+
+	// execute the statement
+	_, err = stmtUpd.Exec(c.ContextURL, c.ID, c.GuildID)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
