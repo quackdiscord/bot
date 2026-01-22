@@ -6,6 +6,7 @@ func Router() chi.Router {
 	r := chi.NewRouter()
 
 	r.Get("/ping", ping)
+	r.Get("/stats", stats)
 
 	return r
 }
