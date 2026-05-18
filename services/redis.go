@@ -1,29 +1,29 @@
 package services
 
 import (
-	"os"
+	"context"
 
-	r "github.com/go-redis/redis/v8"
+	"github.com/quackdiscord/bot/lib"
+	r "github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog/log"
 )
 
-var Redis *r.Client
-
-func ConnectRedis() {
-	opt, _ := r.ParseURL(os.Getenv("REDIS_URL"))
-	Redis = r.NewClient(opt)
-
-	_, err := Redis.Ping(Redis.Context()).Result()
-	if err != nil {
-		log.Error().AnErr("Error connecting to Redis", err)
-		CaptureError(err)
-		return
-	}
-
-	log.Info().Msg("Connected to Redis")
+type redisService struct {
+	*r.Client
 }
 
-func DisconnectRedis() {
-	Redis.Close()
-	log.Info().Msg("Disconnected from Redis")
+var Redis = &redisService{}
+
+func (s *redisService) Connect() {
+	opt, err := r.ParseURL(lib.Config.Storage.RedisURL)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to parse Redis URL")
+	}
+	s.Client = r.NewClient(opt)
+
+	_, err = s.Client.Ping(context.Background()).Result()
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to ping Redis")
+	}
+	log.Info().Msg("Connected to Redis")
 }

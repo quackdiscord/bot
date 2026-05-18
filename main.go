@@ -1,95 +1,43 @@
 package main
 
 import (
-	"io"
+	"context"
 	"os"
-	"os/signal"
 
-	axiomAdapter "github.com/axiomhq/axiom-go/adapters/zerolog"
-	"github.com/joho/godotenv"
-	c "github.com/quackdiscord/bot/config"
-	"github.com/quackdiscord/bot/events"
+	"github.com/quackdiscord/bot/api"
+	"github.com/quackdiscord/bot/app"
+	"github.com/quackdiscord/bot/discord"
+	"github.com/quackdiscord/bot/discord/commands"
+	"github.com/quackdiscord/bot/lib"
 	"github.com/quackdiscord/bot/services"
-	"github.com/quackdiscord/bot/utils"
+	"github.com/quackdiscord/bot/storage"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
 func init() {
-	if err := godotenv.Load(".env"); err != nil {
-		return
-	}
-
-	env := os.Getenv("ENVIORNMENT")
-
-	if env == "dev" {
-		log.Warn().Msg("Running in development mode")
-	}
-}
-
-func initLogger() {
-	env := os.Getenv("ENVIORNMENT")
-
-	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-	zerolog.SetGlobalLevel(zerolog.InfoLevel)
-
-	if env == "dev" {
-		zerolog.SetGlobalLevel(zerolog.DebugLevel)
-		log.Logger = zerolog.New(os.Stderr).With().Caller().Logger()
-		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
-	} else {
-		if os.Getenv("AXIOM_TOKEN") == "" {
-			log.Logger = zerolog.New(os.Stderr).With().Caller().Logger()
-			log.Warn().Msg("Axiom token not set, logging to stderr only")
-		} else {
-			writer, err := axiomAdapter.New(
-				axiomAdapter.SetDataset(os.Getenv("AXIOM_DATASET")),
-			)
-			if err != nil {
-				log.Fatal().Err(err).Msg("Error initializing Axiom adapter")
-			}
-			log.Logger = zerolog.New(io.MultiWriter(os.Stderr, writer)).With().Caller().Timestamp().Logger()
-		}
-	}
-
-	log.Info().Msg("Logger initialized")
+	log.Logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Caller().Logger()
+	lib.LoadConfig()
 }
 
 func main() {
-	// initialize logger
-	initLogger()
+	services.DB.Connect()
+	services.Redis.Connect()
+	s := storage.New(services.DB.DB, services.Redis.Client)
+	if err := s.Migrate(); err != nil {
+		log.Fatal().Err(err).Msg("Failed to apply database migrations")
+	}
 
-	// ready data structures
-	services.ReadyMessageCache(c.Bot.MessageCacheSize)
-	services.ReadyEventQueue(c.Bot.EventQueueSize)
+	services.EQ.Init(s)
+	services.EQ.Start()
 
-	// connect services
-	services.ConnectRedis()
-	services.ConnectDB()
-	events.RegisterEvents()
-	services.ConnectDiscord(events.Events)
-	services.InitSentry()
-
-	// start the event queue
-	go services.EQ.Start(c.Bot.EventQueueWorkers)
-
-	// register stats collector and start the cron scheduler
-	services.RegisterStatsCollector(utils.CollectAndSaveStats)
-	services.StartCron(services.Discord)
-
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt)
-	log.Info().Msg("Press Ctrl+C to exit")
-
-	// handle shutdown
-	<-stop
-	log.Warn().Msg("Shutting down")
-	services.StopCron()
-	services.DisconnectDiscord()
-	services.DisconnectDB()
-	services.DisconnectRedis()
-	services.EQ.Stop()
-
-	log.Info().Msg("Goodbye!")
-
+	discord.Connect(s)
+	appServices := app.New(s)
+	if err := commands.Register(discord.Session, appServices); err != nil {
+		log.Error().Err(err).Msg("Failed to register Discord commands")
+	}
+	if err := app.EnqueuePendingCaseActions(context.Background(), s, 100); err != nil {
+		log.Error().Err(err).Msg("Failed to enqueue pending case actions")
+	}
+	api.Start(s)
 }

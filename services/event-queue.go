@@ -1,124 +1,132 @@
 package services
 
 import (
-	"context"
-	"errors"
 	"sync"
 
+	"github.com/quackdiscord/bot/lib"
+	"github.com/quackdiscord/bot/storage"
+	"github.com/quackdiscord/bot/structs"
 	"github.com/rs/zerolog/log"
 )
 
-// Event represents a Discord event that needs to be processed
-type Event struct {
-	Type    string
-	Data    interface{}
-	GuildID string
-}
-
-// EventQueue manages the queueing and processing of Discord events
 type EventQueue struct {
-	queue     chan Event
-	handlers  map[string]EventHandler
-	mu        sync.RWMutex
-	ctx       context.Context
-	cancel    context.CancelFunc
-	waitGroup sync.WaitGroup
+	Queue   chan structs.QueueEvent
+	workers int
+	wg      sync.WaitGroup
+	active  bool
+	mu      sync.RWMutex
 }
-
-// EventHandler is a function that processes an event
-type EventHandler func(Event) error
 
 var EQ *EventQueue
 
-func ReadyEventQueue(size int) {
-	EQ = NewEventQueue(size)
-	log.Info().Msgf("Event queue ready with size %d", size)
-}
+var s *storage.Store
 
-// NewEventQueue creates a new event queue with the specified buffer size
-func NewEventQueue(bufferSize int) *EventQueue {
-	ctx, cancel := context.WithCancel(context.Background())
-	return &EventQueue{
-		queue:    make(chan Event, bufferSize),
-		handlers: make(map[string]EventHandler),
-		ctx:      ctx,
-		cancel:   cancel,
+// Initializes the event queue
+func (q *EventQueue) Init(st *storage.Store) {
+	s = st
+	EQ = &EventQueue{
+		Queue:   make(chan structs.QueueEvent, lib.Config.EventQueue.Size),
+		workers: lib.Config.EventQueue.Workers,
+		active:  false,
 	}
+	log.Info().
+		Int("buffer_size", lib.Config.EventQueue.Size).
+		Int("workers", lib.Config.EventQueue.Workers).
+		Msg("Event queue initialized")
 }
 
-// RegisterHandler registers a handler function for a specific event type
-func (eq *EventQueue) RegisterHandler(eventType string, handler EventHandler) {
-	eq.mu.Lock()
-	defer eq.mu.Unlock()
-	eq.handlers[eventType] = handler
-}
+// Start begins processing events from the queue with multiple workers
+func (q *EventQueue) Start() {
+	q.mu.Lock()
+	defer q.mu.Unlock()
 
-// Enqueue adds a new event to the queue
-func (eq *EventQueue) Enqueue(event Event) {
-	select {
-	case eq.queue <- event:
-		// event queued
-	default:
-		log.Error().Msg("Event queue is full")
-		CaptureError(errors.New("event queue is full"))
+	if q.active {
+		log.Warn().Msg("Event queue already running")
+		return
 	}
-}
 
-// Start begins processing events from the queue
-func (eq *EventQueue) Start(numWorkers int) {
-	for range numWorkers {
-		eq.waitGroup.Add(1)
-		go eq.worker()
+	q.active = true
+	log.Info().Int("workers", q.workers).Msg("Starting event queue workers")
+
+	for i := 0; i < q.workers; i++ {
+		q.wg.Add(1)
+		go q.worker(i)
 	}
-}
-
-// Stop gracefully shuts down the event queue
-func (eq *EventQueue) Stop() {
-	eq.cancel()
-	close(eq.queue)
-	eq.waitGroup.Wait()
-	log.Info().Msg("Event queue stopped")
 }
 
 // worker processes events from the queue
-func (eq *EventQueue) worker() {
-	defer eq.waitGroup.Done()
+func (q *EventQueue) worker(id int) {
+	defer q.wg.Done()
 
-	for {
-		select {
-		case event, ok := <-eq.queue:
-			if !ok {
-				return
-			}
-			eq.processEvent(event)
-		case <-eq.ctx.Done():
-			return
+	log.Debug().Int("worker_id", id).Msg("Event queue worker started")
+
+	for event := range q.Queue {
+		q.Process(event)
+	}
+
+	log.Debug().Int("worker_id", id).Msg("Event queue worker stopped")
+}
+
+// Enqueue adds an event to the queue
+func (q *EventQueue) Enqueue(event structs.QueueEvent) {
+	q.mu.RLock()
+	defer q.mu.RUnlock()
+
+	if !q.active {
+		log.Warn().
+			Str("event_type", event.Type).
+			Msg("Attempted to enqueue event but queue is not active")
+		return
+	}
+
+	select {
+	case q.Queue <- event:
+	default:
+		log.Warn().
+			Str("event_type", event.Type).
+			Msg("Event queue full, dropping event")
+	}
+}
+
+// Process executes the event handler
+func (q *EventQueue) Process(event structs.QueueEvent) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error().
+				Str("event_type", event.Type).
+				Interface("panic", r).
+				Msg("Panic while processing event")
 		}
-	}
+	}()
+
+	event.Handler(s, event.Data)
 }
 
-// processEvent processes an event from the queue
-func (eq *EventQueue) processEvent(event Event) {
-	eq.mu.RLock()
-	handler, exists := eq.handlers[event.Type]
-	eq.mu.RUnlock()
+// Stop gracefully shuts down the event queue
+func (q *EventQueue) Stop() {
+	q.mu.Lock()
+	defer q.mu.Unlock()
 
-	if !exists {
-		log.Error().Msgf("No handler found for event type %s", event.Type)
-		CaptureError(errors.New("no handler found for event type " + event.Type))
+	if !q.active {
+		log.Warn().Msg("Event queue already stopped")
 		return
 	}
 
-	if err := handler(event); err != nil {
-		log.Error().Err(err).Msgf("Error processing event type %s", event.Type)
-		CaptureError(err)
-		return
-	}
+	log.Info().Msg("Stopping event queue")
+	q.active = false
+	close(q.Queue)
+	q.wg.Wait()
+	log.Info().Msg("Event queue stopped")
 }
 
-func (eq *EventQueue) GetQueueSize() int {
-	eq.mu.RLock()
-	defer eq.mu.RUnlock()
+// IsActive returns whether the queue is currently active
+func (q *EventQueue) IsActive() bool {
+	q.mu.RLock()
+	defer q.mu.RUnlock()
+	return q.active
+}
 
-	return len(eq.queue)
+// QueueSize returns the current number of events in the queue
+func (q *EventQueue) QueueSize() int {
+	return len(q.Queue)
 }
