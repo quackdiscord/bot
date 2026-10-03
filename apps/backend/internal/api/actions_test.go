@@ -54,3 +54,33 @@ func TestFailedActionListIsNeverNull(t *testing.T) {
 		}
 	}
 }
+
+// TestReversalResponseHidesWorkerState keeps lease and snapshot internals,
+// and Go field names, out of the queued reversal the API returns.
+func TestReversalResponseHidesWorkerState(t *testing.T) {
+	body, err := json.Marshal(actionEnvelope{Action: quack.CaseActionExecution{
+		ULIDModel:          quack.ULIDModel{ID: "execution-1"},
+		CaseID:             "case-1",
+		ActionType:         quack.ActionUnbanUser,
+		Status:             quack.ActionExecutionPending,
+		LeaseToken:         "internal-lease",
+		ConfigSnapshotJSON: `{"secret":true}`,
+	}.Response()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Action map[string]any `json:"action"`
+	}
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Action["id"] != "execution-1" || decoded.Action["action_type"] != string(quack.ActionUnbanUser) {
+		t.Fatalf("action = %s", body)
+	}
+	for _, field := range []string{"ID", "LeaseToken", "lease_token", "ConfigSnapshotJSON", "config_snapshot"} {
+		if _, ok := decoded.Action[field]; ok {
+			t.Errorf("internal field %q leaked: %s", field, body)
+		}
+	}
+}

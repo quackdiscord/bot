@@ -134,7 +134,7 @@ func (s *Server) observe(next http.Handler) http.Handler {
 			"method", r.Method, "route", route, "status", status, "duration", time.Since(start))
 
 		body := captured.body.Bytes()
-		if status >= http.StatusBadRequest {
+		if status >= http.StatusBadRequest && !slices.Contains(s.ownErrorBodies[route], status) {
 			body = normalizeError(r.Context(), status, body)
 			w.Header().Set("Content-Type", jsonContentType)
 		}

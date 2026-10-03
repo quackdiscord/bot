@@ -82,8 +82,12 @@ type Server struct {
 
 	mux *http.ServeMux
 	// table records every route on mux, for the HTTP contract.
-	table   []Route
-	handler http.Handler
+	table []Route
+	// ownErrorBodies holds, per route pattern, the error statuses whose
+	// body the handler writes itself (see Doc.Also); observe leaves those
+	// bodies alone instead of turning them into the error envelope.
+	ownErrorBodies map[string][]int
+	handler        http.Handler
 }
 
 // New builds the server and its route table. cfg must already have passed

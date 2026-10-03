@@ -36,9 +36,9 @@ type failedActionEnvelope struct {
 	Action failedActionResponse `json:"action"`
 }
 
-// actionEnvelope wraps a queued reversal. It is the full execution record.
+// actionEnvelope wraps a queued reversal.
 type actionEnvelope struct {
-	Action *quack.CaseActionExecution `json:"action" nullable:"false"`
+	Action quack.CaseActionResponse `json:"action"`
 }
 
 // reverseActionRequest names the execution to undo. AppealID links the
@@ -97,7 +97,7 @@ func (s *Server) reverseCaseAction(w http.ResponseWriter, r *http.Request) {
 		caseErrors.write(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, actionEnvelope{Action: result})
+	writeJSON(w, http.StatusAccepted, actionEnvelope{Action: result.Response()})
 }
 
 // newFailedActionList always returns an executions array, never null.

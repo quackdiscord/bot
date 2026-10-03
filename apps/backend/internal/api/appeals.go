@@ -96,7 +96,7 @@ func (s *Server) reverseAcceptedAppeal(w http.ResponseWriter, r *http.Request) {
 		caseErrors.write(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, actionEnvelope{Action: result})
+	writeJSON(w, http.StatusAccepted, actionEnvelope{Action: result.Response()})
 }
 
 // submitAppeal files the member's one appeal for a case.

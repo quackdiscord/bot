@@ -5159,7 +5159,6 @@ paths:
       - health
   /readyz:
     get:
-      description: A failed check makes this a 503 with the standard error envelope.
       operationId: getReadiness
       responses:
         "200":
@@ -5172,8 +5171,8 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiErrorResponse'
-          description: Service Unavailable
+                $ref: '#/components/schemas/ApiReadinessResponse'
+          description: A check failed; the report names which
         default:
           content:
             application/json:
@@ -5208,7 +5207,7 @@ components:
     ApiActionEnvelope:
       properties:
         action:
-          $ref: '#/components/schemas/QuackCaseActionExecution'
+          $ref: '#/components/schemas/QuackCaseActionResponse'
       required:
       - action
       type: object
@@ -6157,90 +6156,6 @@ components:
       - config_snapshot
       - attempt_count
       - attempts
-      type: object
-    QuackCaseActionExecution:
-      properties:
-        ActionType:
-          $ref: '#/components/schemas/QuackActionType'
-        AttemptCount:
-          minimum: 0
-          type: integer
-        CaseID:
-          type: string
-        ConfigSnapshotJSON:
-          type: string
-        CorrelationID:
-          type: string
-        CreatedAt:
-          format: date-time
-          type: string
-        DismissedAt:
-          format: date-time
-          type:
-          - "null"
-          - string
-        DismissedByDiscordUserID:
-          type: string
-        FinishedAt:
-          format: date-time
-          type:
-          - "null"
-          - string
-        ID:
-          type: string
-        IdempotencyKey:
-          type: string
-        LastError:
-          type: string
-        LastErrorCode:
-          type: string
-        LeaseExpiresAt:
-          format: date-time
-          type:
-          - "null"
-          - string
-        LeaseToken:
-          type: string
-        MaxRetries:
-          minimum: 0
-          type: integer
-        NextRetryAt:
-          format: date-time
-          type:
-          - "null"
-          - string
-        NotificationType:
-          type: string
-        NotifyUser:
-          type: boolean
-        Position:
-          type: integer
-        RetryBackoffMS:
-          type: integer
-        ReversalAppealID:
-          type:
-          - "null"
-          - string
-        ReversalOfExecutionID:
-          type:
-          - "null"
-          - string
-        SafeForRetry:
-          type: boolean
-        StartedAt:
-          format: date-time
-          type:
-          - "null"
-          - string
-        Status:
-          $ref: '#/components/schemas/QuackActionExecutionStatus'
-        TemplateActionID:
-          type:
-          - "null"
-          - string
-        UpdatedAt:
-          format: date-time
-          type: string
       type: object
     QuackCaseActionResponse:
       properties:

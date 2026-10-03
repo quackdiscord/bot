@@ -342,6 +342,10 @@ func (s *CaseService) caseResponses(ctx context.Context, cases []Case) ([]CaseRe
 	return responses, nil
 }
 
+// Response returns the API view of the execution. Worker state such as the
+// lease token and the stored configuration snapshot stays internal.
+func (e CaseActionExecution) Response() CaseActionResponse { return caseActionResponse(e) }
+
 func caseActionResponse(action CaseActionExecution) CaseActionResponse {
 	return CaseActionResponse{
 		ID:               action.ID,

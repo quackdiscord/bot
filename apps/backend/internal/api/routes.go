@@ -48,9 +48,12 @@ func (s *Server) routes() {
 	}, s.liveness)
 	s.handle("GET /readyz", Protection{}, Doc{
 		ID: "getReadiness", Summary: "Report whether the bot can take moderation work",
-		Description: "A failed check makes this a 503 with the standard error envelope.",
-		Response:    readinessResponse{},
-		Errors:      []int{http.StatusServiceUnavailable},
+		Response: readinessResponse{},
+		Also: []Response{{
+			Status:      http.StatusServiceUnavailable,
+			Description: "A check failed; the report names which",
+			Body:        readinessResponse{},
+		}},
 	}, s.readiness)
 	s.handle("GET /metrics", Protection{Auth: AuthMetricsKey}, Doc{
 		ID: "getMetrics", Summary: "Aggregate counters in the Prometheus text format",

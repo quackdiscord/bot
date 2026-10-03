@@ -33,7 +33,9 @@ type Doc struct {
 	Response any
 	// ContentType is the success body's media type; empty means JSON.
 	ContentType string
-	// Also lists other non-error responses, such as a redirect's JSON mode.
+	// Also lists other responses, such as a redirect's JSON mode. An error
+	// status listed here keeps the body the handler writes instead of being
+	// rewritten into the error envelope, as /readyz does for its report.
 	Also []Response
 	// Errors are the error statuses the handler itself can answer with.
 	// Route.Errors adds the ones its protection can.
@@ -134,4 +136,12 @@ func (s *Server) mount(pattern string, p Protection, d Doc, h http.Handler) {
 	method, path, _ := strings.Cut(pattern, " ")
 	s.mux.Handle(pattern, h)
 	s.table = append(s.table, Route{Method: method, Path: path, Protection: p, Doc: d})
+	for _, also := range d.Also {
+		if also.Status >= http.StatusBadRequest && also.Body != nil {
+			if s.ownErrorBodies == nil {
+				s.ownErrorBodies = map[string][]int{}
+			}
+			s.ownErrorBodies[pattern] = append(s.ownErrorBodies[pattern], also.Status)
+		}
+	}
 }

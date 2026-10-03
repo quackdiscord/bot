@@ -42,8 +42,18 @@ func TestReadinessCoversEveryDependency(t *testing.T) {
 		}
 	}
 
+	// A failing probe still answers with the report, not the error
+	// envelope, so an operator can see which dependency is down.
 	down := storeServer(t, store, nil, readyScheduler{}, config.Default())
-	expectStatus(t, send(t, down, http.MethodGet, "/readyz", "", ""), http.StatusServiceUnavailable)
+	response = send(t, down, http.MethodGet, "/readyz", "", "")
+	expectStatus(t, response, http.StatusServiceUnavailable)
+	body = readinessResponse{}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil || body.Ready || len(body.Checks) == 0 {
+		t.Fatalf("503 body = %s, want the readiness report", response.Body.Bytes())
+	}
+	if body.Checks["discord"].Ready {
+		t.Error("discord reported ready with no gateway")
+	}
 }
 
 func TestMetrics(t *testing.T) {
