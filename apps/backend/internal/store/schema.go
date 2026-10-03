@@ -39,6 +39,9 @@ type guildSettingsRecord struct {
 	CreatedAt                         time.Time `gorm:"not null"`
 	UpdatedAt                         time.Time `gorm:"not null"`
 	GuildID                           string    `gorm:"type:char(26);not null;uniqueIndex"`
+	AppealQueueChannelDiscordID       string    `gorm:"size:32;not null;default:''"`
+	AppealRejoinURL                   string    `gorm:"size:256;not null;default:''"`
+	AppealReviewReasonRequired        bool      `gorm:"not null;default:false"`
 	AuditMirrorChannelDiscordID       string    `gorm:"size:32;not null;default:''"`
 	ManagedEvidenceChannelDiscordID   string    `gorm:"size:32;not null;default:''"`
 	NotificationIntroduction          string    `gorm:"type:text;not null"`
@@ -76,6 +79,7 @@ type templateRecord struct {
 	Name                   string    `gorm:"size:191;not null"`
 	Description            string    `gorm:"type:text;not null"`
 	ReasonTemplate         string    `gorm:"type:text;not null"`
+	CaseDecayDays          int       `gorm:"not null;default:0"`
 	Appealable             bool      `gorm:"not null;default:false"`
 	Version                uint      `gorm:"not null;default:1"`
 	CreatedByDiscordUserID string    `gorm:"size:32;not null"`
@@ -298,6 +302,24 @@ type caseEventRecord struct {
 
 func (caseEventRecord) TableName() string { return "case_events" }
 
+// casePublicationRecord is a public Discord message about a case that Quack
+// keeps up to date. RefreshRequested and RetryAt make a publication due;
+// Revision fences a refresh against changes committed while it ran.
+type casePublicationRecord struct {
+	MessageID        string    `gorm:"size:32;primaryKey"`
+	CreatedAt        time.Time `gorm:"not null"`
+	UpdatedAt        time.Time `gorm:"not null"`
+	CaseID           string    `gorm:"type:char(26);not null;index"`
+	ChannelID        string    `gorm:"size:32;not null"`
+	PresentationJSON string    `gorm:"type:longtext;not null"`
+	LastDigest       string    `gorm:"size:64;not null;default:''"`
+	RefreshRequested bool      `gorm:"not null;default:true;index:idx_case_publications_due,priority:1"`
+	RetryAt          time.Time `gorm:"not null;index:idx_case_publications_due,priority:2"`
+	Revision         uint64    `gorm:"type:bigint unsigned;not null;default:0"`
+}
+
+func (casePublicationRecord) TableName() string { return "case_publications" }
+
 // appealRecord is a member's appeal. The unique case_id allows one appeal per
 // case; Version is an optimistic lock for staff decisions.
 type appealRecord struct {
@@ -363,7 +385,10 @@ type appealNotificationRecord struct {
 	Audience            quack.AppealNotificationAudience `gorm:"size:32;not null"`
 	Status              quack.AppealNotificationStatus   `gorm:"size:32;not null;index"`
 	Body                string                           `gorm:"type:text;not null"`
+	DecisionIntentJSON  string                           `gorm:"type:text"`
+	DeliveryChannelID   string                           `gorm:"size:32;not null;default:''"`
 	DeliveryMessageID   string                           `gorm:"size:32;not null;default:''"`
+	RefreshRequested    bool                             `gorm:"not null;default:false"`
 	LastErrorCode       string                           `gorm:"size:64;not null;default:''"`
 	LeaseToken          string                           `gorm:"size:64;not null;default:''"`
 	LeaseExpiresAt      *time.Time
@@ -443,6 +468,7 @@ func tables() []any {
 		&attachmentRecord{},
 		&caseNotificationRecord{},
 		&caseEventRecord{},
+		&casePublicationRecord{},
 		&appealRecord{},
 		&appealEventRecord{},
 		&appealSettingsRecord{},

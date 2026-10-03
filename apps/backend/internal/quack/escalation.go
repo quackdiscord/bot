@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 )
 
 // CaseSelectedLevel is the level a case was created at and the case count
@@ -31,6 +32,7 @@ type templateSnapshotTemplate struct {
 	Name           string `json:"name"`
 	Version        uint   `json:"version"`
 	ReasonTemplate string `json:"reason_template"`
+	CaseDecayDays  int    `json:"case_decay_days"`
 	Appealable     bool   `json:"appealable"`
 }
 
@@ -38,12 +40,14 @@ type templateSnapshotTemplate struct {
 // reached, or the default level if none, and returns it with the count that
 // chose it. The count includes the case being created, so a threshold of 3
 // fires on the member's third case. Only valid, non-imported cases under the
-// same template count.
+// same template count, and only those inside the template's decay window
+// when it has one.
 func (s *CaseService) selectLevel(ctx context.Context, guildID, targetDiscordUserID string, template *ExpandedCaseTemplate) (ExpandedCaseTemplateLevel, int64, error) {
 	prior, err := s.store.CountTemplateCasesForTarget(ctx, CountTemplateCasesForTargetParams{
 		GuildID:             guildID,
 		TemplateID:          template.Template.ID,
 		TargetDiscordUserID: targetDiscordUserID,
+		CreatedAtOrAfter:    decayCutoff(template.Template.CaseDecayDays, time.Now()),
 	})
 	if err != nil {
 		return ExpandedCaseTemplateLevel{}, 0, fmt.Errorf("count prior cases: %w", err)
@@ -80,6 +84,16 @@ func (s *CaseService) selectLevel(ctx context.Context, guildID, targetDiscordUse
 	return *fallback, count, nil
 }
 
+// decayCutoff is the start of a decay window of days ending at now, or nil
+// when days is zero and every case counts.
+func decayCutoff(days int, now time.Time) *time.Time {
+	if days <= 0 {
+		return nil
+	}
+	cutoff := now.UTC().AddDate(0, 0, -days)
+	return &cutoff
+}
+
 // buildTemplateSnapshot freezes everything that decided a case's outcome
 // into Case.TemplateSnapshotJSON, so later template edits never rewrite
 // history.
@@ -91,6 +105,7 @@ func buildTemplateSnapshot(template *ExpandedCaseTemplate, level ExpandedCaseTem
 			Name:           template.Template.Name,
 			Version:        template.Template.Version,
 			ReasonTemplate: template.Template.ReasonTemplate,
+			CaseDecayDays:  template.Template.CaseDecayDays,
 			Appealable:     template.Template.Appealable,
 		},
 		SelectedLevel: CaseSelectedLevel{
@@ -127,6 +142,15 @@ func snapshotSelectedLevel(snapshotJSON string) *CaseSelectedLevel {
 		return nil
 	}
 	return &snapshot.SelectedLevel
+}
+
+// snapshotRuleName reads the template name from a case snapshot, or "" for
+// cases without one.
+func snapshotRuleName(snapshotJSON string) string {
+	if snapshot := parseTemplateSnapshot(snapshotJSON); snapshot != nil {
+		return snapshot.Template.Name
+	}
+	return ""
 }
 
 // snapshotAppealable reports whether the template allowed appeals when the

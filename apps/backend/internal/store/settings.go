@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -20,6 +21,9 @@ func (s *Store) GetGuildSettings(ctx context.Context, guildID string) (*quack.Gu
 func (s *Store) UpdateGuildSettings(ctx context.Context, params quack.UpdateGuildSettingsParams) (*quack.GuildSettings, error) {
 	in := params.Settings
 	return s.updateSettings(ctx, in.GuildID, params.Audit, func(r *guildSettingsRecord) bool {
+		r.AppealQueueChannelDiscordID = in.AppealQueueChannelDiscordID
+		r.AppealRejoinURL = in.AppealRejoinURL
+		r.AppealReviewReasonRequired = in.AppealReviewReasonRequired
 		r.AuditMirrorChannelDiscordID = in.AuditMirrorChannelDiscordID
 		r.ManagedEvidenceChannelDiscordID = in.ManagedEvidenceChannelDiscordID
 		r.NotificationIntroduction = in.NotificationIntroduction
@@ -40,7 +44,7 @@ func (s *Store) ClearGuildChannelReferences(ctx context.Context, guildID, channe
 	}
 	return s.updateSettings(ctx, guildID, audit, func(r *guildSettingsRecord) bool {
 		changed := false
-		for _, channel := range []*string{&r.AuditMirrorChannelDiscordID, &r.ManagedEvidenceChannelDiscordID} {
+		for _, channel := range []*string{&r.AppealQueueChannelDiscordID, &r.AuditMirrorChannelDiscordID, &r.ManagedEvidenceChannelDiscordID} {
 			if *channel == channelID {
 				*channel = ""
 				changed = true
@@ -48,6 +52,27 @@ func (s *Store) ClearGuildChannelReferences(ctx context.Context, guildID, channe
 		}
 		return changed
 	})
+}
+
+// SetManagedEvidenceChannel records next as the guild's evidence channel
+// only while the setting is still expected, and returns the channel now
+// recorded. A concurrent change wins and is returned instead, so ensuring
+// the channel never overwrites another settings update.
+func (s *Store) SetManagedEvidenceChannel(ctx context.Context, guildID, expected, next string, audit *quack.AuditLogEntry) (string, error) {
+	if next == "" {
+		return "", errors.New("evidence channel is required")
+	}
+	settings, err := s.updateSettings(ctx, guildID, audit, func(r *guildSettingsRecord) bool {
+		if r.ManagedEvidenceChannelDiscordID != expected || r.ManagedEvidenceChannelDiscordID == next {
+			return false
+		}
+		r.ManagedEvidenceChannelDiscordID = next
+		return true
+	})
+	if err != nil {
+		return "", err
+	}
+	return settings.ManagedEvidenceChannelDiscordID, nil
 }
 
 // updateSettings locks a guild's settings row, applies change, and saves and
@@ -118,6 +143,9 @@ func (r guildSettingsRecord) model() quack.GuildSettings {
 	return quack.GuildSettings{
 		ULIDModel:                         ulid(r.ID, r.CreatedAt, r.UpdatedAt),
 		GuildID:                           r.GuildID,
+		AppealQueueChannelDiscordID:       r.AppealQueueChannelDiscordID,
+		AppealRejoinURL:                   r.AppealRejoinURL,
+		AppealReviewReasonRequired:        r.AppealReviewReasonRequired,
 		AuditMirrorChannelDiscordID:       r.AuditMirrorChannelDiscordID,
 		ManagedEvidenceChannelDiscordID:   r.ManagedEvidenceChannelDiscordID,
 		NotificationIntroduction:          r.NotificationIntroduction,

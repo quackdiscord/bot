@@ -47,7 +47,7 @@ cmd/quack ──> app ──> api, discord, worker, store, modules/*, config
 
 `quack.New` (`quack/quack.go`) builds `quack.Services`: `Guilds`, `Settings`,
 `Templates`, `Cases`, `Actions`, `Evidence`, `Appeals`, `Audits`,
-`Statistics`, and `Ops`. Every adapter calls these services; business rules
+`Statistics`, `Ops`, and `Publications`. Every adapter calls these services; business rules
 belong there, not in handlers.
 
 ## Startup and shutdown
@@ -183,15 +183,19 @@ ephemeral flags are dropped in DMs, where Discord rejects them.
 
 - The count is the number of prior cases for the same guild, member, and
   template ID that are still valid and did not come from the v4 import, plus
-  one for the case being created (`store.CountTemplateCasesForTarget`). Counts
-  are all-time. Template edits keep the template ID, so every version counts.
+  one for the case being created (`store.CountTemplateCasesForTarget`).
+  Template edits keep the template ID, so every version counts.
+- Counts are all-time unless the template sets `case_decay_days` (1 to
+  36500). Then only cases created in that many days before now count
+  (`CountTemplateCasesForTargetParams.CreatedAtOrAfter`). Older cases stay
+  valid and visible; they just stop counting.
 - The level with the highest `trigger_case_count` the count has reached wins.
   If none has been reached, the template's default level applies. Each
   template has exactly one default level (enforced by a unique index; see
   [`migrations.md`](migrations.md)), and each level has at most one action.
 - The case stores a snapshot (`cases.template_snapshot_json`) of the template
-  version, the selected level with the count that matched, the action
-  settings, the context fields, and the submitted values. Later template edits
+  version and its decay window, the selected level with the count that
+  matched, the action settings, the context fields, and the submitted values. Later template edits
   never change an existing case; appeal eligibility and notifications read the
   snapshot.
 
@@ -200,6 +204,21 @@ reason, and removes it from future counts. Corrections are void plus a new case
 with `replaces_case_id`. Voiding cancels executions that have not started and
 fails the notification if it has not been sent. Work that is already running
 or sending is left alone.
+
+In the same transaction, voiding queues a reversal of each succeeded timeout
+and ban (`store.queueVoidedCaseReversals`), with the voider recorded as
+`requested_by` in its configuration and, when an accepted appeal voided the
+case, the appeal as `reversal_appeal_id`. A punishment that succeeds after its
+case was voided is reversed the same way, and one that would retry fails for
+review instead. Before an automatic reversal runs, the worker checks that the
+member has no other timeout or ban that it would also lift
+(`store.CompetingPunishmentExists`) and that the voider still passes
+`GuildService.PreflightReversal`; otherwise it fails for staff review.
+
+Staff can also update a case's context (`CaseService.UpdateContext`, free text
+that replaces the context values, with any new Discord message links in it
+captured as evidence) and add evidence (`CaseService.AddEvidence`, message
+links and uploaded files). Neither touches the decision or its enforcement.
 
 When Quack joins a guild, the `GuildCreate` handler (`discord/lifecycle.go`)
 calls `GuildService.BootstrapDiscordGuild`, which creates or reactivates the
@@ -266,7 +285,10 @@ with the case when the selected level has `notify_user` set.
   produce a second DM. Failures are recorded on the case and not retried.
 - The message (`quack/notify.go`) has the guild name, official reason, context
   values, outcome, case number, and the guild's optional introduction and
-  footer, capped at 2000 characters.
+  footer, capped at 2000 characters. A messenger that implements
+  `quack.CaseNotificationSender` gets a `CaseNotificationRequest` instead (rule
+  name, outcomes with the confirmed timeout end, appeal URL) and renders the
+  DM itself.
 - If the case is appealable and an `https` dashboard origin is configured (the
   first `https` entry in `api.cors_origins`), the DM carries an "Open appeal"
   link to `<dashboard>/guilds/<guild>/cases/<case>/appeal`.
@@ -302,15 +324,28 @@ rest. The database is the source of truth; the queue only saves latency.
   pending appeal, close a pending or needs_information one, and reopen a
   rejected or closed one (to needs_information).
 - **Accepting** records the decision and voids the case in the same
-  transaction. It does not touch Discord. The staff view lists reversal offers
-  for each succeeded timeout or ban, and staff confirm one through
+  transaction, which queues reversals of its timeouts and bans linked to the
+  appeal (see Escalation). The staff view still offers a reversal for any
+  succeeded timeout or ban that has none, through
   `POST /guilds/{discordGuildID}/appeals/{appealID}/reversals`, which runs
   `ActionService.ReverseForAppeal` with the full live preflight.
+- **Settings.** `guild_settings` holds the appeal queue channel (separate
+  from the audit mirror), an optional rejoin invite sent with accepted
+  appeals, and whether staff must write a decision reason
+  (`AppealService.ReviewReasonRequired`). `AppealService.CanSubmit` checks
+  eligibility before a Discord appeal form opens.
 - **Notifications.** Every appeal change writes a row to
   `appeal_notifications` in the same transaction. A worker loop
   (`quack.AppealNotificationDispatcher`) leases and sends up to 50 every five
-  seconds. Member updates go by DM. Staff updates go to the audit mirror
-  channel after a staff-only check. Messages never name the staff member.
+  seconds. A row moves to `sending` just before it goes out and is never
+  reclaimed from there, so a crash cannot send twice; deliveries that reached
+  nothing (`delivery_deferred`) are retried after a minute. Member decisions
+  carry a frozen `AppealDecisionIntent` (status, reason, case number, guild
+  name, rejoin URL). Staff rows are one queue post per appeal: a notifier that
+  implements `quack.AppealQueuePublisher` posts the appeal once and later
+  rows edit it in place, using the receipt (`delivery_channel_id`,
+  `delivery_message_id`) and `refresh_requested`. Notifiers without the rich
+  interfaces get plain bodies. Messages never name the staff member.
 
 ## Audit log and mirror
 
@@ -325,11 +360,30 @@ rest. The database is the source of truth; the queue only saves latency.
   table.
 - `quack.AuditMirror` (`quack/audit_mirror.go`) polls every five seconds for
   important entries (`quack.ImportantAuditActions`) that have no successful
-  mirror outcome yet and posts them to the guild's audit mirror channel. Each
+  mirror outcome yet and posts them to the guild's audit mirror channel.
+  Entries about a case, one of its executions, or its appeal carry the case
+  number, target, rule name, the selected level and outcome (on
+  `case.create`), whether a reversal found the punishment already over, and
+  the execution staff can still retry. Each
   outcome (delivered, skipped, failed) is itself an audit entry, which is how
   the mirror knows an entry is done. Failures retry after a minute. If the
   channel is gone, the mirror clears the setting and stops trying it.
 - The audit mirror is separate from the general logging module.
+
+## Case publications
+
+Public Discord messages about a case, such as the `/case add` receipt, are
+recorded in `case_publications` (`CasePublicationService.Record`) and kept up
+to date with bot credentials, so they outlive the interaction token. Every
+transaction that changes what a receipt shows (claiming or completing an
+execution, retrying, reversing, voiding, updating context or evidence) sets
+`refresh_requested`, clears `last_digest`, and bumps `revision`
+(`store.requestPublicationRefresh`). A refresh loop asks for due
+publications (`Due`), renders each from its stored presentation and
+`CaseReceipt`, skips the edit when the digest is unchanged, and reports back
+(`Complete`), or retires the publication when the message or case is gone
+(`Retire`). Completion is fenced on `revision`, so a change committed during a
+refresh is never lost.
 
 ## HTTP API
 
@@ -459,6 +513,10 @@ These are verified against the code as of this writing:
   `POST /guilds/{discordGuildID}/appeals/{appealID}/reversals` today.
   `/case reverse` can still undo the action, but without linking it to the
   appeal.
+- **The Discord adapter does not use the newer core ports yet.** Nothing
+  runs the case publication refresh loop, and `internal/discord` implements
+  neither `CaseNotificationSender`, `AppealDecisionSender`, nor
+  `AppealQueuePublisher`, so DMs and appeal updates use the plain wording.
 - **No real-guild rehearsal yet.** Install, permissions, enforcement, DMs,
   appeals, and the modules have been tested against fakes, SQLite, and MySQL,
   but not end to end in a live Discord guild.

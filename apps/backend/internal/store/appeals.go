@@ -161,7 +161,7 @@ func voidAppealedCase(tx *gorm.DB, a *appealRecord, params quack.TransitionAppea
 	if !found || c.Validity != quack.CaseValidityValid {
 		return quack.ErrAppealStateConflict
 	}
-	if err := voidCase(tx, &c, "Appeal accepted", params.ActorDiscordUserID, nil, now); err != nil {
+	if err := voidCase(tx, &c, "Appeal accepted", params.ActorDiscordUserID, nil, &a.ID, now); err != nil {
 		if errors.Is(err, errCaseNotValid) {
 			return quack.ErrAppealStateConflict
 		}
@@ -227,7 +227,10 @@ func (s *Store) transitionAppeal(ctx context.Context, match []any, step appealSt
 
 // appendAppealEvent adds the step's event to the appeal's timeline and queues
 // its notification and audit entry. The notification is keyed to the event,
-// so each event notifies at most once.
+// so each event notifies at most once. A staff notification takes over the
+// appeal's queue post, so it edits that post instead of posting another; a
+// member notification asks for the queue post to be refreshed, since the
+// appeal it shows has changed.
 func appendAppealEvent(tx *gorm.DB, appeal quack.Appeal, step appealStep, now time.Time) error {
 	event, notification := step.event, step.notification
 	event.AppealID, event.GuildID = appeal.ID, appeal.GuildID
@@ -239,11 +242,40 @@ func appendAppealEvent(tx *gorm.DB, appeal quack.Appeal, step appealStep, now ti
 	}
 	notification.AppealID, notification.EventID, notification.GuildID = appeal.ID, event.ID, appeal.GuildID
 	stamp(&notification.ULIDModel, now)
+	var post appealNotificationRecord
+	found, err := first(forUpdate(tx).
+		Where("appeal_id = ? AND audience = ? AND delivery_channel_id <> ''", appeal.ID, quack.AppealNotificationStaff).
+		Order("created_at DESC, id DESC"), &post)
+	if err != nil {
+		return fmt.Errorf("find appeal queue post: %w", err)
+	}
+	switch {
+	case !found:
+	case notification.Audience == quack.AppealNotificationStaff:
+		notification.DeliveryChannelID, notification.DeliveryMessageID = post.DeliveryChannelID, post.DeliveryMessageID
+	default:
+		if err := refreshAppealQueuePost(tx, post, now); err != nil {
+			return err
+		}
+	}
 	notificationRecord := newAppealNotificationRecord(notification)
 	if err := tx.Create(&notificationRecord).Error; err != nil {
 		return fmt.Errorf("queue appeal notification: %w", err)
 	}
 	return writeAudit(tx, &step.audit, appeal.ID, now)
+}
+
+// refreshAppealQueuePost asks for an appeal's queue post to be edited again.
+// A post being sent right now keeps its lease and is redone when it
+// finishes; any other is due now.
+func refreshAppealQueuePost(tx *gorm.DB, post appealNotificationRecord, now time.Time) error {
+	err := tx.Model(&appealNotificationRecord{}).Where("id = ?", post.ID).Updates(map[string]any{
+		"refresh_requested": true,
+		"status": gorm.Expr("CASE WHEN status IN (?, ?) THEN status ELSE ? END",
+			quack.AppealNotificationClaimed, quack.AppealNotificationSending, quack.AppealNotificationPending),
+		"updated_at": now,
+	}).Error
+	return wrap("refresh appeal queue post", err)
 }
 
 func newAppealRecord(a quack.Appeal) appealRecord {

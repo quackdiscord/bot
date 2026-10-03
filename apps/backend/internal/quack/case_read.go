@@ -69,7 +69,12 @@ type CaseResponse struct {
 	ReplacementCaseID       *string                    `json:"replacement_case_id,omitempty"`
 	ReplacesCaseID          *string                    `json:"replaces_case_id,omitempty"`
 	SelectedLevel           *CaseSelectedLevel         `json:"selected_level,omitempty"`
-	Actions                 []CaseActionResponse       `json:"actions"`
+	// RuleName is the template name frozen in the case snapshot.
+	RuleName string `json:"rule_name,omitempty"`
+	// EvidenceIncomplete is set when any evidence could not be fully
+	// captured. Only detail reads load evidence, so lists leave it false.
+	EvidenceIncomplete bool                 `json:"evidence_incomplete"`
+	Actions            []CaseActionResponse `json:"actions"`
 }
 
 // CaseDetailResponse is a case with its full history, for staff.
@@ -96,6 +101,9 @@ type CaseActionResponse struct {
 	RetryBackoffMS   int                   `json:"retry_backoff_ms"`
 	SafeForRetry     bool                  `json:"safe_for_retry"`
 	Irreversible     bool                  `json:"irreversible"`
+	// TimeoutUntil is when a succeeded timeout ends, as Discord confirmed it.
+	// It is only set by detail reads, which load the attempts.
+	TimeoutUntil *time.Time `json:"timeout_until,omitempty"`
 }
 
 // CaseActionDetailResponse is an execution with its configuration and
@@ -172,61 +180,6 @@ func (s *CaseService) List(ctx context.Context, guildContext *GuildStaffContext,
 		return nil, err
 	}
 	return &CaseListResponse{Cases: responses, Total: page.Total, Limit: params.Limit, Offset: params.Offset}, nil
-}
-
-// Get returns one case, by ID or case number, with its full history.
-func (s *CaseService) Get(ctx context.Context, guildContext *GuildStaffContext, caseRef string) (*CaseDetailResponse, error) {
-	const action = string(AuditActionCaseRead)
-	caseRef = strings.TrimSpace(caseRef)
-	if err := requireCaseRead(guildContext); err != nil {
-		_ = s.audit(ctx, guildContext, staffAttribution, action, "case", caseRef, AuditResultDenied, "permission_denied")
-		return nil, err
-	}
-	if caseRef == "" {
-		return nil, caseValidationError("case reference is required")
-	}
-	item, err := s.store.GetCaseByIDOrNumber(ctx, guildContext.Guild.ID, caseRef)
-	if err != nil {
-		return nil, err
-	}
-	if item == nil {
-		return nil, ErrCaseNotFound
-	}
-	actions, err := s.store.ListCaseActionExecutions(ctx, item.ID)
-	if err != nil {
-		return nil, err
-	}
-	events, err := s.store.ListCaseEvents(ctx, item.ID)
-	if err != nil {
-		return nil, err
-	}
-	executionIDs := make([]string, 0, len(actions))
-	for _, action := range actions {
-		executionIDs = append(executionIDs, action.ID)
-	}
-	attempts, err := s.store.ListCaseActionAttempts(ctx, executionIDs)
-	if err != nil {
-		return nil, err
-	}
-	evidence, attachments, err := s.store.ListCaseEvidence(ctx, item.ID)
-	if err != nil {
-		return nil, err
-	}
-	notification, err := s.store.GetCaseNotification(ctx, item.ID)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.audit(ctx, guildContext, staffAttribution, action, "case", item.ID, AuditResultSuccess, ""); err != nil {
-		return nil, err
-	}
-	return &CaseDetailResponse{
-		CaseResponse:     caseResponse(*item, actions),
-		TemplateSnapshot: parseTemplateSnapshot(item.TemplateSnapshotJSON),
-		Actions:          caseActionDetailResponses(actions, attempts),
-		Events:           caseEventResponses(events),
-		Evidence:         caseEvidenceResponses(evidence, attachments, false),
-		Notification:     caseNotificationResponse(notification, false),
-	}, nil
 }
 
 // UserHistory returns a page of one member's cases and their all-time
@@ -355,6 +308,7 @@ func caseResponse(item Case, actions []CaseActionExecution) CaseResponse {
 		ReplacementCaseID:       item.ReplacementCaseID,
 		ReplacesCaseID:          item.ReplacesCaseID,
 		SelectedLevel:           snapshotSelectedLevel(item.TemplateSnapshotJSON),
+		RuleName:                snapshotRuleName(item.TemplateSnapshotJSON),
 		Actions:                 make([]CaseActionResponse, 0, len(actions)),
 	}
 	for _, action := range actions {
@@ -425,8 +379,10 @@ func caseActionDetailResponses(actions []CaseActionExecution, attempts []CaseAct
 	}
 	responses := make([]CaseActionDetailResponse, 0, len(actions))
 	for _, action := range actions {
+		projected := caseActionResponse(action)
+		projected.TimeoutUntil = recordedTimeoutUntil(action, attempts)
 		responses = append(responses, CaseActionDetailResponse{
-			CaseActionResponse: caseActionResponse(action),
+			CaseActionResponse: projected,
 			ConfigSnapshot:     parseJSON(action.ConfigSnapshotJSON),
 			AttemptCount:       action.AttemptCount,
 			LastErrorCode:      action.LastErrorCode,

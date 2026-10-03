@@ -150,7 +150,8 @@ func NewEvidenceService(store EvidenceStore, client EvidenceClient) *EvidenceSer
 }
 
 // EnsureGuildEvidenceChannel makes sure the guild has an evidence channel
-// and records it in settings if it changed.
+// and records it in settings if it changed. If settings changed it
+// concurrently, that change wins and its channel is returned.
 func (s *EvidenceService) EnsureGuildEvidenceChannel(ctx context.Context, guild Guild, settings GuildSettings) (string, error) {
 	if s.client == nil {
 		return "", errors.New("evidence client is not configured")
@@ -162,20 +163,15 @@ func (s *EvidenceService) EnsureGuildEvidenceChannel(ctx context.Context, guild 
 	if channelID == settings.ManagedEvidenceChannelDiscordID {
 		return channelID, nil
 	}
-	settings.ManagedEvidenceChannelDiscordID = channelID
-	_, err = s.store.UpdateGuildSettings(ctx, UpdateGuildSettingsParams{
-		Settings: settings,
-		Audit: &AuditLogEntry{
-			GuildID:      guild.ID,
-			Source:       AuditSourceSystem,
-			Action:       "evidence_channel.ensure",
-			ResourceType: "guild_settings",
-			ResourceID:   settings.ID,
-			Result:       AuditResultSuccess,
-			MetadataJSON: "{}",
-		},
+	return s.store.SetManagedEvidenceChannel(ctx, guild.ID, settings.ManagedEvidenceChannelDiscordID, channelID, &AuditLogEntry{
+		GuildID:      guild.ID,
+		Source:       AuditSourceSystem,
+		Action:       "evidence_channel.ensure",
+		ResourceType: "guild_settings",
+		ResourceID:   settings.ID,
+		Result:       AuditResultSuccess,
+		MetadataJSON: "{}",
 	})
-	return channelID, err
 }
 
 // RepairDiscordGuildEvidenceChannel re-checks a guild's evidence channel
@@ -294,7 +290,7 @@ func (s *EvidenceService) Capture(ctx context.Context, guildID, actorDiscordUser
 			MessageCreatedAt:    message.CreatedAt,
 			MessageEditedAt:     message.EditedAt,
 			EmbedsJSON:          string(embedJSON),
-			CaptureOutcome:      "captured",
+			CaptureOutcome:      captureOutcomeCaptured,
 		}
 
 		attachments := message.Attachments
@@ -328,23 +324,19 @@ func (s *EvidenceService) Capture(ctx context.Context, guildID, actorDiscordUser
 	return result, nil
 }
 
-// captureEvidence captures a new case's linked messages into the guild's
-// evidence channel. A message that can't be captured is only acceptable
-// when the moderator gave other context the member can see.
-func (s *CaseService) captureEvidence(ctx context.Context, guildContext *GuildStaffContext, targetID string, links []string, hasOtherContext bool, attribution caseAttribution) (CapturedEvidence, error) {
-	if len(links) == 0 {
+// captureEvidence captures a new case's linked messages and uploaded files
+// into the guild's evidence channel. A message that can't be captured is
+// only acceptable when the moderator gave other context the member can see.
+func (s *CaseService) captureEvidence(ctx context.Context, guildContext *GuildStaffContext, targetID string, links []string, files []DiscordAttachmentSnapshot, hasOtherContext bool, attribution caseAttribution) (CapturedEvidence, error) {
+	if len(links) == 0 && len(files) == 0 {
 		return CapturedEvidence{}, nil
 	}
 	if s.evidence == nil {
 		return CapturedEvidence{}, caseValidationError("evidence capture is not configured")
 	}
-	settings, err := s.store.GetGuildSettings(ctx, guildContext.Guild.ID)
+	channelID, err := s.evidenceChannel(ctx, guildContext.Guild.ID)
 	if err != nil {
 		return CapturedEvidence{}, err
-	}
-	channelID := ""
-	if settings != nil {
-		channelID = settings.ManagedEvidenceChannelDiscordID
 	}
 	actorID := guildContext.ActorDiscordUserID
 	if attribution.system {
@@ -358,6 +350,11 @@ func (s *CaseService) captureEvidence(ctx context.Context, guildContext *GuildSt
 			"case_evidence", "unknown", AuditResultFailure, err.Error())
 		return CapturedEvidence{}, caseValidationError(err.Error())
 	}
+	uploads, err := s.evidence.CaptureUploads(ctx, guildContext.Guild.DiscordGuildID, actorID, channelID, files)
+	if err != nil {
+		return CapturedEvidence{}, err
+	}
+	captured.append(uploads)
 	return *captured, nil
 }
 

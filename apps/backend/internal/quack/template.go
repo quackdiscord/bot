@@ -2,6 +2,7 @@ package quack
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"time"
@@ -20,13 +21,20 @@ func NewTemplateService(store TemplateStore) *TemplateService {
 
 // TemplateInput is a template as an admin submits it, before validation.
 type TemplateInput struct {
-	Slug           string                      `json:"slug"`
-	Name           string                      `json:"name"`
-	Description    string                      `json:"description"`
-	ReasonTemplate string                      `json:"reason_template"`
-	Appealable     bool                        `json:"appealable"`
-	ContextFields  []TemplateContextFieldInput `json:"context_fields"`
-	Levels         []TemplateLevelInput        `json:"levels"`
+	Slug           string `json:"slug"`
+	Name           string `json:"name"`
+	Description    string `json:"description"`
+	ReasonTemplate string `json:"reason_template"`
+	// CaseDecayDays limits escalation counting to recent cases, from 0 to
+	// MaxCaseDecayDays. Zero counts all-time history.
+	CaseDecayDays int                         `json:"case_decay_days"`
+	Appealable    bool                        `json:"appealable"`
+	ContextFields []TemplateContextFieldInput `json:"context_fields"`
+	Levels        []TemplateLevelInput        `json:"levels"`
+	// ExpectedVersion, when set on an update, is the version the editor
+	// started from. The update fails with ErrTemplateConflict if the
+	// template has changed since.
+	ExpectedVersion uint `json:"expected_version,omitempty"`
 }
 
 // TemplateContextFieldInput is a context field as submitted.
@@ -66,6 +74,7 @@ type TemplateResponse struct {
 	Name                   string                         `json:"name"`
 	Description            string                         `json:"description"`
 	ReasonTemplate         string                         `json:"reason_template"`
+	CaseDecayDays          int                            `json:"case_decay_days"`
 	Appealable             bool                           `json:"appealable"`
 	Version                uint                           `json:"version"`
 	CreatedByDiscordUserID string                         `json:"created_by_discord_user_id"`
@@ -109,26 +118,6 @@ type TemplateActionResponse struct {
 	TimeoutDurationSeconds int        `json:"timeout_duration_seconds,omitempty"`
 	DeleteMessageSeconds   int        `json:"delete_message_seconds,omitempty"`
 	MaxRetries             uint8      `json:"max_retries"`
-}
-
-// TemplatePolicy is a template stripped of anything guild-specific, for
-// sharing between guilds.
-type TemplatePolicy struct {
-	SchemaVersion  int                         `json:"schema_version"`
-	Slug           string                      `json:"slug"`
-	Name           string                      `json:"name"`
-	Description    string                      `json:"description"`
-	OfficialReason string                      `json:"official_reason"`
-	Appealable     bool                        `json:"appealable"`
-	ContextFields  []TemplateContextFieldInput `json:"context_fields"`
-	Levels         []TemplateLevelInput        `json:"levels"`
-}
-
-// TemplateImportInput is an exported policy to import. Confirm must be set,
-// since an imported template is live as soon as it is created.
-type TemplateImportInput struct {
-	Confirm bool           `json:"confirm"`
-	Policy  TemplatePolicy `json:"policy"`
 }
 
 // List returns all of the guild's templates, including archived ones.
@@ -202,7 +191,8 @@ func (s *TemplateService) Create(ctx context.Context, guildContext *GuildStaffCo
 }
 
 // Update replaces a template's policy and bumps its version. Existing cases
-// keep the snapshot they were created with.
+// keep the snapshot they were created with. A concurrent edit makes it fail
+// with ErrTemplateConflict rather than silently overwrite the other edit.
 func (s *TemplateService) Update(ctx context.Context, guildContext *GuildStaffContext, templateID string, input TemplateInput) (*TemplateResponse, error) {
 	ctx = ensureTraceContext(ctx)
 	const action = string(AuditActionTemplateUpdate)
@@ -216,20 +206,28 @@ func (s *TemplateService) Update(ctx context.Context, guildContext *GuildStaffCo
 	if existing == nil {
 		return nil, ErrTemplateNotFound
 	}
+	if input.ExpectedVersion != 0 && input.ExpectedVersion != existing.Template.Version {
+		_ = s.audit(ctx, guildContext, action, templateID, AuditResultFailure, ErrTemplateConflict.Error())
+		return nil, ErrTemplateConflict
+	}
 	normalized, err := s.validate(ctx, guildContext, templateID, input)
 	if err != nil {
 		_ = s.audit(ctx, guildContext, action, templateID, AuditResultFailure, err.Error())
 		return nil, err
 	}
 	updated, err := s.store.UpdateCaseTemplate(ctx, UpdateCaseTemplateParams{
-		GuildID:       guildContext.Guild.ID,
-		TemplateID:    templateID,
-		Template:      normalized.Template,
-		ContextFields: normalized.ContextFields,
-		Levels:        normalized.Levels,
-		Audit:         staffAudit(ctx, guildContext, action, "case_template", templateID, AuditResultSuccess, ""),
+		GuildID:         guildContext.Guild.ID,
+		TemplateID:      templateID,
+		ExpectedVersion: existing.Template.Version,
+		Template:        normalized.Template,
+		ContextFields:   normalized.ContextFields,
+		Levels:          normalized.Levels,
+		Audit:           staffAudit(ctx, guildContext, action, "case_template", templateID, AuditResultSuccess, ""),
 	})
 	if err != nil {
+		if errors.Is(err, ErrTemplateConflict) {
+			_ = s.audit(ctx, guildContext, action, templateID, AuditResultFailure, err.Error())
+		}
 		return nil, err
 	}
 	if updated == nil {
@@ -248,90 +246,6 @@ func (s *TemplateService) Archive(ctx context.Context, guildContext *GuildStaffC
 // version are unchanged.
 func (s *TemplateService) Restore(ctx context.Context, guildContext *GuildStaffContext, templateID string) (*TemplateResponse, error) {
 	return s.setArchived(ctx, guildContext, strings.TrimSpace(templateID), false)
-}
-
-// Export returns a template's policy for import elsewhere. Guild identity,
-// history, and authorship are left out.
-func (s *TemplateService) Export(ctx context.Context, guildContext *GuildStaffContext, templateID string) (*TemplatePolicy, error) {
-	ctx = ensureTraceContext(ctx)
-	const action = string(AuditActionTemplateExport)
-	if err := s.requireWrite(ctx, guildContext, action, templateID); err != nil {
-		return nil, err
-	}
-	template, err := s.Get(ctx, guildContext, templateID)
-	if err != nil {
-		_ = s.audit(ctx, guildContext, action, templateID, AuditResultFailure, err.Error())
-		return nil, err
-	}
-	policy := &TemplatePolicy{
-		SchemaVersion:  1,
-		Slug:           template.Slug,
-		Name:           template.Name,
-		Description:    template.Description,
-		OfficialReason: template.ReasonTemplate,
-		Appealable:     template.Appealable,
-	}
-	for _, field := range template.ContextFields {
-		policy.ContextFields = append(policy.ContextFields, TemplateContextFieldInput{
-			Key:       field.Key,
-			Label:     field.Label,
-			FieldType: field.FieldType,
-			Position:  field.Position,
-			Required:  field.Required,
-		})
-	}
-	for _, level := range template.Levels {
-		levelInput := TemplateLevelInput{
-			Name:             level.Name,
-			Position:         level.Position,
-			IsDefault:        level.IsDefault,
-			TriggerCaseCount: level.TriggerCaseCount,
-			NotifyUser:       level.NotifyUser,
-		}
-		for _, action := range level.Actions {
-			levelInput.Actions = append(levelInput.Actions, TemplateActionInput{
-				ActionType:             action.ActionType,
-				TimeoutDurationSeconds: action.TimeoutDurationSeconds,
-				DeleteMessageSeconds:   action.DeleteMessageSeconds,
-				MaxRetries:             int(action.MaxRetries),
-			})
-		}
-		policy.Levels = append(policy.Levels, levelInput)
-	}
-	if err := s.audit(ctx, guildContext, action, templateID, AuditResultSuccess, ""); err != nil {
-		return nil, err
-	}
-	return policy, nil
-}
-
-// Import creates a new template in this guild from an exported policy.
-func (s *TemplateService) Import(ctx context.Context, guildContext *GuildStaffContext, input TemplateImportInput) (*TemplateResponse, error) {
-	ctx = ensureTraceContext(ctx)
-	const action = string(AuditActionTemplateImport)
-	if err := s.requireWrite(ctx, guildContext, action, ""); err != nil {
-		return nil, err
-	}
-	var err error
-	switch {
-	case !input.Confirm:
-		err = templateValidationError("template import must be explicitly confirmed")
-	case input.Policy.SchemaVersion != 1:
-		err = templateValidationError("unsupported template policy schema_version")
-	}
-	if err != nil {
-		_ = s.audit(ctx, guildContext, action, "unknown", AuditResultFailure, err.Error())
-		return nil, err
-	}
-	policy := input.Policy
-	return s.create(ctx, guildContext, action, TemplateInput{
-		Slug:           policy.Slug,
-		Name:           policy.Name,
-		Description:    policy.Description,
-		ReasonTemplate: policy.OfficialReason,
-		Appealable:     policy.Appealable,
-		ContextFields:  policy.ContextFields,
-		Levels:         policy.Levels,
-	}, "Template imported")
 }
 
 // create validates input and stores it as a new template at version 1,
@@ -423,6 +337,7 @@ func templateResponse(expanded ExpandedCaseTemplate) TemplateResponse {
 		Name:                   template.Name,
 		Description:            template.Description,
 		ReasonTemplate:         template.ReasonTemplate,
+		CaseDecayDays:          template.CaseDecayDays,
 		Appealable:             template.Appealable,
 		Version:                template.Version,
 		CreatedByDiscordUserID: template.CreatedByDiscordUserID,

@@ -319,6 +319,8 @@ definitions:
         type: array
       case_id:
         type: string
+      case_number:
+        type: integer
       created_at:
         type: string
       decision_reason:
@@ -344,6 +346,8 @@ definitions:
       status:
         $ref: '#/definitions/model.AppealStatus'
       target_discord_user_id:
+        type: string
+      template_name:
         type: string
       updated_at:
         type: string
@@ -446,6 +450,8 @@ definitions:
         $ref: '#/definitions/model.ActionExecutionStatus'
       template_action_id:
         type: string
+      timeout_until:
+        type: string
     type: object
   quack.CaseContextValueInput:
     properties:
@@ -529,6 +535,8 @@ definitions:
         type: array
       created_at:
         type: string
+      evidence_incomplete:
+        type: boolean
       guild_id:
         type: string
       id:
@@ -541,6 +549,8 @@ definitions:
       replacement_case_id:
         type: string
       replaces_case_id:
+        type: string
+      rule_name:
         type: string
       selected_level:
         $ref: '#/definitions/quack.CaseSelectedLevel'
@@ -580,6 +590,12 @@ definitions:
     type: object
   quack.GuildSettingsInput:
     properties:
+      appeal_queue_channel_discord_id:
+        type: string
+      appeal_rejoin_url:
+        type: string
+      appeal_review_reason_required:
+        type: boolean
       audit_mirror_channel_discord_id:
         type: string
       general_logging_enabled:
@@ -767,12 +783,16 @@ definitions:
     properties:
       appealable:
         type: boolean
+      case_decay_days:
+        type: integer
       context_fields:
         items:
           $ref: '#/definitions/quack.TemplateContextFieldInput'
         type: array
       description:
         type: string
+      expected_version:
+        type: integer
       levels:
         items:
           $ref: '#/definitions/quack.TemplateLevelInput'
@@ -805,6 +825,8 @@ definitions:
     properties:
       appealable:
         type: boolean
+      case_decay_days:
+        type: integer
       context_fields:
         items:
           $ref: '#/definitions/quack.TemplateContextFieldInput'

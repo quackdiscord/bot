@@ -38,6 +38,12 @@ var (
 	// ErrTemplatePermissionDenied means the staff context cannot read or
 	// write templates.
 	ErrTemplatePermissionDenied = errors.New("template permission denied")
+	// ErrTemplateConflict means the template changed since the editor read
+	// it. Reload it and edit again.
+	ErrTemplateConflict = errors.New("template changed; reload it before saving")
+	// ErrUnattendedTemplateUnavailable means a template is missing, archived,
+	// or cannot run without a moderator, so automation cannot use it.
+	ErrUnattendedTemplateUnavailable = errors.New("unattended template is unavailable")
 
 	// ErrGuildSettingsValidation wraps a message explaining what is wrong
 	// with a settings update.

@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 
 	"github.com/quackdiscord/bot/internal/quack"
@@ -10,15 +12,19 @@ import (
 )
 
 // CountTemplateCasesForTarget counts a member's valid cases under one
-// template, across all of its versions. Imported v4 cases are history only
+// template, across all of its versions, created at or after
+// params.CreatedAtOrAfter when it is set. Imported v4 cases are history only
 // and never count toward escalation.
 func (s *Store) CountTemplateCasesForTarget(ctx context.Context, params quack.CountTemplateCasesForTargetParams) (int64, error) {
 	var count int64
-	err := s.db.WithContext(ctx).Model(&caseRecord{}).
+	query := s.db.WithContext(ctx).Model(&caseRecord{}).
 		Where("guild_id = ? AND target_discord_user_id = ? AND template_id = ?",
 			params.GuildID, params.TargetDiscordUserID, params.TemplateID).
-		Where("validity = ? AND source <> ?", quack.CaseValidityValid, quack.CaseSourceV4Import).
-		Count(&count).Error
+		Where("validity = ? AND source <> ?", quack.CaseValidityValid, quack.CaseSourceV4Import)
+	if params.CreatedAtOrAfter != nil {
+		query = query.Where("created_at >= ?", params.CreatedAtOrAfter.UTC())
+	}
+	err := query.Count(&count).Error
 	if err != nil {
 		return 0, fmt.Errorf("count template cases for target: %w", err)
 	}
@@ -144,6 +150,21 @@ func (s *Store) ListCaseEvents(ctx context.Context, caseID string) ([]quack.Case
 	return modelsOf(records, caseEventRecord.model), nil
 }
 
+// ListRecentCaseEvents returns a case's latest limit events, oldest first.
+// IDs break timestamp ties so repeated reads show the same events.
+func (s *Store) ListRecentCaseEvents(ctx context.Context, caseID string, limit int) ([]quack.CaseEvent, error) {
+	if limit < 1 || limit > 100 {
+		return nil, errors.New("recent case event limit must be between 1 and 100")
+	}
+	var records []caseEventRecord
+	if err := s.db.WithContext(ctx).Where("case_id = ?", caseID).
+		Order("created_at DESC, id DESC").Limit(limit).Find(&records).Error; err != nil {
+		return nil, fmt.Errorf("list recent case events: %w", err)
+	}
+	slices.Reverse(records)
+	return modelsOf(records, caseEventRecord.model), nil
+}
+
 // ListCaseActionExecutions returns a case's executions in run order.
 func (s *Store) ListCaseActionExecutions(ctx context.Context, caseID string) ([]quack.CaseActionExecution, error) {
 	return s.ListCaseActionsForCases(ctx, []string{caseID})
@@ -205,6 +226,44 @@ func (s *Store) ListCaseEvidence(ctx context.Context, caseID string) ([]quack.Ca
 		return nil, nil, fmt.Errorf("list evidence attachments: %w", err)
 	}
 	return evidence, modelsOf(records, attachmentRecord.model), nil
+}
+
+// GetCaseEvidencePage returns a case's evidence item at 1-based position,
+// oldest first, clamped into range, with only that item's attachments and
+// the case's evidence count. The item is nil when the case has none.
+func (s *Store) GetCaseEvidencePage(ctx context.Context, caseID string, position int) (*quack.CaseEvidenceSnapshot, []quack.CaseEvidenceAttachment, int64, error) {
+	db := s.db.WithContext(ctx)
+	var total int64
+	if err := db.Model(&evidenceRecord{}).Where("case_id = ?", caseID).Count(&total).Error; err != nil {
+		return nil, nil, 0, fmt.Errorf("count case evidence: %w", err)
+	}
+	if total == 0 {
+		return nil, nil, 0, nil
+	}
+	position = min(max(position, 1), int(total))
+	var record evidenceRecord
+	if _, err := first(db.Where("case_id = ?", caseID).Order("created_at ASC, id ASC").Offset(position-1), &record); err != nil {
+		return nil, nil, 0, fmt.Errorf("get case evidence page: %w", err)
+	}
+	var attachments []attachmentRecord
+	if err := db.Where("evidence_id = ?", record.ID).Order("created_at ASC, id ASC").Find(&attachments).Error; err != nil {
+		return nil, nil, 0, fmt.Errorf("list evidence attachments: %w", err)
+	}
+	snapshot := record.model()
+	return &snapshot, modelsOf(attachments, attachmentRecord.model), total, nil
+}
+
+// CaseEvidenceIncomplete reports whether any of a case's evidence has a
+// warning or was not captured or uploaded, without reading its content.
+func (s *Store) CaseEvidenceIncomplete(ctx context.Context, caseID string) (bool, error) {
+	var count int64
+	err := s.db.WithContext(ctx).Model(&evidenceRecord{}).
+		Where("case_id = ? AND (capture_warning <> '' OR capture_outcome NOT IN ?)", caseID, []string{"captured", "uploaded"}).
+		Count(&count).Error
+	if err != nil {
+		return false, fmt.Errorf("check case evidence: %w", err)
+	}
+	return count > 0, nil
 }
 
 // GetCaseNotification returns a case's member notification, or nil when the

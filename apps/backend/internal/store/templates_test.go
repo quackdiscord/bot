@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/quackdiscord/bot/internal/quack"
@@ -81,8 +82,9 @@ func TestUpdateTemplateReplacesChildrenAndBumpsVersion(t *testing.T) {
 	update := newTemplate(guildID, "spam-updated")
 	update.Name = "Spam Updated"
 	update.UpdatedByDiscordUserID = "moderator-2"
+	update.CaseDecayDays = 30
 	updated, err := s.UpdateCaseTemplate(ctx, quack.UpdateCaseTemplateParams{
-		GuildID: guildID, TemplateID: created.Template.ID, Template: update,
+		GuildID: guildID, TemplateID: created.Template.ID, Template: update, ExpectedVersion: 1,
 		Levels: []quack.ExpandedCaseTemplateLevel{{
 			Level:   quack.CaseTemplateLevel{Position: 1, Name: "Default", IsDefault: true},
 			Actions: []quack.CaseTemplateLevelAction{{ActionType: quack.ActionKickUser, ConfigJSON: `{}`}},
@@ -91,8 +93,15 @@ func TestUpdateTemplateReplacesChildrenAndBumpsVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.Template.Version != 2 || updated.Template.Slug != "spam-updated" || updated.Template.UpdatedByDiscordUserID != "moderator-2" {
+	if updated.Template.Version != 2 || updated.Template.Slug != "spam-updated" ||
+		updated.Template.UpdatedByDiscordUserID != "moderator-2" || updated.Template.CaseDecayDays != 30 {
 		t.Fatalf("template = %+v", updated.Template)
+	}
+	stale, err := s.UpdateCaseTemplate(ctx, quack.UpdateCaseTemplateParams{
+		GuildID: guildID, TemplateID: created.Template.ID, Template: update, ExpectedVersion: 1,
+	})
+	if !errors.Is(err, quack.ErrTemplateConflict) || stale != nil {
+		t.Fatalf("stale update = %+v, %v; want ErrTemplateConflict", stale, err)
 	}
 	if len(updated.Levels) != 1 || len(updated.Levels[0].Actions) != 1 || updated.Levels[0].Actions[0].ActionType != quack.ActionKickUser {
 		t.Fatalf("levels = %+v", updated.Levels)

@@ -22,6 +22,9 @@ func TestGuildSettingsUpdateAndChannelRepair(t *testing.T) {
 	settings := bootstrap.Settings
 	settings.AuditMirrorChannelDiscordID = "shared-channel"
 	settings.ManagedEvidenceChannelDiscordID = "shared-channel"
+	settings.AppealQueueChannelDiscordID = "shared-channel"
+	settings.AppealRejoinURL = "https://discord.gg/quack"
+	settings.AppealReviewReasonRequired = true
 	settings.StarterPolicyTemplateID = "ignored"
 	updated, err := s.UpdateGuildSettings(ctx, quack.UpdateGuildSettingsParams{
 		Settings: settings,
@@ -36,7 +39,8 @@ func TestGuildSettingsUpdateAndChannelRepair(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.AuditMirrorChannelDiscordID != "shared-channel" {
+	if updated.AuditMirrorChannelDiscordID != "shared-channel" || updated.AppealQueueChannelDiscordID != "shared-channel" ||
+		updated.AppealRejoinURL != "https://discord.gg/quack" || !updated.AppealReviewReasonRequired {
 		t.Fatalf("update = %+v", updated)
 	}
 	if updated.StarterPolicyTemplateID != bootstrap.Settings.StarterPolicyTemplateID {
@@ -49,7 +53,8 @@ func TestGuildSettingsUpdateAndChannelRepair(t *testing.T) {
 		t.Fatal(err)
 	}
 	cleared, err := s.ClearGuildChannelReferences(ctx, guildID, "shared-channel", repair)
-	if err != nil || cleared.AuditMirrorChannelDiscordID != "" || cleared.ManagedEvidenceChannelDiscordID != "" {
+	if err != nil || cleared.AuditMirrorChannelDiscordID != "" || cleared.ManagedEvidenceChannelDiscordID != "" ||
+		cleared.AppealQueueChannelDiscordID != "" || cleared.AppealRejoinURL == "" {
 		t.Fatalf("clear = %+v, %v", cleared, err)
 	}
 	audits, err := s.ListAuditLogEntriesFiltered(ctx, quack.ListAuditLogEntriesParams{GuildID: guildID, Action: repair.Action})
@@ -63,6 +68,33 @@ func TestGuildSettingsUpdateAndChannelRepair(t *testing.T) {
 	}
 	if err := notFound(s.GetGuildSettings(ctx, "unknown")); err != nil {
 		t.Errorf("GetGuildSettings(unknown): %v", err)
+	}
+}
+
+func TestSetManagedEvidenceChannelKeepsConcurrentChanges(t *testing.T) {
+	ctx := context.Background()
+	s := testutil.NewSQLiteStore(t)
+	bootstrap, err := s.BootstrapGuild(ctx, quack.BootstrapGuildParams{
+		Starter: quack.StarterTemplate(), DiscordGuildID: "guild", Name: "Guild", OwnerDiscordUserID: "owner",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	guildID := bootstrap.Guild.ID
+	audit := &quack.AuditLogEntry{Source: quack.AuditSourceSystem, Action: "evidence_channel.ensure",
+		ResourceType: "guild_settings", Result: quack.AuditResultSuccess}
+	if got, err := s.SetManagedEvidenceChannel(ctx, guildID, "", "first", audit); err != nil || got != "first" {
+		t.Fatalf("first set = %q, %v", got, err)
+	}
+	if got, err := s.SetManagedEvidenceChannel(ctx, guildID, "", "second", audit); err != nil || got != "first" {
+		t.Fatalf("stale set = %q, %v; want the concurrent winner", got, err)
+	}
+	settings, err := s.GetGuildSettings(ctx, guildID)
+	if err != nil || settings.ManagedEvidenceChannelDiscordID != "first" {
+		t.Fatalf("settings = %+v, %v", settings, err)
+	}
+	if _, err := s.SetManagedEvidenceChannel(ctx, guildID, "first", "", audit); err == nil {
+		t.Fatal("set an empty evidence channel")
 	}
 }
 

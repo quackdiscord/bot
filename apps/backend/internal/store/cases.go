@@ -161,7 +161,7 @@ func (s *Store) VoidCase(ctx context.Context, params quack.VoidCaseParams) (*qua
 			}
 			return errors.New("case is already voided with a different reason")
 		}
-		if err := voidCase(tx, &record, params.Reason, params.ActorDiscordUserID, params.ReplacementCaseID, now); err != nil {
+		if err := voidCase(tx, &record, params.Reason, params.ActorDiscordUserID, params.ReplacementCaseID, nil, now); err != nil {
 			return err
 		}
 		event := quack.CaseEvent{
@@ -196,9 +196,11 @@ var errCaseNotValid = errors.New("case is no longer valid")
 // voidCase marks a locked, valid case voided and cancels the work it has not
 // started: pending and retrying executions and an unsent notification.
 // Running executions and a notification already being sent are left alone,
-// because their Discord requests may already have happened. Both case voids
-// and accepted appeals go through here.
-func voidCase(tx *gorm.DB, c *caseRecord, reason, actorID string, replacementID *string, now time.Time) error {
+// because their Discord requests may already have happened. It then queues
+// reversals of the case's succeeded timeouts and bans, linked to appealID
+// when an accepted appeal voided it, and requests a refresh of the case's
+// publications. Both case voids and accepted appeals go through here.
+func voidCase(tx *gorm.DB, c *caseRecord, reason, actorID string, replacementID, appealID *string, now time.Time) error {
 	result := tx.Model(&caseRecord{}).
 		Where("id = ? AND validity = ?", c.ID, quack.CaseValidityValid).
 		Updates(map[string]any{
@@ -248,7 +250,10 @@ func voidCase(tx *gorm.DB, c *caseRecord, reason, actorID string, replacementID 
 		}).Error; err != nil {
 		return fmt.Errorf("cancel voided case notification: %w", err)
 	}
-	return nil
+	if err := queueVoidedCaseReversals(tx, *c, appealID, now); err != nil {
+		return err
+	}
+	return requestPublicationRefresh(tx, c.ID, now)
 }
 
 // appendCaseEvent adds event to its case's timeline, filling in defaults and,

@@ -53,6 +53,9 @@ type CaseInput struct {
 	Metadata                json.RawMessage         `json:"metadata"`
 	ContextValues           []CaseContextValueInput `json:"context_values"`
 	EvidenceLinks           []string                `json:"evidence_links"`
+	// Attachments are files the moderator uploaded with the request. They
+	// are copied into the evidence channel as their own evidence items.
+	Attachments []DiscordAttachmentSnapshot `json:"-"`
 	// ReplacesCaseID links the new case to a voided case it corrects.
 	ReplacesCaseID string `json:"replaces_case_id,omitempty"`
 	// IdempotencyKey makes creation safe to retry: a repeated request with
@@ -124,8 +127,9 @@ func (s *CaseService) CreateSystemHoneypot(ctx context.Context, guildID string, 
 }
 
 // Void marks a case invalid so it stops counting toward escalation. The
-// case and the reason it was voided stay on record. To correct a case, void
-// it and create the replacement with ReplacesCaseID.
+// case and the reason it was voided stay on record. Its succeeded timeouts
+// and bans are reversed automatically. To correct a case, void it and create
+// the replacement with ReplacesCaseID.
 func (s *CaseService) Void(ctx context.Context, guildContext *GuildStaffContext, caseRef, reason string) (response *CaseResponse, err error) {
 	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
 		return nil, caseValidationError("missing guild context")
@@ -169,6 +173,11 @@ func (s *CaseService) Void(ctx context.Context, guildContext *GuildStaffContext,
 		return nil, ErrCaseNotFound
 	}
 	slog.InfoContext(ctx, "Case voided", "guild_id", voided.GuildID, "case_id", voided.ID, "case_number", voided.CaseNumber)
+	// Voiding may have queued reversals; run them now rather than at the
+	// next poll.
+	if s.scheduler != nil {
+		s.scheduler.Submit(ctx, voided.ID)
+	}
 	actions, err := s.store.ListCaseActionExecutions(ctx, voided.ID)
 	if err != nil {
 		return nil, err
@@ -212,6 +221,7 @@ func (s *CaseService) create(ctx context.Context, guildContext *GuildStaffContex
 		"case_id", created.Case.ID, "case_number", created.Case.CaseNumber,
 		"template_id", input.TemplateID, "source", created.Case.Source)
 	response := caseResponse(created.Case, created.ActionExecutions)
+	response.EvidenceIncomplete = evidenceIncomplete(created.Evidence)
 	return &response, nil
 }
 
@@ -304,7 +314,7 @@ func (s *CaseService) preflight(ctx context.Context, guildContext *GuildStaffCon
 	if input.ContextURL != "" {
 		links = append(links, input.ContextURL)
 	}
-	captured, err := s.captureEvidence(ctx, guildContext, input.TargetDiscordUserID, links, hasOtherContext, attribution)
+	captured, err := s.captureEvidence(ctx, guildContext, input.TargetDiscordUserID, links, input.Attachments, hasOtherContext, attribution)
 	if err != nil {
 		return nil, err
 	}

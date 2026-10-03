@@ -94,17 +94,23 @@ func TestAppealLifecycleAndAtomicAcceptance(t *testing.T) {
 		t.Fatalf("submit information: %v", err)
 	}
 	accepted, err := service.Accept(ctx, moderator, appeal.ID, "The added context changes the decision.")
-	if err != nil || accepted.Status != quack.AppealStatusAccepted || len(accepted.ReversalOffers) != 1 ||
-		accepted.ReversalOffers[0].ActionType != quack.ActionUnbanUser {
+	if err != nil || accepted.Status != quack.AppealStatusAccepted || len(accepted.ReversalOffers) != 0 {
 		t.Fatalf("accept appeal: %+v err=%v", accepted, err)
 	}
 
-	// Acceptance voids the case and cancels unstarted work, but queues no
-	// reversal on its own.
+	// Acceptance voids the case, cancels unstarted work, and queues the
+	// unban itself, linked to the appeal and requested by the reviewer.
 	executions, err := s.ListCaseActionExecutions(ctx, c.ID)
-	if err != nil || len(executions) != 2 ||
+	if err != nil || len(executions) != 3 ||
 		executions[1].Status != quack.ActionExecutionCancelled || executions[1].LastErrorCode != "case_voided" {
 		t.Fatalf("executions after acceptance: %+v err=%v", executions, err)
+	}
+	unban := executions[2]
+	if unban.ActionType != quack.ActionUnbanUser || unban.Status != quack.ActionExecutionPending ||
+		unban.ReversalOfExecutionID == nil || *unban.ReversalOfExecutionID != executions[0].ID ||
+		unban.ReversalAppealID == nil || *unban.ReversalAppealID != appeal.ID ||
+		unban.ConfigSnapshotJSON != `{"requested_by":"moderator"}` {
+		t.Fatalf("automatic reversal: %+v", unban)
 	}
 	if n, err := s.GetCaseNotification(ctx, c.ID); err != nil || n.Status != quack.NotificationFailed || n.LastErrorCode != "case_voided" {
 		t.Fatalf("notification after acceptance: %+v err=%v", n, err)
@@ -115,8 +121,8 @@ func TestAppealLifecycleAndAtomicAcceptance(t *testing.T) {
 	appealID := appeal.ID
 	queued, err := s.QueueCaseReversal(ctx, quack.QueueCaseReversalParams{GuildID: guildID, CaseID: c.ID, ActorDiscordUserID: "moderator",
 		OriginalExecutionID: executions[0].ID, ActionType: quack.ActionUnbanUser, AppealID: &appealID})
-	if err != nil || queued == nil || queued.ReversalAppealID == nil || *queued.ReversalAppealID != appeal.ID || queued.SafeForRetry {
-		t.Fatalf("reversal: %+v err=%v", queued, err)
+	if err != nil || queued == nil || queued.ID != unban.ID {
+		t.Fatalf("staff reversal did not reuse the automatic one: %+v err=%v", queued, err)
 	}
 	if _, err := service.Reject(ctx, moderator, appeal.ID, "late competing decision"); !errors.Is(err, quack.ErrAppealConflict) {
 		t.Fatalf("decided appeal took a second decision: %v", err)
@@ -253,13 +259,46 @@ func TestAppealNotificationLeaseFencing(t *testing.T) {
 	if err != nil || len(first) != 1 || first[0].Status != quack.AppealNotificationClaimed || first[0].LeaseToken == "" {
 		t.Fatalf("first claim: %+v err=%v", first, err)
 	}
+	if err := s.BeginAppealNotificationDelivery(ctx, first[0].ID, first[0].LeaseToken); err != nil {
+		t.Fatalf("begin delivery: %v", err)
+	}
+	if err := s.BeginAppealNotificationDelivery(ctx, first[0].ID, first[0].LeaseToken); !errors.Is(err, quack.ErrAppealStateConflict) {
+		t.Fatalf("second begin = %v, want ErrAppealStateConflict", err)
+	}
 	if again, err := s.ClaimPendingAppealNotifications(ctx, 1); err != nil || len(again) != 0 {
 		t.Fatalf("claimed a leased notification: %+v err=%v", again, err)
+	}
+	// A send interrupted after it began may have reached Discord, so it is
+	// failed rather than sent again.
+	expire(t, s, "appeal_notifications", first[0].ID)
+	if again, err := s.ClaimPendingAppealNotifications(ctx, 1); err != nil || len(again) != 0 {
+		t.Fatalf("reclaimed an interrupted send: %+v err=%v", again, err)
+	}
+	var interrupted struct{ Status, LastErrorCode string }
+	if err := s.DB().Table("appeal_notifications").Where("id = ?", first[0].ID).Take(&interrupted).Error; err != nil ||
+		interrupted.Status != string(quack.AppealNotificationFailed) || interrupted.LastErrorCode != "delivery_outcome_unknown" {
+		t.Fatalf("interrupted send: %+v err=%v", interrupted, err)
+	}
+
+	// A claim that never began sending is reclaimed after its lease.
+	if err := s.DB().Table("appeal_notifications").Where("id = ?", first[0].ID).
+		Updates(map[string]any{"status": quack.AppealNotificationPending, "last_error_code": ""}).Error; err != nil {
+		t.Fatal(err)
+	}
+	first, err = s.ClaimPendingAppealNotifications(ctx, 1)
+	if err != nil || len(first) != 1 {
+		t.Fatalf("claim again: %+v err=%v", first, err)
 	}
 	expire(t, s, "appeal_notifications", first[0].ID)
 	second, err := s.ClaimPendingAppealNotifications(ctx, 1)
 	if err != nil || len(second) != 1 || second[0].ID != first[0].ID || second[0].LeaseToken == first[0].LeaseToken {
 		t.Fatalf("reclaim: %+v err=%v", second, err)
+	}
+	if err := s.BeginAppealNotificationDelivery(ctx, first[0].ID, first[0].LeaseToken); !errors.Is(err, quack.ErrAppealStateConflict) {
+		t.Fatalf("stale begin = %v, want ErrAppealStateConflict", err)
+	}
+	if err := s.BeginAppealNotificationDelivery(ctx, second[0].ID, second[0].LeaseToken); err != nil {
+		t.Fatalf("current begin: %v", err)
 	}
 	sent := func(n quack.AppealNotification) quack.CompleteAppealNotificationParams {
 		return quack.CompleteAppealNotificationParams{
@@ -273,6 +312,78 @@ func TestAppealNotificationLeaseFencing(t *testing.T) {
 	}
 	if err := s.CompleteAppealNotification(ctx, sent(second[0])); err != nil {
 		t.Fatalf("current completion: %v", err)
+	}
+}
+
+func TestAppealQueuePostFollowsTheAppeal(t *testing.T) {
+	ctx := context.Background()
+	s, guildID := newTestStore(t)
+	guild, err := s.GetGuildByID(ctx, guildID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := createAppealableCase(t, s, guildID, true)
+	service := quack.NewAppealService(s)
+	appeal, err := service.Submit(ctx, c.ID, "target", reasonAnswer())
+	if err != nil {
+		t.Fatal(err)
+	}
+	deliver := func(channelID, messageID string) quack.AppealNotification {
+		t.Helper()
+		claimed, err := s.ClaimPendingAppealNotifications(ctx, 10)
+		if err != nil || len(claimed) == 0 {
+			t.Fatalf("claim: %+v, %v", claimed, err)
+		}
+		item := claimed[0]
+		if err := s.BeginAppealNotificationDelivery(ctx, item.ID, item.LeaseToken); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.CompleteAppealNotification(ctx, quack.CompleteAppealNotificationParams{NotificationID: item.ID,
+			LeaseToken: item.LeaseToken, DeliveryChannelID: channelID, DeliveryMessageID: messageID, Status: quack.AppealNotificationSent}); err != nil {
+			t.Fatal(err)
+		}
+		return item
+	}
+	post := deliver("queue", "post")
+	if post.Audience != quack.AppealNotificationStaff {
+		t.Fatalf("first delivery = %+v", post)
+	}
+
+	// A decision notifies the member and asks for the queue post to be
+	// edited again.
+	if _, err := service.RequestInformation(ctx, reviewer(guild), appeal.ID, "Which message?"); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := s.ClaimPendingAppealNotifications(ctx, 10)
+	if err != nil || len(claimed) != 2 {
+		t.Fatalf("after decision = %+v, %v", claimed, err)
+	}
+	var refreshed *quack.AppealNotification
+	for i := range claimed {
+		if claimed[i].ID == post.ID {
+			refreshed = &claimed[i]
+		}
+	}
+	if refreshed == nil || refreshed.DeliveryChannelID != "queue" || refreshed.DeliveryMessageID != "post" {
+		t.Fatalf("queue post was not refreshed with its receipt: %+v", claimed)
+	}
+
+	// The member's reply creates a staff row that edits the same post.
+	expire(t, s, "appeal_notifications", claimed[0].ID)
+	expire(t, s, "appeal_notifications", claimed[1].ID)
+	if _, err := s.ClaimPendingAppealNotifications(ctx, 10); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.SubmitInformation(ctx, appeal.ID, "target", quack.AppealInformationInput{Body: "The first one."}); err != nil {
+		t.Fatal(err)
+	}
+	var rows []struct{ Audience, DeliveryChannelID, DeliveryMessageID string }
+	if err := s.DB().Table("appeal_notifications").Where("appeal_id = ? AND audience = ?", appeal.ID, quack.AppealNotificationStaff).
+		Order("created_at ASC, id ASC").Find(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || rows[1].DeliveryChannelID != "queue" || rows[1].DeliveryMessageID != "post" {
+		t.Fatalf("staff rows = %+v", rows)
 	}
 }
 

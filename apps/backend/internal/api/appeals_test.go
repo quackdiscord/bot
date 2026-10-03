@@ -146,6 +146,14 @@ func (r *appealRepository) ListCaseActionExecutions(context.Context, string) ([]
 	return nil, nil
 }
 
+func (r *appealRepository) GetGuildByDiscordID(context.Context, string) (*quack.Guild, error) {
+	return nil, nil
+}
+
+func (r *appealRepository) GetGuildSettings(context.Context, string) (*quack.GuildSettings, error) {
+	return nil, nil
+}
+
 func (r *appealRepository) CreateAuditLogEntry(context.Context, *quack.AuditLogEntry) error {
 	return nil
 }

@@ -67,6 +67,12 @@ func (s *ActionService) sendNotification(ctx context.Context, workerID, caseID s
 		return err
 	}
 	message := renderCaseNotification(*item, guild, settings, actions)
+	sender, rich := s.messenger.(CaseNotificationSender)
+	var request CaseNotificationRequest
+	if rich {
+		request = s.caseNotificationRequest(ctx, *item, guild, settings, actions)
+		request.PreparedChannelDiscordID = claimed.PreparedChannelDiscordID
+	}
 	if err := s.store.BeginCaseNotificationDelivery(ctx, claimed.ID, claimed.LeaseToken); err != nil {
 		return err
 	}
@@ -76,6 +82,11 @@ func (s *ActionService) sendNotification(ctx context.Context, workerID, caseID s
 	switch {
 	case s.messenger == nil:
 		sendErr = errors.New("discord messenger is not configured")
+	case rich:
+		var receipt CaseNotificationReceipt
+		receipt, sendErr = sender.DeliverCaseNotification(ctx, request)
+		message = receipt.RenderedMessage
+		response = map[string]any{"message_id": receipt.MessageID}
 	case snapshotAppealable(item.TemplateSnapshotJSON) && s.dashboardBaseURL != "":
 		response, sendErr = s.messenger.SendCaseNotification(ctx, item.TargetDiscordUserID,
 			claimed.PreparedChannelDiscordID, message, s.dashboardBaseURL, item.GuildID, item.ID)
@@ -113,6 +124,102 @@ func (s *ActionService) sendNotification(ctx context.Context, workerID, caseID s
 	slog.Log(ctx, level, "Case notification recorded", "case_id", caseID,
 		"status", params.Status, "error_code", params.ErrorCode)
 	return nil
+}
+
+// CaseNotificationSender is implemented by messengers that render the case
+// DM themselves. When the ActionService's Messenger implements it, the DM
+// goes through DeliverCaseNotification instead of the plain rendering.
+type CaseNotificationSender interface {
+	// DeliverCaseNotification DMs the member, through the prepared channel
+	// when there is one. It returns what it rendered even when sending
+	// fails, so the attempt is kept on the case.
+	DeliverCaseNotification(ctx context.Context, request CaseNotificationRequest) (CaseNotificationReceipt, error)
+}
+
+// CaseNotificationRequest is everything a case DM may show and where to send
+// it. It holds only member-visible facts: no staff identities, evidence,
+// action configuration, or delivery errors.
+type CaseNotificationRequest struct {
+	TargetDiscordUserID      string
+	PreparedChannelDiscordID string
+	GuildID, CaseID          string
+	CaseNumber               uint64
+	CreatedAt                time.Time
+	GuildName                string
+	// RuleName and Reason are the template name and official reason frozen
+	// in the case snapshot.
+	RuleName, Reason string
+	ContextValues    []CaseContextValueResponse
+	// Introduction and Footer are the guild's notification branding.
+	Introduction, Footer string
+	Outcomes             []CaseNotificationOutcome
+	// Appealable says the template allowed appeals. AppealURL is the
+	// dashboard page to appeal from, set only when a dashboard is
+	// configured.
+	Appealable bool
+	AppealURL  string
+}
+
+// CaseNotificationOutcome is one enforcement as the member is told about it.
+// TimeoutUntil is set only when Discord confirmed the timeout's end.
+type CaseNotificationOutcome struct {
+	ActionType   ActionType
+	Status       ActionExecutionStatus
+	TimeoutUntil *time.Time
+}
+
+// CaseNotificationReceipt is what DeliverCaseNotification rendered and, on
+// success, the DM's message ID.
+type CaseNotificationReceipt struct {
+	RenderedMessage, MessageID string
+}
+
+// caseNotificationRequest gathers the facts for a case DM. Attempts are read
+// only to report when a timeout ends; if they cannot be read, the end is
+// left out.
+func (s *ActionService) caseNotificationRequest(ctx context.Context, item Case, guild *Guild, settings *GuildSettings, actions []CaseActionExecution) CaseNotificationRequest {
+	request := CaseNotificationRequest{
+		TargetDiscordUserID: item.TargetDiscordUserID,
+		GuildID:             item.GuildID,
+		CaseID:              item.ID,
+		CaseNumber:          item.CaseNumber,
+		CreatedAt:           item.CreatedAt,
+		RuleName:            snapshotRuleName(item.TemplateSnapshotJSON),
+		Reason:              item.Reason,
+		ContextValues:       parseContextValues(item.ContextValuesJSON),
+		Appealable:          snapshotAppealable(item.TemplateSnapshotJSON),
+	}
+	if guild != nil {
+		request.GuildName = guild.Name
+	}
+	if settings != nil {
+		request.Introduction = settings.NotificationIntroduction
+		request.Footer = settings.NotificationFooter
+	}
+	if request.Appealable && s.dashboardBaseURL != "" {
+		request.AppealURL = fmt.Sprintf("%s/guilds/%s/cases/%s/appeal", s.dashboardBaseURL, item.GuildID, item.ID)
+	}
+	var timeouts []string
+	for _, action := range actions {
+		if action.endsAt() {
+			timeouts = append(timeouts, action.ID)
+		}
+	}
+	var attempts []CaseActionAttempt
+	if len(timeouts) > 0 {
+		attempts, _ = s.store.ListCaseActionAttempts(ctx, timeouts)
+	}
+	for _, action := range actions {
+		if action.ReversalOfExecutionID != nil {
+			continue
+		}
+		request.Outcomes = append(request.Outcomes, CaseNotificationOutcome{
+			ActionType:   action.ActionType,
+			Status:       action.Status,
+			TimeoutUntil: recordedTimeoutUntil(action, attempts),
+		})
+	}
+	return request
 }
 
 // renderCaseNotification writes the member's DM. Guild text is truncated
@@ -160,75 +267,4 @@ func redactDiscordError(err error) string {
 		return "Discord request timed out"
 	}
 	return "Discord request failed"
-}
-
-// AppealNotificationDispatcher delivers the appeal notification outbox.
-// Rows are written in the same transaction as the appeal change, so a
-// notification is never lost even if Discord is down when it happens.
-type AppealNotificationDispatcher struct {
-	store  AppealNotificationStore
-	client AppealNotifier
-}
-
-// NewAppealNotificationDispatcher returns a dispatcher that sends through
-// client.
-func NewAppealNotificationDispatcher(store AppealNotificationStore, client AppealNotifier) *AppealNotificationDispatcher {
-	return &AppealNotificationDispatcher{store: store, client: client}
-}
-
-// DispatchPending sends up to limit pending notifications and records each
-// outcome. limit must be between 1 and 100.
-func (d *AppealNotificationDispatcher) DispatchPending(ctx context.Context, limit int) error {
-	if limit < 1 || limit > 100 {
-		return errors.New("appeal notification limit is invalid")
-	}
-	items, err := d.store.ClaimPendingAppealNotifications(ctx, limit)
-	if err != nil {
-		return err
-	}
-	for _, item := range items {
-		var messageID string
-		var sendErr error
-		switch item.Audience {
-		case AppealNotificationMember:
-			messageID, sendErr = d.client.SendAppealMemberNotification(ctx, item.TargetDiscordUserID, item.Body)
-		case AppealNotificationStaff:
-			messageID, sendErr = d.client.SendAppealStaffNotification(ctx, item.GuildID, item.Body)
-		default:
-			sendErr = errors.New("appeal notification audience is invalid")
-		}
-		params := CompleteAppealNotificationParams{
-			NotificationID:    item.ID,
-			LeaseToken:        item.LeaseToken,
-			DeliveryMessageID: messageID,
-			Status:            AppealNotificationSent,
-		}
-		if sendErr != nil {
-			params.Status = AppealNotificationFailed
-			params.ErrorCode = appealNotificationErrorCode(sendErr)
-		}
-		if err := d.store.CompleteAppealNotification(ctx, params); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// appealNotificationErrorCode reduces a delivery error to a coarse code so
-// no Discord response text is stored. It reads the adapter's DiscordError
-// classification, never the error text.
-func appealNotificationErrorCode(err error) string {
-	var discordErr DiscordError
-	switch {
-	case errors.Is(err, context.DeadlineExceeded):
-		return "discord_timeout"
-	case !errors.As(err, &discordErr):
-		return "discord_delivery_failed"
-	case discordErr.HasFailure(DiscordFailurePermissionDenied):
-		return "discord_forbidden"
-	case discordErr.HasFailure(DiscordFailureRateLimited):
-		return "discord_rate_limited"
-	default:
-		return "discord_delivery_failed"
-	}
 }

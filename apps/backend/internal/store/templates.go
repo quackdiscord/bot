@@ -53,14 +53,19 @@ func (s *Store) GetCaseTemplateBySlug(ctx context.Context, guildID, slug string)
 
 // UpdateCaseTemplate replaces a template's policy, including all of its
 // fields, levels, and actions, and bumps its version. Cases keep the snapshot
-// of the version they were created under. It returns nil when the template is
-// not in the guild.
+// of the version they were created under. It fails with
+// quack.ErrTemplateConflict unless the template is at params.ExpectedVersion,
+// and returns nil when the template is not in the guild.
 func (s *Store) UpdateCaseTemplate(ctx context.Context, params quack.UpdateCaseTemplateParams) (*quack.ExpandedCaseTemplate, error) {
 	err := s.changeTemplate(ctx, params.GuildID, params.TemplateID, params.Audit, func(tx *gorm.DB, r *templateRecord, now time.Time) error {
+		if r.Version != params.ExpectedVersion {
+			return quack.ErrTemplateConflict
+		}
 		r.Slug = params.Template.Slug
 		r.Name = params.Template.Name
 		r.Description = params.Template.Description
 		r.ReasonTemplate = params.Template.ReasonTemplate
+		r.CaseDecayDays = params.Template.CaseDecayDays
 		r.Appealable = params.Template.Appealable
 		r.UpdatedByDiscordUserID = params.Template.UpdatedByDiscordUserID
 		r.Version++
@@ -274,6 +279,7 @@ func newTemplateRecord(t quack.CaseTemplate) templateRecord {
 		Name:                   t.Name,
 		Description:            t.Description,
 		ReasonTemplate:         t.ReasonTemplate,
+		CaseDecayDays:          t.CaseDecayDays,
 		Appealable:             t.Appealable,
 		Version:                t.Version,
 		CreatedByDiscordUserID: t.CreatedByDiscordUserID,
@@ -290,6 +296,7 @@ func (r templateRecord) model() quack.CaseTemplate {
 		Name:                   r.Name,
 		Description:            r.Description,
 		ReasonTemplate:         r.ReasonTemplate,
+		CaseDecayDays:          r.CaseDecayDays,
 		Appealable:             r.Appealable,
 		Version:                r.Version,
 		CreatedByDiscordUserID: r.CreatedByDiscordUserID,

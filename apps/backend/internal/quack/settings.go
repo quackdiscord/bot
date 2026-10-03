@@ -3,6 +3,8 @@ package quack
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -44,6 +46,12 @@ func NewGuildSettingsService(store SettingsStore, channels StaffChannelValidator
 // GuildSettingsInput is a partial settings update. Nil fields are left
 // unchanged.
 type GuildSettingsInput struct {
+	// AppealQueueChannelDiscordID must pass StaffChannelValidator when set.
+	AppealQueueChannelDiscordID *string `json:"appeal_queue_channel_discord_id"`
+	// AppealRejoinURL must be an https Discord invite; it is stored as
+	// https://discord.gg/<code>.
+	AppealRejoinURL             *string `json:"appeal_rejoin_url"`
+	AppealReviewReasonRequired  *bool   `json:"appeal_review_reason_required"`
 	AuditMirrorChannelDiscordID *string `json:"audit_mirror_channel_discord_id"`
 	// ManagedEvidenceChannelDiscordID is rejected when set: Quack owns that
 	// channel.
@@ -60,6 +68,9 @@ type GuildSettingsInput struct {
 type GuildSettingsResponse struct {
 	ID                                string     `json:"id"`
 	GuildID                           string     `json:"guild_id"`
+	AppealQueueChannelDiscordID       string     `json:"appeal_queue_channel_discord_id,omitempty"`
+	AppealRejoinURL                   string     `json:"appeal_rejoin_url,omitempty"`
+	AppealReviewReasonRequired        bool       `json:"appeal_review_reason_required"`
 	AuditMirrorChannelDiscordID       string     `json:"audit_mirror_channel_discord_id,omitempty"`
 	ManagedEvidenceChannelDiscordID   string     `json:"managed_evidence_channel_discord_id,omitempty"`
 	NotificationIntroduction          string     `json:"notification_introduction,omitempty"`
@@ -104,8 +115,8 @@ func (s *GuildSettingsService) Get(ctx context.Context, guildContext *GuildStaff
 	return &response, nil
 }
 
-// Update applies a partial settings update. A new audit channel must pass
-// StaffChannelValidator.
+// Update applies a partial settings update. A new audit or appeal queue
+// channel must pass StaffChannelValidator.
 func (s *GuildSettingsService) Update(ctx context.Context, guildContext *GuildStaffContext, input GuildSettingsInput) (*GuildSettingsResponse, error) {
 	ctx = ensureTraceContext(ctx)
 	const action = string(AuditActionSettingsUpdate)
@@ -140,12 +151,23 @@ func (s *GuildSettingsService) Update(ctx context.Context, guildContext *GuildSt
 		_ = s.audit(ctx, guildContext, action, AuditResultFailure, err.Error())
 		return nil, err
 	}
-	if input.AuditMirrorChannelDiscordID != nil && settings.AuditMirrorChannelDiscordID != "" {
+	staffChannels := []struct {
+		changed   bool
+		channelID string
+		problem   string
+	}{
+		{input.AuditMirrorChannelDiscordID != nil, settings.AuditMirrorChannelDiscordID, "audit channel must be private and belong to this guild"},
+		{input.AppealQueueChannelDiscordID != nil, settings.AppealQueueChannelDiscordID, "appeal queue channel must be private and belong to this guild"},
+	}
+	for _, channel := range staffChannels {
+		if !channel.changed || channel.channelID == "" {
+			continue
+		}
 		if s.channels == nil {
 			return nil, settingsValidationError("channel validation unavailable")
 		}
-		if err := s.channels.ValidateStaffChannel(ctx, guildContext.Guild.DiscordGuildID, settings.AuditMirrorChannelDiscordID); err != nil {
-			return nil, settingsValidationError("audit channel must be private and belong to this guild")
+		if err := s.channels.ValidateStaffChannel(ctx, guildContext.Guild.DiscordGuildID, channel.channelID); err != nil {
+			return nil, settingsValidationError(channel.problem)
 		}
 	}
 	updated, err := s.store.UpdateGuildSettings(ctx, UpdateGuildSettingsParams{
@@ -238,6 +260,23 @@ func (s *GuildSettingsService) AcknowledgeStarterPolicyNotice(ctx context.Contex
 }
 
 func applyGuildSettingsInput(settings *GuildSettings, input GuildSettingsInput) error {
+	if input.AppealQueueChannelDiscordID != nil {
+		value, err := normalizeChannelID(*input.AppealQueueChannelDiscordID)
+		if err != nil {
+			return err
+		}
+		settings.AppealQueueChannelDiscordID = value
+	}
+	if input.AppealRejoinURL != nil {
+		value, err := normalizeRejoinURL(*input.AppealRejoinURL)
+		if err != nil {
+			return err
+		}
+		settings.AppealRejoinURL = value
+	}
+	if input.AppealReviewReasonRequired != nil {
+		settings.AppealReviewReasonRequired = *input.AppealReviewReasonRequired
+	}
 	if input.AuditMirrorChannelDiscordID != nil {
 		value, err := normalizeChannelID(*input.AuditMirrorChannelDiscordID)
 		if err != nil {
@@ -295,6 +334,40 @@ func normalizeChannelID(raw string) (string, error) {
 	return value, nil
 }
 
+// discordInviteCode is the shape of a Discord invite code.
+var discordInviteCode = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// normalizeRejoinURL accepts "" (clear) or an https discord.gg or
+// discord.com/invite link without credentials, query, or fragment, and
+// returns its canonical https://discord.gg/<code> form.
+func normalizeRejoinURL(raw string) (string, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return "", nil
+	}
+	invalid := settingsValidationError("use an HTTPS Discord invite link")
+	parsed, err := url.Parse(value)
+	if err != nil || len(value) > 256 || parsed.Scheme != "https" || parsed.User != nil ||
+		parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", invalid
+	}
+	var code string
+	switch strings.ToLower(parsed.Host) {
+	case "discord.gg":
+		code = strings.TrimPrefix(parsed.Path, "/")
+	case "discord.com", "www.discord.com":
+		var found bool
+		code, found = strings.CutPrefix(parsed.Path, "/invite/")
+		if !found {
+			code = ""
+		}
+	}
+	if !discordInviteCode.MatchString(code) {
+		return "", invalid
+	}
+	return "https://discord.gg/" + code, nil
+}
+
 func (s *GuildSettingsService) audit(ctx context.Context, guildContext *GuildStaffContext, action string, result AuditResult, failureReason string) error {
 	return recordStaffAudit(ctx, s.store, guildContext, action, "guild_settings", "", result, failureReason)
 }
@@ -308,6 +381,9 @@ func guildSettingsResponse(settings GuildSettings, modules ModuleStates) GuildSe
 	return GuildSettingsResponse{
 		ID:                                settings.ID,
 		GuildID:                           settings.GuildID,
+		AppealQueueChannelDiscordID:       settings.AppealQueueChannelDiscordID,
+		AppealRejoinURL:                   settings.AppealRejoinURL,
+		AppealReviewReasonRequired:        settings.AppealReviewReasonRequired,
 		AuditMirrorChannelDiscordID:       settings.AuditMirrorChannelDiscordID,
 		ManagedEvidenceChannelDiscordID:   settings.ManagedEvidenceChannelDiscordID,
 		NotificationIntroduction:          settings.NotificationIntroduction,

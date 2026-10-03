@@ -83,6 +83,8 @@ type Services struct {
 	Audits     *AuditService
 	Statistics *StaffStatisticsService
 	Ops        *OpsService
+	// Publications keeps public case receipts in Discord up to date.
+	Publications *CasePublicationService
 }
 
 // New builds the services from deps.
@@ -111,6 +113,8 @@ func New(deps Deps) *Services {
 		Audits:     NewAuditService(deps.Store),
 		Statistics: NewStaffStatisticsService(deps.Store),
 		Ops:        NewOpsService(deps.Store, deps.Scheduler),
+
+		Publications: NewCasePublicationService(deps.Store),
 	}
 }
 

@@ -43,25 +43,36 @@ type TemplateStore interface {
 
 // CaseStore is what CaseService needs from storage.
 type CaseStore interface {
+	caseReceiptStore
+	// AppendCaseEvidence adds evidence to an existing case with its audit
+	// entry, and requests a refresh of the case's publications.
+	AppendCaseEvidence(context.Context, AppendCaseEvidenceParams) error
 	CountTemplateCasesForTarget(context.Context, CountTemplateCasesForTargetParams) (int64, error)
 	CreateAuditLogEntry(context.Context, *AuditLogEntry) error
 	CreateCase(context.Context, CreateCaseParams) (*CreatedCase, error)
 	GetAppealByCaseID(ctx context.Context, caseID string) (*Appeal, error)
-	GetCaseByID(ctx context.Context, caseID string) (*Case, error)
 	// GetCaseByIDOrNumber resolves ref as a case ID or a guild case number.
 	GetCaseByIDOrNumber(ctx context.Context, guildID, ref string) (*Case, error)
 	GetCaseByIdempotencyKey(ctx context.Context, guildID, key string) (*Case, error)
-	GetCaseNotification(ctx context.Context, caseID string) (*CaseNotification, error)
 	GetCaseTemplateExpanded(ctx context.Context, guildID, templateID string) (*ExpandedCaseTemplate, error)
 	GetGuildByID(ctx context.Context, guildID string) (*Guild, error)
+	// GetCaseEvidencePage returns the case's evidence item at 1-based
+	// position, oldest first and clamped into range, with its attachments
+	// and the case's evidence count. The item is nil when there is none.
+	GetCaseEvidencePage(ctx context.Context, caseID string, position int) (*CaseEvidenceSnapshot, []CaseEvidenceAttachment, int64, error)
 	GetGuildSettings(ctx context.Context, guildID string) (*GuildSettings, error)
-	ListCaseActionAttempts(ctx context.Context, executionIDs []string) ([]CaseActionAttempt, error)
-	ListCaseActionExecutions(ctx context.Context, caseID string) ([]CaseActionExecution, error)
 	ListCaseActionsForCases(ctx context.Context, caseIDs []string) ([]CaseActionExecution, error)
 	ListCaseEvents(ctx context.Context, caseID string) ([]CaseEvent, error)
 	ListCaseEvidence(ctx context.Context, caseID string) ([]CaseEvidenceSnapshot, []CaseEvidenceAttachment, error)
 	ListCasesFiltered(context.Context, ListCasesParams) (*ListCasesResult, error)
+	// ListRecentCaseEvents returns the case's latest limit (1 to 100) events,
+	// oldest first.
+	ListRecentCaseEvents(ctx context.Context, caseID string, limit int) ([]CaseEvent, error)
 	TargetCaseSummary(ctx context.Context, guildID, targetDiscordUserID string) (*TargetCaseSummary, error)
+	// UpdateCaseContext replaces a case's context values with its audit
+	// entry, and requests a refresh of the case's publications. It returns
+	// nil when the case is not in the guild.
+	UpdateCaseContext(context.Context, UpdateCaseContextParams) (*Case, error)
 	VoidCase(context.Context, VoidCaseParams) (*Case, error)
 	// WithGuildCaseLock runs fn in a transaction holding the guild's case
 	// lock, which serializes case numbering and escalation counts. fn must
@@ -78,6 +89,11 @@ type ActionStore interface {
 	ClaimNextCaseAction(context.Context, ClaimCaseActionParams) (*ClaimedCaseAction, error)
 	CompleteCaseAction(context.Context, CompleteCaseActionParams) error
 	CompleteCaseNotification(context.Context, CompleteCaseNotificationParams) error
+	// CompetingPunishmentExists reports whether another execution of the
+	// same kind against the same member may still be in effect: one that
+	// is queued or running, or that succeeded or failed after the original
+	// started. Reversing the original could then undo that punishment too.
+	CompetingPunishmentExists(ctx context.Context, guildID, caseID, originalExecutionID string) (bool, error)
 	CreateAuditLogEntry(context.Context, *AuditLogEntry) error
 	DismissCaseAction(context.Context, DismissCaseActionParams) (*CaseActionExecution, error)
 	GetAppealByID(ctx context.Context, appealID string) (*Appeal, error)
@@ -87,6 +103,7 @@ type ActionStore interface {
 	GetCaseNotification(ctx context.Context, caseID string) (*CaseNotification, error)
 	GetGuildByID(ctx context.Context, guildID string) (*Guild, error)
 	GetGuildSettings(ctx context.Context, guildID string) (*GuildSettings, error)
+	ListCaseActionAttempts(ctx context.Context, executionIDs []string) ([]CaseActionAttempt, error)
 	ListCaseActionExecutions(ctx context.Context, caseID string) ([]CaseActionExecution, error)
 	ListFailedCaseActions(context.Context, FailedCaseActionFilter) (*FailedCaseActionResult, error)
 	PrepareCaseNotification(ctx context.Context, caseID, channelID, errorMessage string) error
@@ -98,7 +115,10 @@ type ActionStore interface {
 type EvidenceStore interface {
 	GetGuildByDiscordID(ctx context.Context, discordGuildID string) (*Guild, error)
 	GetGuildSettings(ctx context.Context, guildID string) (*GuildSettings, error)
-	UpdateGuildSettings(context.Context, UpdateGuildSettingsParams) (*GuildSettings, error)
+	// SetManagedEvidenceChannel records next as the evidence channel only
+	// while the setting is still expected, and returns the channel now
+	// recorded, which is someone else's when a concurrent change won.
+	SetManagedEvidenceChannel(ctx context.Context, guildID, expected, next string, audit *AuditLogEntry) (string, error)
 }
 
 // AppealStore is what AppealService needs from storage.
@@ -110,6 +130,8 @@ type AppealStore interface {
 	GetAppealByID(ctx context.Context, appealID string) (*Appeal, error)
 	GetCaseByID(ctx context.Context, caseID string) (*Case, error)
 	GetGuildAppealSettings(ctx context.Context, guildID string) (*GuildAppealSettings, error)
+	GetGuildByDiscordID(ctx context.Context, discordGuildID string) (*Guild, error)
+	GetGuildSettings(ctx context.Context, guildID string) (*GuildSettings, error)
 	ListAppealEvents(ctx context.Context, appealID string) ([]AppealEvent, error)
 	ListAppeals(context.Context, AppealListParams) (*AppealListResult, error)
 	ListCaseActionExecutions(ctx context.Context, caseID string) ([]CaseActionExecution, error)
@@ -118,9 +140,20 @@ type AppealStore interface {
 }
 
 // AppealNotificationStore is the appeal outbox drained by
-// AppealNotificationDispatcher.
+// AppealNotificationDispatcher, plus the appeal reads it needs to publish
+// staff queue posts.
 type AppealNotificationStore interface {
+	AppealStore
+	// BeginAppealNotificationDelivery moves a claimed row whose lease is
+	// still held to sending, just before it goes to Discord.
+	BeginAppealNotificationDelivery(ctx context.Context, notificationID, leaseToken string) error
+	// ClaimPendingAppealNotifications leases up to limit rows that are
+	// pending, claimed with an expired lease, or deferred over a minute ago.
+	// Rows left sending past their lease fail as delivery_outcome_unknown
+	// and are never sent again.
 	ClaimPendingAppealNotifications(ctx context.Context, limit int) ([]AppealNotification, error)
+	// CompleteAppealNotification records the outcome of a sending row. A
+	// staff row that was asked to refresh meanwhile goes back to pending.
 	CompleteAppealNotification(context.Context, CompleteAppealNotificationParams) error
 }
 
@@ -134,6 +167,9 @@ type AuditStore interface {
 type AuditMirrorStore interface {
 	ClearGuildChannelReferences(ctx context.Context, guildID, channelID string, audit *AuditLogEntry) (*GuildSettings, error)
 	CreateAuditLogEntry(context.Context, *AuditLogEntry) error
+	GetAppealByID(ctx context.Context, appealID string) (*Appeal, error)
+	GetCaseActionExecution(ctx context.Context, guildID, executionID string) (*CaseActionExecution, error)
+	GetCaseByID(ctx context.Context, caseID string) (*Case, error)
 	GetGuildByID(ctx context.Context, guildID string) (*Guild, error)
 	GetGuildSettings(ctx context.Context, guildID string) (*GuildSettings, error)
 	// ListPendingAuditMirrorEntries returns important entries not yet
@@ -164,8 +200,11 @@ type Store interface {
 	EvidenceStore
 	AppealStore
 	AuditStore
+	AuditMirrorStore
 	StatisticsStore
 	OpsStore
+	AppealNotificationStore
+	CasePublicationStore
 }
 
 // CreateCaseTemplateParams creates a template at version 1.
@@ -177,9 +216,11 @@ type CreateCaseTemplateParams struct {
 }
 
 // UpdateCaseTemplateParams replaces a template's policy and bumps its
-// version.
+// version. The store rejects the update with ErrTemplateConflict unless the
+// template is still at ExpectedVersion.
 type UpdateCaseTemplateParams struct {
 	GuildID, TemplateID string
+	ExpectedVersion     uint
 	Template            CaseTemplate
 	ContextFields       []CaseTemplateContextField
 	Levels              []ExpandedCaseTemplateLevel
@@ -229,6 +270,9 @@ type CreatedCase struct {
 // template, excluding v4 imports. Escalation keys on this count.
 type CountTemplateCasesForTargetParams struct {
 	GuildID, TemplateID, TargetDiscordUserID string
+	// CreatedAtOrAfter, when set, counts only cases created at or after it:
+	// the start of the template's decay window.
+	CreatedAtOrAfter *time.Time
 }
 
 // ListCasesParams filters a guild's cases. Empty fields match everything.
@@ -423,8 +467,11 @@ type UpdateGuildAppealSettingsParams struct {
 	Audit    AuditLogEntry
 }
 
-// CompleteAppealNotificationParams records a delivery outcome.
+// CompleteAppealNotificationParams records a delivery outcome. Empty
+// delivery fields keep what the row already had.
 type CompleteAppealNotificationParams struct {
-	NotificationID, LeaseToken, DeliveryMessageID, ErrorCode string
-	Status                                                   AppealNotificationStatus
+	NotificationID, LeaseToken           string
+	DeliveryChannelID, DeliveryMessageID string
+	ErrorCode                            string
+	Status                               AppealNotificationStatus
 }

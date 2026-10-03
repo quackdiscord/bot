@@ -153,7 +153,10 @@ func (s *Store) CompleteCaseNotification(ctx context.Context, params quack.Compl
 }
 
 // ClaimPendingAppealNotifications leases up to limit appeal outbox rows,
-// oldest first, including rows whose previous lease expired.
+// oldest first: pending rows, claimed rows whose lease expired, and deferred
+// failures over a minute old. Rows still sending past their lease are failed
+// first as delivery_outcome_unknown: the send may have reached Discord, so
+// they are never sent again automatically.
 func (s *Store) ClaimPendingAppealNotifications(ctx context.Context, limit int) ([]quack.AppealNotification, error) {
 	if limit < 1 || limit > 100 {
 		return nil, errors.New("appeal notification claim limit is invalid")
@@ -163,9 +166,22 @@ func (s *Store) ClaimPendingAppealNotifications(ctx context.Context, limit int) 
 	expires := now.Add(leaseDuration)
 	var records []appealNotificationRecord
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&appealNotificationRecord{}).
+			Where("status = ? AND lease_expires_at <= ?", quack.AppealNotificationSending, now).
+			Updates(map[string]any{
+				"status":           quack.AppealNotificationFailed,
+				"last_error_code":  "delivery_outcome_unknown",
+				"lease_token":      "",
+				"lease_expires_at": nil,
+				"updated_at":       now,
+			}).Error; err != nil {
+			return fmt.Errorf("fail interrupted appeal notifications: %w", err)
+		}
 		if err := forUpdate(tx).
-			Where("status = ? OR (status = ? AND lease_expires_at <= ?)",
-				quack.AppealNotificationPending, quack.AppealNotificationClaimed, now).
+			Where("status = ? OR (status = ? AND lease_expires_at <= ?) OR (status = ? AND last_error_code = ? AND updated_at <= ?)",
+				quack.AppealNotificationPending,
+				quack.AppealNotificationClaimed, now,
+				quack.AppealNotificationFailed, quack.AppealDeliveryDeferredCode, now.Add(-time.Minute)).
 			Order("created_at ASC, id ASC").Limit(limit).Find(&records).Error; err != nil {
 			return fmt.Errorf("find appeal notifications: %w", err)
 		}
@@ -176,15 +192,17 @@ func (s *Store) ClaimPendingAppealNotifications(ctx context.Context, limit int) 
 		for i := range records {
 			ids[i] = records[i].ID
 			records[i].Status = quack.AppealNotificationClaimed
+			records[i].RefreshRequested = false
 			records[i].LeaseToken = token
 			records[i].LeaseExpiresAt = &expires
 			records[i].UpdatedAt = now
 		}
 		result := tx.Model(&appealNotificationRecord{}).Where("id IN ?", ids).Updates(map[string]any{
-			"status":           quack.AppealNotificationClaimed,
-			"lease_token":      token,
-			"lease_expires_at": expires,
-			"updated_at":       now,
+			"status":            quack.AppealNotificationClaimed,
+			"refresh_requested": false,
+			"lease_token":       token,
+			"lease_expires_at":  expires,
+			"updated_at":        now,
 		})
 		if result.Error != nil {
 			return fmt.Errorf("claim appeal notifications: %w", result.Error)
@@ -200,18 +218,43 @@ func (s *Store) ClaimPendingAppealNotifications(ctx context.Context, limit int) 
 	return modelsOf(records, appealNotificationRecord.model), nil
 }
 
-// CompleteAppealNotification records a delivery outcome for a notification
-// the caller still holds the lease for.
+// BeginAppealNotificationDelivery moves a claimed row to sending just before
+// it goes to Discord, provided the caller's lease is still live. From here
+// on the row is never reclaimed.
+func (s *Store) BeginAppealNotificationDelivery(ctx context.Context, notificationID, leaseToken string) error {
+	now := time.Now().UTC()
+	result := s.db.WithContext(ctx).Model(&appealNotificationRecord{}).
+		Where("id = ? AND status = ? AND lease_token = ? AND lease_expires_at > ?",
+			notificationID, quack.AppealNotificationClaimed, leaseToken, now).
+		Updates(map[string]any{"status": quack.AppealNotificationSending, "updated_at": now})
+	if result.Error != nil {
+		return fmt.Errorf("begin appeal notification delivery: %w", result.Error)
+	}
+	if result.RowsAffected != 1 {
+		return quack.ErrAppealStateConflict
+	}
+	return nil
+}
+
+// CompleteAppealNotification records the outcome of a sending row the
+// caller holds the lease for. Delivery coordinates are only overwritten when
+// given. A sent row that was asked to refresh meanwhile goes back to pending
+// so its queue post is edited again.
 func (s *Store) CompleteAppealNotification(ctx context.Context, params quack.CompleteAppealNotificationParams) error {
 	if params.Status != quack.AppealNotificationSent && params.Status != quack.AppealNotificationFailed {
 		return errors.New("appeal notification completion status is invalid")
 	}
+	status := gorm.Expr("CASE WHEN refresh_requested THEN ? ELSE ? END", quack.AppealNotificationPending, params.Status)
+	if params.Status != quack.AppealNotificationSent {
+		status = gorm.Expr("?", params.Status)
+	}
 	result := s.db.WithContext(ctx).Model(&appealNotificationRecord{}).
 		Where("id = ? AND status = ? AND lease_token = ?",
-			params.NotificationID, quack.AppealNotificationClaimed, params.LeaseToken).
+			params.NotificationID, quack.AppealNotificationSending, params.LeaseToken).
 		Updates(map[string]any{
-			"status":              params.Status,
-			"delivery_message_id": params.DeliveryMessageID,
+			"status":              status,
+			"delivery_channel_id": gorm.Expr("CASE WHEN ? <> '' THEN ? ELSE delivery_channel_id END", params.DeliveryChannelID, params.DeliveryChannelID),
+			"delivery_message_id": gorm.Expr("CASE WHEN ? <> '' THEN ? ELSE delivery_message_id END", params.DeliveryMessageID, params.DeliveryMessageID),
 			"last_error_code":     params.ErrorCode,
 			"lease_token":         "",
 			"lease_expires_at":    nil,
@@ -274,7 +317,10 @@ func newAppealNotificationRecord(n quack.AppealNotification) appealNotificationR
 		Audience:            n.Audience,
 		Status:              n.Status,
 		Body:                n.Body,
+		DecisionIntentJSON:  n.DecisionIntentJSON,
+		DeliveryChannelID:   n.DeliveryChannelID,
 		DeliveryMessageID:   n.DeliveryMessageID,
+		RefreshRequested:    n.RefreshRequested,
 		LastErrorCode:       n.LastErrorCode,
 		LeaseToken:          n.LeaseToken,
 		LeaseExpiresAt:      n.LeaseExpiresAt,
@@ -291,7 +337,10 @@ func (r appealNotificationRecord) model() quack.AppealNotification {
 		Audience:            r.Audience,
 		Status:              r.Status,
 		Body:                r.Body,
+		DecisionIntentJSON:  r.DecisionIntentJSON,
+		DeliveryChannelID:   r.DeliveryChannelID,
 		DeliveryMessageID:   r.DeliveryMessageID,
+		RefreshRequested:    r.RefreshRequested,
 		LastErrorCode:       r.LastErrorCode,
 		LeaseToken:          r.LeaseToken,
 		LeaseExpiresAt:      r.LeaseExpiresAt,

@@ -19,6 +19,9 @@ const (
 	// MaxBanDeleteMessageSeconds is Discord's seven-day limit on deleting a
 	// banned member's messages.
 	MaxBanDeleteMessageSeconds = 7 * 24 * 60 * 60
+	// MaxCaseDecayDays caps a template's decay window at 100 years, which
+	// keeps the cutoff arithmetic safe.
+	MaxCaseDecayDays = 36500
 )
 
 // maxContextFields bounds how much a moderator is asked to fill in per case.
@@ -33,6 +36,10 @@ var templateSlugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{1,63}$`)
 type actionConfig struct {
 	DurationSeconds      int `json:"duration_seconds,omitempty"`
 	DeleteMessageSeconds int `json:"delete_message_seconds,omitempty"`
+	// RequestedBy is set only on reversals queued automatically when their
+	// case was voided: the staff member who voided it. Their permission to
+	// reverse is checked when the reversal runs.
+	RequestedBy string `json:"requested_by,omitempty"`
 }
 
 // decodeActionConfig reads a stored action configuration. Malformed JSON
@@ -67,6 +74,9 @@ func (s *TemplateService) validate(ctx context.Context, guildContext *GuildStaff
 	if reason == "" {
 		return nil, templateValidationError("reason_template is required")
 	}
+	if input.CaseDecayDays < 0 || input.CaseDecayDays > MaxCaseDecayDays {
+		return nil, templateValidationError(fmt.Sprintf("case_decay_days must be between 0 and %d; 0 counts all-time history", MaxCaseDecayDays))
+	}
 	levels, err := normalizeLevels(input.Levels)
 	if err != nil {
 		return nil, err
@@ -82,6 +92,7 @@ func (s *TemplateService) validate(ctx context.Context, guildContext *GuildStaff
 			Name:                   name,
 			Description:            strings.TrimSpace(input.Description),
 			ReasonTemplate:         reason,
+			CaseDecayDays:          input.CaseDecayDays,
 			Appealable:             input.Appealable,
 			CreatedByDiscordUserID: guildContext.Staff.DiscordUserID,
 			UpdatedByDiscordUserID: guildContext.Staff.DiscordUserID,

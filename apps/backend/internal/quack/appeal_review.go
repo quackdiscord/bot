@@ -123,7 +123,8 @@ func (s *AppealService) Reopen(ctx context.Context, guildContext *GuildStaffCont
 }
 
 // Accept accepts a pending appeal and voids its case in the same
-// transaction. Reversing a timeout or ban is a separate, explicit step.
+// transaction. Voiding queues reversals of the case's succeeded timeouts and
+// bans, linked to the appeal.
 func (s *AppealService) Accept(ctx context.Context, guildContext *GuildStaffContext, appealID, reason string) (*AppealResponse, error) {
 	return s.transition(ctx, guildContext, appealID, reason, acceptAppeal)
 }
@@ -156,6 +157,10 @@ func (s *AppealService) transition(ctx context.Context, guildContext *GuildStaff
 	if item == nil || item.GuildID != guildContext.Guild.ID {
 		return nil, ErrAppealNotFound
 	}
+	intent, err := s.decisionIntent(ctx, guildContext, item, change.to, reason)
+	if err != nil {
+		return nil, err
+	}
 	actorID, bits := guildContext.Staff.DiscordUserID, guildContext.PermissionBits
 	params := TransitionAppealParams{
 		GuildID:            item.GuildID,
@@ -179,6 +184,7 @@ func (s *AppealService) transition(ctx context.Context, guildContext *GuildStaff
 			Audience:            AppealNotificationMember,
 			Status:              AppealNotificationPending,
 			Body:                memberNotificationBody(change.to, reason),
+			DecisionIntentJSON:  marshalJSONObject(intent),
 		},
 	}
 	if change.voidCase {
@@ -195,6 +201,33 @@ func (s *AppealService) transition(ctx context.Context, guildContext *GuildStaff
 	}
 	slog.InfoContext(ctx, "Appeal decision recorded", "guild_id", updated.GuildID, "appeal_id", updated.ID, "status", updated.Status)
 	return s.response(ctx, updated, false)
+}
+
+// decisionIntent freezes what the member's notice about a decision says:
+// the guild's name, the case number, and, for an accepted appeal, the
+// guild's rejoin invite.
+func (s *AppealService) decisionIntent(ctx context.Context, guildContext *GuildStaffContext, item *Appeal, to AppealStatus, reason string) (AppealDecisionIntent, error) {
+	intent := AppealDecisionIntent{Version: 1, Status: to, Reason: reason, GuildName: guildContext.Guild.Name}
+	if item.CaseID != nil {
+		appealed, err := s.store.GetCaseByID(ctx, *item.CaseID)
+		if err != nil {
+			return intent, err
+		}
+		if appealed == nil || appealed.GuildID != item.GuildID {
+			return intent, ErrAppealNotFound
+		}
+		intent.CaseID, intent.CaseNumber = appealed.ID, appealed.CaseNumber
+	}
+	if to == AppealStatusAccepted {
+		settings, err := s.store.GetGuildSettings(ctx, item.GuildID)
+		if err != nil {
+			return intent, err
+		}
+		if settings != nil {
+			intent.RejoinURL = settings.AppealRejoinURL
+		}
+	}
+	return intent, nil
 }
 
 // memberNotificationBody is the DM a member gets when staff act on their

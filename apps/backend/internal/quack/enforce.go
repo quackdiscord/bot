@@ -36,6 +36,11 @@ func (s *ActionService) enforce(ctx context.Context, discordGuildID string, item
 	if s.enforcer == nil {
 		return permanentFailure("discord_unavailable", "Discord enforcement is not configured")
 	}
+	if execution.ReversalOfExecutionID != nil && config.RequestedBy != "" {
+		if result, ok := s.guardAutomaticReversal(ctx, item, execution, config.RequestedBy); !ok {
+			return result
+		}
+	}
 	target := item.TargetDiscordUserID
 	reason := discordAuditReason(item)
 	var response map[string]any
@@ -59,6 +64,36 @@ func (s *ActionService) enforce(ctx context.Context, discordGuildID string, item
 		return resultFromError(err)
 	}
 	return attemptResult{Response: response}
+}
+
+// guardAutomaticReversal checks a reversal queued by voiding its case before
+// it runs, since no one confirmed it: the member must have no other
+// punishment of the same kind that the reversal would also undo, and the
+// staff member who voided the case must still be allowed to reverse it.
+// Either failure leaves the reversal for staff review.
+func (s *ActionService) guardAutomaticReversal(ctx context.Context, item Case, execution CaseActionExecution, requestedBy string) (attemptResult, bool) {
+	competing, err := s.store.CompetingPunishmentExists(ctx, item.GuildID, item.ID, *execution.ReversalOfExecutionID)
+	if err != nil {
+		return retryableFailure("reversal_provenance_unavailable", "Could not check the member's other punishments"), false
+	}
+	if competing {
+		return permanentFailure("reversal_ownership_conflict",
+			"Another punishment or unresolved attempt affects this member. Review it manually; nothing was removed."), false
+	}
+	if s.guilds == nil {
+		return permanentFailure("reversal_authorization_unavailable",
+			"Could not verify permission to undo this punishment. A moderator can retry it."), false
+	}
+	guild, err := s.store.GetGuildByID(ctx, item.GuildID)
+	if err != nil || guild == nil {
+		return retryableFailure("guild_lookup_failed", "Guild information is temporarily unavailable"), false
+	}
+	staff := &GuildStaffContext{Guild: guild, ActorDiscordUserID: requestedBy}
+	if err := s.guilds.PreflightReversal(ctx, staff, item.TargetDiscordUserID, execution.ActionType); err != nil {
+		return permanentFailure("reversal_permission_denied",
+			"Could not verify permission to undo this punishment. A moderator with the required permission can retry it."), false
+	}
+	return attemptResult{}, true
 }
 
 // resultFromError classifies a Discord error. Anything the adapter did not

@@ -89,6 +89,7 @@ var templateErrors = serviceErrors{
 		{quack.ErrTemplatePermissionDenied, http.StatusForbidden, codeAuthorization, "template access denied"},
 		{quack.ErrTemplateValidation, http.StatusBadRequest, codeValidation, ""},
 		{quack.ErrTemplateNotFound, http.StatusNotFound, codeNotFound, ""},
+		{quack.ErrTemplateConflict, http.StatusConflict, codeConflict, ""},
 	},
 	fallback: "template operation failed",
 }

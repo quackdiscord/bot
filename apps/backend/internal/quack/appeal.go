@@ -57,10 +57,12 @@ const (
 // AppealNotificationStatus tracks delivery of an appeal notification.
 type AppealNotificationStatus string
 
-// Appeal notification statuses.
+// Appeal notification statuses. Sending marks a delivery that may have
+// reached Discord: it is never reclaimed, so a crash cannot send twice.
 const (
 	AppealNotificationPending AppealNotificationStatus = "pending"
 	AppealNotificationClaimed AppealNotificationStatus = "claimed"
+	AppealNotificationSending AppealNotificationStatus = "sending"
 	AppealNotificationSent    AppealNotificationStatus = "sent"
 	AppealNotificationFailed  AppealNotificationStatus = "failed"
 )
@@ -106,11 +108,37 @@ type AppealNotification struct {
 	TargetDiscordUserID string
 	Audience            AppealNotificationAudience
 	Status              AppealNotificationStatus
-	Body                string
-	DeliveryMessageID   string
-	LastErrorCode       string
-	LeaseToken          string
-	LeaseExpiresAt      *time.Time
+	// Body is plain wording for notifiers that do not render appeals
+	// themselves.
+	Body string
+	// DecisionIntentJSON is the AppealDecisionIntent of a member decision
+	// notice, frozen when the decision was made.
+	DecisionIntentJSON string
+	// DeliveryChannelID and DeliveryMessageID locate what was delivered.
+	// For staff rows they are the appeal's queue post, which later changes
+	// edit in place.
+	DeliveryChannelID string
+	DeliveryMessageID string
+	// RefreshRequested asks for the queue post to be edited again after an
+	// in-flight delivery finishes.
+	RefreshRequested bool
+	LastErrorCode    string
+	LeaseToken       string
+	LeaseExpiresAt   *time.Time
+}
+
+// AppealDecisionIntent is what a member's decision notice says, frozen when
+// staff decide so the notice renders the same after a restart or a later
+// settings change. Version identifies the payload format.
+type AppealDecisionIntent struct {
+	Version    int          `json:"version"`
+	Status     AppealStatus `json:"status"`
+	Reason     string       `json:"reason"`
+	CaseID     string       `json:"case_id,omitempty"`
+	CaseNumber uint64       `json:"case_number,omitempty"`
+	GuildName  string       `json:"guild_name,omitempty"`
+	// RejoinURL is the guild's invite, only on accepted appeals.
+	RejoinURL string `json:"rejoin_url,omitempty"`
 }
 
 // AppealService handles appeals: members submit and follow up, staff ask for
@@ -147,7 +175,9 @@ type AppealEventResponse struct {
 }
 
 // AppealReversalOffer is an enforcement staff may reverse after accepting
-// an appeal. Accepting never reverses anything by itself.
+// an appeal. Accepting queues reversals of succeeded timeouts and bans
+// itself, so offers only remain for actions that have none yet, such as one
+// that succeeded after the appeal was accepted.
 type AppealReversalOffer struct {
 	OriginalExecutionID string     `json:"original_execution_id"`
 	ActionType          ActionType `json:"action_type"`
@@ -155,9 +185,12 @@ type AppealReversalOffer struct {
 
 // AppealResponse is an appeal with its form, answers, and timeline.
 type AppealResponse struct {
-	ID                      string                `json:"id"`
-	GuildID                 string                `json:"guild_id"`
-	CaseID                  string                `json:"case_id"`
+	ID         string `json:"id"`
+	GuildID    string `json:"guild_id"`
+	CaseID     string `json:"case_id"`
+	CaseNumber uint64 `json:"case_number"`
+	// TemplateName is the rule name frozen in the case snapshot.
+	TemplateName            string                `json:"template_name"`
 	TargetDiscordUserID     string                `json:"target_discord_user_id"`
 	Status                  AppealStatus          `json:"status"`
 	Questions               []AppealQuestion      `json:"questions"`
@@ -174,32 +207,10 @@ type AppealResponse struct {
 // appealed once.
 func (s *AppealService) Submit(ctx context.Context, caseID, memberDiscordUserID string, input AppealSubmissionInput) (*AppealResponse, error) {
 	const action = string(AuditActionAppealSubmit)
-	caseID = strings.TrimSpace(caseID)
 	memberDiscordUserID = strings.TrimSpace(memberDiscordUserID)
-	if caseID == "" || memberDiscordUserID == "" {
-		return nil, appealValidationError("case and member identity are required")
-	}
-	item, err := s.store.GetCaseByID(ctx, caseID)
+	item, err := s.eligibleCase(ctx, caseID, memberDiscordUserID)
 	if err != nil {
 		return nil, err
-	}
-	if item == nil {
-		return nil, ErrAppealNotFound
-	}
-	if item.TargetDiscordUserID != memberDiscordUserID {
-		_ = s.auditMember(ctx, item.GuildID, memberDiscordUserID, action, item.ID, AuditResultDenied)
-		return nil, ErrAppealNotFound
-	}
-	if !canAppeal(*item, nil) {
-		_ = s.auditMember(ctx, item.GuildID, memberDiscordUserID, action, item.ID, AuditResultDenied)
-		return nil, ErrAppealCaseIneligible
-	}
-	existing, err := s.store.GetAppealByCaseID(ctx, item.ID)
-	if err != nil {
-		return nil, err
-	}
-	if existing != nil {
-		return nil, ErrAppealConflict
 	}
 	settings, err := s.GetSettings(ctx, item.GuildID)
 	if err != nil {
@@ -253,6 +264,64 @@ func (s *AppealService) Submit(ctx context.Context, caseID, memberDiscordUserID 
 	}
 	slog.InfoContext(ctx, "Appeal submitted", "guild_id", created.GuildID, "case_id", created.CaseID, "appeal_id", created.ID)
 	return s.response(ctx, created, true)
+}
+
+// CanSubmit checks, without creating anything, that the member could appeal
+// the case now, so a Discord form is only opened for an eligible case. It
+// returns the same errors Submit would, and Submit checks again.
+func (s *AppealService) CanSubmit(ctx context.Context, caseID, memberDiscordUserID string) error {
+	_, err := s.eligibleCase(ctx, caseID, memberDiscordUserID)
+	return err
+}
+
+// eligibleCase loads a case the member may appeal now: it targets them, is
+// valid, was appealable when created, and has no appeal yet. Denials are
+// audited.
+func (s *AppealService) eligibleCase(ctx context.Context, caseID, memberDiscordUserID string) (*Case, error) {
+	const action = string(AuditActionAppealSubmit)
+	caseID = strings.TrimSpace(caseID)
+	memberDiscordUserID = strings.TrimSpace(memberDiscordUserID)
+	if caseID == "" || memberDiscordUserID == "" {
+		return nil, appealValidationError("case and member identity are required")
+	}
+	item, err := s.store.GetCaseByID(ctx, caseID)
+	if err != nil {
+		return nil, err
+	}
+	if item == nil {
+		return nil, ErrAppealNotFound
+	}
+	if item.TargetDiscordUserID != memberDiscordUserID {
+		_ = s.auditMember(ctx, item.GuildID, memberDiscordUserID, action, item.ID, AuditResultDenied)
+		return nil, ErrAppealNotFound
+	}
+	if !canAppeal(*item, nil) {
+		_ = s.auditMember(ctx, item.GuildID, memberDiscordUserID, action, item.ID, AuditResultDenied)
+		return nil, ErrAppealCaseIneligible
+	}
+	existing, err := s.store.GetAppealByCaseID(ctx, item.ID)
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil {
+		return nil, ErrAppealConflict
+	}
+	return item, nil
+}
+
+// ReviewReasonRequired reports whether the guild makes staff write a reason
+// for each appeal decision. Discord reads it before a decision button is
+// handled, because a form can only open as the first response.
+func (s *AppealService) ReviewReasonRequired(ctx context.Context, discordGuildID string) (bool, error) {
+	guild, err := s.store.GetGuildByDiscordID(ctx, strings.TrimSpace(discordGuildID))
+	if err != nil || guild == nil {
+		return false, err
+	}
+	settings, err := s.store.GetGuildSettings(ctx, guild.ID)
+	if err != nil {
+		return false, err
+	}
+	return settings != nil && settings.AppealReviewReasonRequired, nil
 }
 
 // GetMember returns an appeal to the member who filed it.
@@ -361,13 +430,24 @@ func (s *AppealService) response(ctx context.Context, item *Appeal, member bool)
 		reviewedBy = ""
 	}
 	caseID := ""
+	var caseNumber uint64
+	var templateName string
 	if item.CaseID != nil {
 		caseID = *item.CaseID
+		appealed, err := s.store.GetCaseByID(ctx, caseID)
+		if err != nil {
+			return nil, err
+		}
+		if appealed != nil {
+			caseNumber, templateName = appealed.CaseNumber, snapshotRuleName(appealed.TemplateSnapshotJSON)
+		}
 	}
 	response := &AppealResponse{
 		ID:                      item.ID,
 		GuildID:                 item.GuildID,
 		CaseID:                  caseID,
+		CaseNumber:              caseNumber,
+		TemplateName:            templateName,
 		TargetDiscordUserID:     item.TargetDiscordUserID,
 		Status:                  item.Status,
 		Questions:               questions,
@@ -385,8 +465,14 @@ func (s *AppealService) response(ctx context.Context, item *Appeal, member bool)
 	if err != nil {
 		return nil, err
 	}
+	reversed := map[string]bool{}
 	for _, action := range actions {
-		if action.Status != ActionExecutionSucceeded || action.ReversalOfExecutionID != nil {
+		if action.ReversalOfExecutionID != nil {
+			reversed[*action.ReversalOfExecutionID] = true
+		}
+	}
+	for _, action := range actions {
+		if action.Status != ActionExecutionSucceeded || action.ReversalOfExecutionID != nil || reversed[action.ID] {
 			continue
 		}
 		if reversal, ok := reversalOf(action.ActionType); ok {

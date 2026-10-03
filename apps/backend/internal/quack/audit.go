@@ -93,6 +93,7 @@ const (
 	AuditActionCaseSearch                 AuditAction = "case.search"
 	AuditActionCaseHistoryRead            AuditAction = "case.history.read"
 	AuditActionCaseVoid                   AuditAction = "case.void"
+	AuditActionCaseUpdate                 AuditAction = "case.update"
 	AuditActionEvidenceCapture            AuditAction = "evidence.capture"
 	AuditActionTemplateCreate             AuditAction = "case_template.create"
 	AuditActionTemplateUpdate             AuditAction = "case_template.update"
@@ -141,6 +142,7 @@ const (
 var importantAuditActions = []AuditAction{
 	AuditActionCaseCreate,
 	AuditActionCaseVoid,
+	AuditActionCaseUpdate,
 	AuditActionTemplateCreate,
 	AuditActionTemplateUpdate,
 	AuditActionTemplateArchive,

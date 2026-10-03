@@ -202,6 +202,8 @@ const (
 	CaseEventNotificationSent   CaseEventType = "notification_sent"
 	CaseEventNotificationFailed CaseEventType = "notification_failed"
 	CaseEventAppealCreated      CaseEventType = "appeal_created"
+	CaseEventContextUpdated     CaseEventType = "context_updated"
+	CaseEventEvidenceAdded      CaseEventType = "evidence_added"
 )
 
 // ULIDModel is the identity and timestamps every record carries. IDs are
@@ -229,10 +231,20 @@ type Guild struct {
 }
 
 // GuildSettings is a guild's core configuration: managed channels,
-// notification branding, and starter policy state.
+// notification branding, appeal review options, and starter policy state.
 type GuildSettings struct {
 	ULIDModel
-	GuildID                           string
+	GuildID string
+	// AppealQueueChannelDiscordID is the staff channel where each appeal gets
+	// one queue post, edited in place as the appeal moves. It is separate from
+	// the audit mirror.
+	AppealQueueChannelDiscordID string
+	// AppealRejoinURL is a Discord invite sent to members whose appeal is
+	// accepted, so a member who was banned or kicked can come back.
+	AppealRejoinURL string
+	// AppealReviewReasonRequired makes staff write a reason for every appeal
+	// decision instead of sending the default wording.
+	AppealReviewReasonRequired        bool
 	AuditMirrorChannelDiscordID       string
 	ManagedEvidenceChannelDiscordID   string
 	NotificationIntroduction          string
@@ -258,11 +270,14 @@ type StaffMember struct {
 // can be appealed, and (through its levels) what happens on each offense.
 type CaseTemplate struct {
 	ULIDModel
-	GuildID                string
-	Slug                   string
-	Name                   string
-	Description            string
-	ReasonTemplate         string
+	GuildID        string
+	Slug           string
+	Name           string
+	Description    string
+	ReasonTemplate string
+	// CaseDecayDays limits escalation counting to cases created in the last
+	// CaseDecayDays days. Zero counts all-time history.
+	CaseDecayDays          int
 	Appealable             bool
 	Version                uint
 	CreatedByDiscordUserID string
@@ -390,6 +405,12 @@ type CaseActionExecution struct {
 	DismissedByDiscordUserID string
 	ReversalOfExecutionID    *string
 	ReversalAppealID         *string
+}
+
+// endsAt reports whether the execution is a succeeded timeout, the only
+// action with an end time worth showing.
+func (e CaseActionExecution) endsAt() bool {
+	return e.ActionType == ActionTimeoutUser && e.Status == ActionExecutionSucceeded
 }
 
 // CaseNotification is the one automatic DM a case sends to its member. It

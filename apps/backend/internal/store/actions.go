@@ -102,6 +102,9 @@ func (s *Store) ClaimNextCaseAction(ctx context.Context, params quack.ClaimCaseA
 		}, now); err != nil {
 			return err
 		}
+		if err := requestPublicationRefresh(tx, c.ID, now); err != nil {
+			return err
+		}
 		claimed = &quack.ClaimedCaseAction{Case: c.model(), Execution: e.model()}
 		return nil
 	})
@@ -138,6 +141,9 @@ func failExpiredAction(tx *gorm.DB, c caseRecord, e *executionRecord, now time.T
 	if err := tx.Save(e).Error; err != nil {
 		return fmt.Errorf("fail expired action: %w", err)
 	}
+	if err := requestPublicationRefresh(tx, c.ID, now); err != nil {
+		return err
+	}
 	if err := appendCaseEvent(tx, &quack.CaseEvent{
 		CaseID:       c.ID,
 		GuildID:      c.GuildID,
@@ -169,14 +175,31 @@ func failExpiredAction(tx *gorm.DB, c caseRecord, e *executionRecord, now time.T
 // stale-lease error unless params.LeaseToken still holds the lease on a
 // running execution, so a worker whose lease expired cannot overwrite the
 // recovery decision.
+//
+// The case may have been voided while the attempt ran. A punishment that
+// then succeeds is reversed like the rest of the case, and one that would
+// retry fails for staff review instead, since a voided case must not be
+// enforced again.
 func (s *Store) CompleteCaseAction(ctx context.Context, params quack.CompleteCaseActionParams) error {
 	if params.LeaseToken == "" {
 		return fmt.Errorf("complete case action: %w", errStaleLease)
 	}
 	now := time.Now().UTC()
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Lock the case before the execution, the order claims and voids
+		// use, so a concurrent void either sees this result or is seen by
+		// it.
+		var c caseRecord
+		found, err := first(forUpdate(tx).Where("id = (?)",
+			tx.Model(&executionRecord{}).Select("case_id").Where("id = ?", params.ExecutionID)), &c)
+		if err != nil {
+			return fmt.Errorf("get case for action result: %w", err)
+		}
+		if !found {
+			return fmt.Errorf("complete case action: %w", errStaleLease)
+		}
 		var e executionRecord
-		found, err := first(forUpdate(tx).Where("id = ? AND lease_token = ? AND status = ?",
+		found, err = first(forUpdate(tx).Where("id = ? AND lease_token = ? AND status = ?",
 			params.ExecutionID, params.LeaseToken, quack.ActionExecutionRunning), &e)
 		if err != nil {
 			return fmt.Errorf("get case action execution: %w", err)
@@ -184,15 +207,13 @@ func (s *Store) CompleteCaseAction(ctx context.Context, params quack.CompleteCas
 		if !found {
 			return fmt.Errorf("complete case action: %w", errStaleLease)
 		}
-		var c caseRecord
-		found, err = first(tx.Where("id = ?", e.CaseID), &c)
-		if err != nil {
-			return fmt.Errorf("get case for action result: %w", err)
-		}
-		if !found {
-			return fmt.Errorf("get case for action result: case %s not found", e.CaseID)
-		}
 
+		voided := c.Validity == quack.CaseValidityVoided && e.ReversalOfExecutionID == nil
+		if voided && params.ExecutionStatus == quack.ActionExecutionRetrying {
+			params.ExecutionStatus = quack.ActionExecutionFailed
+			params.NextRetryAt = nil
+			params.EventBody = "Enforcement failed after the case was voided; review the outcome"
+		}
 		attemptNumber := cmp.Or(params.AttemptNumber, e.AttemptCount)
 		var attempt attemptRecord
 		found, err = first(forUpdate(tx).
@@ -254,6 +275,15 @@ func (s *Store) CompleteCaseAction(ctx context.Context, params quack.CompleteCas
 			}
 		}
 
+		if err := requestPublicationRefresh(tx, c.ID, now); err != nil {
+			return err
+		}
+		if voided && params.ExecutionStatus == quack.ActionExecutionSucceeded {
+			if err := queueVoidedCaseReversals(tx, c, nil, now); err != nil {
+				return err
+			}
+		}
+
 		action, result := "case_action.succeeded", quack.AuditResultSuccess
 		switch params.ExecutionStatus {
 		case quack.ActionExecutionRetrying:
@@ -277,6 +307,7 @@ func (s *Store) CompleteCaseAction(ctx context.Context, params quack.CompleteCas
 				"action_type":    e.ActionType,
 				"attempt_number": attemptNumber,
 				"retrying":       params.ExecutionStatus == quack.ActionExecutionRetrying,
+				"reversal_noop":  reversalNoop(e, params),
 			}),
 		}, now)
 	})

@@ -97,6 +97,9 @@ func (s *ActionService) attempt(ctx context.Context, workerID string, claimed Cl
 	executionStatus := ActionExecutionSucceeded
 	eventType := CaseEventActionSucceeded
 	eventBody := "Discord enforcement succeeded"
+	if noop, _ := result.Response["reversal_noop"].(bool); noop && result.Error == "" {
+		eventBody = "Punishment was already over; no reversal request was sent"
+	}
 	var nextRetryAt *time.Time
 	if result.Error != "" {
 		attemptStatus = ActionAttemptFailed
