@@ -4,91 +4,79 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/gin-gonic/gin"
+	"github.com/quackdiscord/bot/internal/modules"
 )
 
-// ActorResolver resolves authenticated requests into current Manage Guild authority.
-type ActorResolver func(*gin.Context) (Actor, error)
+// ActorResolver returns the caller's current Manage Guild authority.
+type ActorResolver func(*http.Request) (Actor, error)
 
-// RegisterRoutes exposes isolated settings, status, and deleted-channel repair endpoints.
-func RegisterRoutes(group *gin.RouterGroup, service *Service, resolve ActorResolver) {
-	module := group.Group("/general-logging")
-	module.GET("/settings", func(c *gin.Context) {
-		actor, ok := resolveActor(c, resolve)
-		if !ok {
-			return
-		}
-		settings, enabled, status, err := service.Settings(c, actor)
+// RegisterRoutes mounts the general logging settings, status, and
+// deleted-channel repair routes. Writes need Manage Guild.
+func RegisterRoutes(mux modules.Mux, service *Service, resolve ActorResolver) {
+	with := func(h func(http.ResponseWriter, *http.Request, Actor)) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			actor, err := resolve(r)
+			if err != nil {
+				modules.WriteError(w, http.StatusUnauthorized)
+				return
+			}
+			h(w, r, actor)
+		})
+	}
+	canManage := func(r *http.Request) bool {
+		actor, err := resolve(r)
+		return err == nil && actor.CanManage
+	}
+
+	mux.Handle("GET /general-logging/settings", with(func(w http.ResponseWriter, r *http.Request, actor Actor) {
+		settings, enabled, status, err := service.Settings(r.Context(), actor)
 		if err != nil {
-			writeError(c, err)
+			writeError(w, err)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"enabled": enabled, "settings": settings, "status": status})
-	})
-	module.GET("/status", func(c *gin.Context) {
-		actor, ok := resolveActor(c, resolve)
-		if !ok {
-			return
-		}
-		_, enabled, status, err := service.Settings(c, actor)
+		modules.WriteJSON(w, http.StatusOK, map[string]any{"enabled": enabled, "settings": settings, "status": status})
+	}))
+	mux.Handle("GET /general-logging/status", with(func(w http.ResponseWriter, r *http.Request, actor Actor) {
+		_, enabled, status, err := service.Settings(r.Context(), actor)
 		if err != nil {
-			writeError(c, err)
+			writeError(w, err)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"enabled": enabled, "status": status})
-	})
-	module.PUT("/settings", func(c *gin.Context) {
-		actor, ok := resolveActor(c, resolve)
-		if !ok {
-			return
-		}
+		modules.WriteJSON(w, http.StatusOK, map[string]any{"enabled": enabled, "status": status})
+	}))
+	mux.HandleWrite("PUT /general-logging/settings", canManage, with(func(w http.ResponseWriter, r *http.Request, actor Actor) {
 		var input struct {
 			Enabled  bool     `json:"enabled"`
 			Settings Settings `json:"settings"`
 		}
-		if err := c.ShouldBindJSON(&input); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid general logging settings"})
+		if err := modules.DecodeJSON(r, &input); err != nil {
+			modules.WriteError(w, http.StatusBadRequest)
 			return
 		}
-		settings, err := service.UpdateSettings(c, actor, input.Enabled, input.Settings)
+		settings, err := service.UpdateSettings(r.Context(), actor, input.Enabled, input.Settings)
 		if err != nil {
-			writeError(c, err)
+			writeError(w, err)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"enabled": input.Enabled, "settings": settings})
-	})
-	module.POST("/repair-channel/:channelID", func(c *gin.Context) {
-		actor, ok := resolveActor(c, resolve)
-		if !ok {
-			return
-		}
-		settings, enabled, err := service.RepairDeletedChannel(c, actor, c.Param("channelID"))
+		modules.WriteJSON(w, http.StatusOK, map[string]any{"enabled": input.Enabled, "settings": settings})
+	}))
+	mux.HandleWrite("POST /general-logging/repair-channel/{channelID}", canManage, with(func(w http.ResponseWriter, r *http.Request, actor Actor) {
+		settings, enabled, err := service.RepairDeletedChannel(r.Context(), actor, r.PathValue("channelID"))
 		if err != nil {
-			writeError(c, err)
+			writeError(w, err)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"enabled": enabled, "settings": settings})
-	})
+		modules.WriteJSON(w, http.StatusOK, map[string]any{"enabled": enabled, "settings": settings})
+	}))
 }
-func resolveActor(c *gin.Context, resolve ActorResolver) (Actor, bool) {
-	if resolve == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "general logging routes are not configured"})
-		return Actor{}, false
+
+func writeError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, ErrDisabled):
+		modules.WriteError(w, http.StatusServiceUnavailable)
+	case errors.Is(err, ErrPermissionDenied):
+		modules.WriteError(w, http.StatusForbidden)
+	default:
+		modules.WriteError(w, http.StatusBadRequest)
 	}
-	actor, err := resolve(c)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
-		return Actor{}, false
-	}
-	return actor, true
-}
-func writeError(c *gin.Context, err error) {
-	status := http.StatusBadRequest
-	if errors.Is(err, ErrPermissionDenied) {
-		status = http.StatusForbidden
-	}
-	if errors.Is(err, ErrDisabled) {
-		status = http.StatusServiceUnavailable
-	}
-	c.JSON(status, gin.H{"error": err.Error()})
 }

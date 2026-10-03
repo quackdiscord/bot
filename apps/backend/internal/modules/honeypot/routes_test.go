@@ -6,25 +6,43 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
-	"github.com/gin-gonic/gin"
 	"github.com/quackdiscord/bot/internal/modules/honeypot"
 )
 
-func routeEngine(fixture *fixture, canManage bool) *gin.Engine {
-	gin.SetMode(gin.TestMode)
-	engine := gin.New()
-	honeypot.RegisterRoutes(engine.Group("/guilds/:guildID/modules"), fixture.service, func(c *gin.Context) (honeypot.Actor, error) {
-		if c.GetHeader("Authorization") == "" {
-			return honeypot.Actor{}, errors.New("missing session")
-		}
-		return honeypot.Actor{GuildID: c.Param("guildID"), DiscordUserID: "admin", CanManage: canManage}, nil
-	})
-	return engine
+// testMux mounts module routes under /guilds/{guildID}/modules and enforces
+// write permissions with a 403, standing in for api.ModuleMux.
+type testMux struct{ *http.ServeMux }
+
+func (m testMux) Handle(pattern string, h http.Handler) {
+	method, path, _ := strings.Cut(pattern, " ")
+	m.ServeMux.Handle(method+" /guilds/{guildID}/modules"+path, h)
 }
 
-func request(t *testing.T, engine *gin.Engine, method, path string, body any, authenticated bool) *httptest.ResponseRecorder {
+func (m testMux) HandleWrite(pattern string, allowed func(*http.Request) bool, h http.Handler) {
+	m.Handle(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !allowed(r) {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		h.ServeHTTP(w, r)
+	}))
+}
+
+func routeEngine(fixture *fixture, canManage bool) http.Handler {
+	mux := testMux{http.NewServeMux()}
+	honeypot.RegisterRoutes(mux, fixture.service, func(r *http.Request) (honeypot.Actor, error) {
+		if r.Header.Get("Authorization") == "" {
+			return honeypot.Actor{}, errors.New("missing session")
+		}
+		return honeypot.Actor{GuildID: r.PathValue("guildID"), DiscordUserID: "admin", CanManage: canManage}, nil
+	})
+	return mux
+}
+
+func request(t *testing.T, engine http.Handler, method, path string, body any, authenticated bool) *httptest.ResponseRecorder {
 	t.Helper()
 	var payload []byte
 	if body != nil {

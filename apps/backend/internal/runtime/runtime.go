@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/quackdiscord/bot/internal/api"
 	"github.com/quackdiscord/bot/internal/config"
 	"github.com/quackdiscord/bot/internal/discordbot"
 	"github.com/quackdiscord/bot/internal/discordbot/commands"
-	"github.com/quackdiscord/bot/internal/httpapi"
 	"github.com/quackdiscord/bot/internal/moduleintegration"
 	"github.com/quackdiscord/bot/internal/quack"
 	"github.com/quackdiscord/bot/internal/store"
@@ -21,9 +21,6 @@ import (
 // validated, and the default logger set.
 func Run(ctx context.Context, cfg config.Config) (runErr error) {
 	slog.InfoContext(ctx, "Starting Quack", "environment", cfg.Environment)
-	if _, err := httpapi.NewPlatformRegistrar(cfg); err != nil {
-		return fmt.Errorf("validate HTTP security configuration: %w", err)
-	}
 	db, err := store.OpenMySQL(cfg.Database.DSN)
 	if err != nil {
 		return err
@@ -112,7 +109,18 @@ func Run(ctx context.Context, cfg config.Config) (runErr error) {
 	queueStarted = true
 	slog.InfoContext(ctx, "Action workers started", "workers", cfg.Queue.Workers, "capacity", cfg.Queue.Size)
 
-	return httpapi.Run(ctx, cfg, services, repositories, moduleRuntime, bot)
+	server, err := api.New(cfg, api.Deps{
+		Services:        services,
+		Store:           repositories,
+		Redis:           redis,
+		Discord:         bot,
+		Modules:         moduleRuntime,
+		TemplateChanges: moduleRuntime,
+	})
+	if err != nil {
+		return fmt.Errorf("build HTTP API: %w", err)
+	}
+	return server.Run(ctx)
 }
 
 // closeDiscord bounds adapter close even if an upstream websocket library stalls.

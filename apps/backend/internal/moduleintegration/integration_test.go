@@ -12,10 +12,8 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/bwmarrin/discordgo"
-	"github.com/gin-gonic/gin"
+	"github.com/quackdiscord/bot/internal/api"
 	"github.com/quackdiscord/bot/internal/config"
-	"github.com/quackdiscord/bot/internal/httpapi/middleware"
-	httpplatform "github.com/quackdiscord/bot/internal/httpapi/platform"
 	"github.com/quackdiscord/bot/internal/modules"
 	"github.com/quackdiscord/bot/internal/modules/generallogging"
 	"github.com/quackdiscord/bot/internal/modules/honeypot"
@@ -117,28 +115,40 @@ func TestOptionalModuleHTTPRegistrarsMountCompleteSurface(t *testing.T) {
 		Honeypot: honeypot.NewService(registry, honeypot.NewStore(db), nil, nil, nil, nil),
 	}
 	repository := store.New(db, nil)
-	services := quack.New(quack.Deps{Store: repository})
-	engine := gin.New()
-	if err := runtime.RegisterHTTP(engine.Group("/guilds"), services, config.Default(), httpplatform.FromRepository(repository)); err != nil {
-		t.Fatalf("register module routes: %v", err)
+	_, redisClient := newRedis(t)
+	server, err := api.New(config.Default(), api.Deps{
+		Services: quack.New(quack.Deps{Store: repository}),
+		Store:    repository,
+		Redis:    redisClient,
+		Modules:  runtime,
+	})
+	if err != nil {
+		t.Fatalf("new API: %v", err)
 	}
-	want := map[string]bool{
-		"GET /guilds/:discordGuildID/modules/tickets/status":               false,
-		"GET /guilds/:discordGuildID/modules/tickets/:ticketID/transcript": false,
-		"PUT /guilds/:discordGuildID/modules/general-logging/settings":     false,
-		"PUT /guilds/:discordGuildID/modules/honeypot/settings":            false,
-	}
-	for _, route := range engine.Routes() {
-		key := route.Method + " " + route.Path
-		if _, ok := want[key]; ok {
-			want[key] = true
+	for _, route := range []string{
+		"GET /guilds/guild/modules/tickets/status",
+		"GET /guilds/guild/modules/tickets/ticket/transcript",
+		"POST /guilds/guild/modules/tickets/ticket/cancel",
+		"PUT /guilds/guild/modules/general-logging/settings",
+		"POST /guilds/guild/modules/general-logging/repair-channel/channel",
+		"PUT /guilds/guild/modules/honeypot/settings",
+		"POST /guilds/guild/modules/honeypot/repair",
+	} {
+		method, path, _ := strings.Cut(route, " ")
+		response := httptest.NewRecorder()
+		server.ServeHTTP(response, httptest.NewRequest(method, path, nil))
+		if response.Code != http.StatusUnauthorized {
+			t.Errorf("%s: status %d, want 401 from a mounted, authenticated route", route, response.Code)
 		}
 	}
-	for route, present := range want {
-		if !present {
-			t.Fatalf("missing optional module route %s", route)
-		}
-	}
+}
+
+func newRedis(t *testing.T) (*miniredis.Miniredis, *redis.Client) {
+	t.Helper()
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+	return server, client
 }
 
 func TestHoneypotCaseAdapterPreservesNormalPathEnvelope(t *testing.T) {
@@ -311,42 +321,22 @@ func TestHTTPActorMappingIncludesManagersAndAdministrators(t *testing.T) {
 		{quack.PermissionActionGuildSettingsWrite: true},
 		{quack.PermissionActionGuildSettingsWrite: true, quack.PermissionActionTicketResolve: true},
 	} {
-		ctx, _ := gin.CreateTestContext(nil)
-		ctx.Set(middleware.ContextGuildKey, &quack.GuildStaffContext{
+		staff := &quack.GuildStaffContext{
 			Guild:              &quack.Guild{ULIDModel: quack.ULIDModel{ID: "guild"}},
 			ActorDiscordUserID: "actor", Permissions: permissions,
-		})
-		actor, err := resolveTicketActor(ctx)
-		if err != nil || !actor.CanManage {
-			t.Fatalf("Manage Guild actor lost module authority: actor=%+v err=%v", actor, err)
 		}
-		loggingActor, err := resolveLoggingActor(ctx)
-		if err != nil || !loggingActor.CanManage {
-			t.Fatalf("Manage Guild actor lost logging authority: actor=%+v err=%v", loggingActor, err)
+		if actor := ticketActor(staff); !actor.CanManage || actor.GuildID != "guild" || actor.DiscordUserID != "actor" {
+			t.Fatalf("Manage Guild actor lost ticket authority: %+v", actor)
+		}
+		if actor := loggingActor(staff); !actor.CanManage {
+			t.Fatalf("Manage Guild actor lost logging authority: %+v", actor)
+		}
+		if actor := honeypotActor(staff); !actor.CanManage {
+			t.Fatalf("Manage Guild actor lost honeypot authority: %+v", actor)
 		}
 	}
-}
-
-func TestModuleIdempotencyScopeIncludesOperation(t *testing.T) {
-	engine := gin.New()
-	seen := make(chan string, 2)
-	engine.POST("/guilds/:discordGuildID/modules/tickets/:ticketID/reopen", func(c *gin.Context) {
-		c.Set(middleware.ContextGuildKey, &quack.GuildStaffContext{Guild: &quack.Guild{ULIDModel: quack.ULIDModel{ID: "guild"}}, ActorDiscordUserID: "actor"})
-		seen <- moduleWriteSubject(c)
-	})
-	engine.PUT("/guilds/:discordGuildID/modules/tickets/settings", func(c *gin.Context) {
-		c.Set(middleware.ContextGuildKey, &quack.GuildStaffContext{Guild: &quack.Guild{ULIDModel: quack.ULIDModel{ID: "guild"}}, ActorDiscordUserID: "actor"})
-		seen <- moduleWriteSubject(c)
-	})
-	for method, path := range map[string]string{
-		http.MethodPost: "/guilds/discord/modules/tickets/ticket/reopen",
-		http.MethodPut:  "/guilds/discord/modules/tickets/settings",
-	} {
-		engine.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(method, path, nil))
-	}
-	first, second := <-seen, <-seen
-	if first == second {
-		t.Fatalf("distinct module writes shared idempotency scope %q", first)
+	if _, err := resolveTicketActor(httptest.NewRequest(http.MethodGet, "/", nil)); err == nil {
+		t.Fatal("resolved an actor without a guild context")
 	}
 }
 
@@ -369,32 +359,6 @@ func TestRuntimeWorkerShutdownIsIdempotent(t *testing.T) {
 	}
 	runtime.Close()
 	runtime.Close()
-}
-
-func TestModuleIdempotencyStoresNormalizedErrors(t *testing.T) {
-	redisServer := miniredis.RunT(t)
-	client := redis.NewClient(&redis.Options{Addr: redisServer.Addr()})
-	t.Cleanup(func() { _ = client.Close() })
-
-	engine := gin.New()
-	store := httpplatform.NewIdempotencyStore(client, "qi1:test:")
-	engine.Use(store.Protect("module", time.Hour, func(*gin.Context) string { return "actor:guild:operation" }))
-	engine.Use(middleware.ErrorEnvelope)
-	engine.POST("/write", func(c *gin.Context) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "token=must-not-persist"})
-	})
-	for attempt := 0; attempt < 2; attempt++ {
-		request := httptest.NewRequest(http.MethodPost, "/write", nil)
-		request.Header.Set("Idempotency-Key", "same-write")
-		response := httptest.NewRecorder()
-		engine.ServeHTTP(response, request)
-		if response.Code != http.StatusBadRequest || strings.Contains(response.Body.String(), "must-not-persist") {
-			t.Fatalf("unsafe idempotent error response: status=%d body=%s", response.Code, response.Body.String())
-		}
-		if attempt == 1 && response.Header().Get("Idempotency-Replayed") != "true" {
-			t.Fatal("expected normalized error replay")
-		}
-	}
 }
 
 func TestBulkLoggingSubmissionIsSafeDuringShutdown(t *testing.T) {

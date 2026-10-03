@@ -4,14 +4,15 @@ package readiness
 
 import (
 	"context"
-	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/bwmarrin/discordgo"
-	"github.com/gin-gonic/gin"
+	"github.com/quackdiscord/bot/internal/api"
 	"github.com/quackdiscord/bot/internal/config"
-	"github.com/quackdiscord/bot/internal/httpapi/routes"
 	"github.com/quackdiscord/bot/internal/moduleintegration"
 	"github.com/quackdiscord/bot/internal/quack"
 	"github.com/quackdiscord/bot/internal/store"
@@ -53,30 +54,40 @@ func TestCleanInstallComposesEveryAcceptedV5Surface(t *testing.T) {
 	}
 	t.Cleanup(modules.Close)
 
-	gin.SetMode(gin.TestMode)
-	engine := gin.New()
-	if err := routes.SetupRoutesWithModules(engine, &routes.Deps{Services: services, Config: cfg, Store: repository}, modules); err != nil {
-		t.Fatalf("compose HTTP routes: %v", err)
+	cfg.API.MetricsToken = "metrics-secret"
+	server, err := api.New(cfg, api.Deps{
+		Services: services,
+		Store:    repository,
+		Redis:    redisClient,
+		Discord:  offlineDiscord{},
+		Modules:  modules,
+	})
+	if err != nil {
+		t.Fatalf("compose HTTP API: %v", err)
 	}
-	assertRoutes(t, engine, []string{
+	assertRoutes(t, server, []string{
 		"GET /livez",
 		"GET /readyz",
 		"GET /metrics",
 		"GET /status",
-		"GET /guilds/:discordGuildID/templates",
-		"POST /guilds/:discordGuildID/cases",
-		"POST /guilds/:discordGuildID/cases/:caseRef/void",
-		"GET /guilds/:discordGuildID/audit-log",
-		"GET /guilds/:discordGuildID/statistics",
-		"GET /guilds/:discordGuildID/appeals",
-		"POST /guilds/:discordGuildID/appeals/:appealID/accept",
-		"GET /members/me/guilds/:guildID/cases",
-		"POST /members/me/cases/:caseID/appeal",
-		"GET /guilds/:discordGuildID/modules/tickets/status",
-		"GET /guilds/:discordGuildID/modules/general-logging/settings",
-		"GET /guilds/:discordGuildID/modules/honeypot/settings",
+		"GET /guilds/guild/templates",
+		"POST /guilds/guild/cases",
+		"POST /guilds/guild/cases/1/void",
+		"GET /guilds/guild/audit-log",
+		"GET /guilds/guild/statistics",
+		"GET /guilds/guild/appeals",
+		"POST /guilds/guild/appeals/appeal/accept",
+		"GET /members/me/guilds/guild/cases",
+		"POST /members/me/cases/case/appeal",
+		"GET /guilds/guild/modules/tickets/status",
+		"GET /guilds/guild/modules/general-logging/settings",
+		"GET /guilds/guild/modules/honeypot/settings",
 	})
 }
+
+type offlineDiscord struct{}
+
+func (offlineDiscord) Status() (bool, string, int64) { return false, "", 0 }
 
 // assertContiguousMigrationLedger verifies that clean installation records an
 // ordered prefix with no duplicate or skipped physical migration versions.
@@ -105,16 +116,15 @@ func assertContiguousMigrationLedger(t *testing.T, db *gorm.DB) {
 	}
 }
 
-// assertRoutes verifies the final router exposes each product surface through
-// the central composition point rather than package-local tests alone.
-func assertRoutes(t *testing.T, engine *gin.Engine, expected []string) {
+// assertRoutes verifies the composed API serves each product surface: an
+// anonymous request reaches the route rather than the 404 for unknown paths.
+func assertRoutes(t *testing.T, handler http.Handler, expected []string) {
 	t.Helper()
-	present := make(map[string]bool, len(engine.Routes()))
-	for _, route := range engine.Routes() {
-		present[fmt.Sprintf("%s %s", route.Method, route.Path)] = true
-	}
 	for _, route := range expected {
-		if !present[route] {
+		method, path, _ := strings.Cut(route, " ")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(method, path, nil))
+		if response.Code == http.StatusNotFound {
 			t.Errorf("final composition is missing route %s", route)
 		}
 	}

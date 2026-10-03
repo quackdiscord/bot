@@ -8,7 +8,7 @@ import (
 // CaseContextValueInput is a value for one of the template's context fields.
 type CaseContextValueInput struct {
 	Key   string          `json:"key"`
-	Value json.RawMessage `json:"value" swaggertype:"object"`
+	Value json.RawMessage `json:"value"`
 }
 
 // CaseContextValueResponse is a context field and its value as stored on a

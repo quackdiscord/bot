@@ -244,13 +244,34 @@ func TestValidate(t *testing.T) {
 			mutate: func(c *Config) { c.Environment = "production" },
 			want: []string{
 				"discord.client_secret", "api.ops_token", "api.metrics_token",
-				"discord.oauth_redirect_uri",
+				"discord.oauth_redirect_uri", "auth.cookie_secure",
 			},
+		},
+		{
+			name: "browser boundary",
+			mutate: func(c *Config) {
+				c.Environment = "staging"
+				c.API.CORSOrigins = nil
+				c.API.TrustedProxies = []string{"not-a-proxy"}
+				c.Auth.CSRFCookieName = c.Auth.SessionCookieName
+			},
+			want: []string{
+				"api.cors_origins", "auth.cookie_secure", "api.trusted_proxies",
+				"auth.csrf_cookie_name",
+			},
+		},
+		{
+			name: "inexact origins",
+			mutate: func(c *Config) {
+				c.API.CORSOrigins = []string{"https://*.example.com", "https://example.com/app", "example.com"}
+			},
+			want: []string{"*.example.com", "example.com/app", `"example.com"`},
 		},
 		{
 			name: "production complete",
 			mutate: func(c *Config) {
 				c.Environment = "production"
+				c.Auth.CookieSecure = true
 				c.Discord.ClientSecret = "client-secret"
 				c.Discord.OAuthRedirectURI = "https://dashboard.example.com/auth/callback"
 				c.API.OpsToken = "ops-secret"

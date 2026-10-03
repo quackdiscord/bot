@@ -5,166 +5,177 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
+	"github.com/quackdiscord/bot/internal/modules"
 )
 
-// ActorResolver resolves authenticated request context into current ticket authority.
-type ActorResolver func(*gin.Context) (Actor, error)
+// ActorResolver returns the caller's current ticket authority.
+type ActorResolver func(*http.Request) (Actor, error)
 
-// RegisterRoutes exposes ticket settings, status, queue, detail, transcript, and lifecycle APIs.
-func RegisterRoutes(group *gin.RouterGroup, service *Service, resolve ActorResolver) {
-	module := group.Group("/tickets")
-	module.GET("/settings", func(c *gin.Context) {
-		actor, ok := resolveActor(c, resolve)
-		if !ok {
-			return
-		}
-		settings, enabled, err := service.Settings(c, actor)
+// RegisterRoutes mounts the ticket settings, status, queue, detail,
+// transcript, and lifecycle routes. Settings writes need Manage Guild;
+// resolving and reopening need moderation rights; a ticket's owner may
+// cancel it too.
+func RegisterRoutes(mux modules.Mux, service *Service, resolve ActorResolver) {
+	h := routes{service: service, resolve: resolve}
+	mux.Handle("GET /tickets/settings", h.with(h.settings))
+	mux.Handle("GET /tickets/status", h.with(h.status))
+	mux.HandleWrite("PUT /tickets/settings", h.allow(canManage), h.with(h.updateSettings))
+	mux.Handle("GET /tickets/queue", h.with(h.queue))
+	mux.Handle("GET /tickets/{ticketID}", h.with(h.detail))
+	mux.Handle("GET /tickets/{ticketID}/transcript", h.with(h.transcript))
+	mux.HandleWrite("POST /tickets/{ticketID}/resolve", h.allow(canModerate), h.with(h.resolveTicket))
+	mux.HandleWrite("POST /tickets/{ticketID}/cancel", h.allowCancel, h.with(h.cancel))
+	mux.HandleWrite("POST /tickets/{ticketID}/reopen", h.allow(canModerate), h.with(h.reopen))
+}
+
+type routes struct {
+	service *Service
+	resolve ActorResolver
+}
+
+func canManage(actor Actor) bool   { return actor.CanManage }
+func canModerate(actor Actor) bool { return actor.CanModerate }
+
+// with resolves the actor before calling h.
+func (rt routes) with(h func(http.ResponseWriter, *http.Request, Actor)) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		actor, err := rt.resolve(r)
 		if err != nil {
-			writeError(c, err)
+			modules.WriteError(w, http.StatusUnauthorized)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"enabled": enabled, "settings": settings})
-	})
-	module.GET("/status", func(c *gin.Context) {
-		actor, ok := resolveActor(c, resolve)
-		if !ok {
-			return
-		}
-		status, err := service.Status(c, actor)
-		if err != nil {
-			writeError(c, err)
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"status": status})
-	})
-	module.PUT("/settings", func(c *gin.Context) {
-		actor, ok := resolveActor(c, resolve)
-		if !ok {
-			return
-		}
-		var input struct {
-			Enabled  bool     `json:"enabled"`
-			Settings Settings `json:"settings"`
-		}
-		if err := c.ShouldBindJSON(&input); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid ticket settings"})
-			return
-		}
-		settings, err := service.UpdateSettings(c, actor, input.Enabled, input.Settings)
-		if err != nil {
-			writeError(c, err)
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"enabled": input.Enabled, "settings": settings})
-	})
-	module.GET("/queue", func(c *gin.Context) {
-		actor, ok := resolveActor(c, resolve)
-		if !ok {
-			return
-		}
-		limit, _ := strconv.Atoi(c.Query("limit"))
-		items, err := service.Queue(c, actor, Status(c.Query("status")), limit)
-		if err != nil {
-			writeError(c, err)
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"tickets": items})
-	})
-	module.GET("/:ticketID", func(c *gin.Context) {
-		actor, ok := resolveActor(c, resolve)
-		if !ok {
-			return
-		}
-		ticket, events, err := service.Detail(c, actor, c.Param("ticketID"))
-		if err != nil {
-			writeError(c, err)
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"ticket": ticket, "events": events})
-	})
-	module.GET("/:ticketID/transcript", func(c *gin.Context) {
-		actor, ok := resolveActor(c, resolve)
-		if !ok {
-			return
-		}
-		transcript, err := service.Transcript(c, actor, c.Param("ticketID"))
-		if err != nil {
-			writeError(c, err)
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"transcript": transcript})
-	})
-	module.POST("/:ticketID/resolve", func(c *gin.Context) {
-		actor, ok := resolveActor(c, resolve)
-		if !ok {
-			return
-		}
-		var input struct {
-			Transcript string `json:"transcript"`
-		}
-		if err := c.ShouldBindJSON(&input); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid resolution payload"})
-			return
-		}
-		ticket, err := service.Resolve(c, actor, c.Param("ticketID"), input.Transcript)
-		if err != nil {
-			writeError(c, err)
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"ticket": ticket})
-	})
-	module.POST("/:ticketID/cancel", func(c *gin.Context) {
-		actor, ok := resolveActor(c, resolve)
-		if !ok {
-			return
-		}
-		ticket, err := service.Cancel(c, actor, c.Param("ticketID"))
-		if err != nil {
-			writeError(c, err)
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"ticket": ticket})
-	})
-	module.POST("/:ticketID/reopen", func(c *gin.Context) {
-		actor, ok := resolveActor(c, resolve)
-		if !ok {
-			return
-		}
-		ticket, err := service.Reopen(c, actor, c.Param("ticketID"))
-		if err != nil {
-			writeError(c, err)
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"ticket": ticket})
+		h(w, r, actor)
 	})
 }
 
-func resolveActor(c *gin.Context, resolve ActorResolver) (Actor, bool) {
-	if resolve == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "ticket routes are not configured"})
-		return Actor{}, false
+func (rt routes) allow(check func(Actor) bool) func(*http.Request) bool {
+	return func(r *http.Request) bool {
+		actor, err := rt.resolve(r)
+		return err == nil && check(actor)
 	}
-	actor, err := resolve(c)
+}
+
+// allowCancel lets moderators and the ticket's owner cancel it.
+func (rt routes) allowCancel(r *http.Request) bool {
+	actor, err := rt.resolve(r)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
-		return Actor{}, false
+		return false
 	}
-	return actor, true
+	ticket, _, err := rt.service.Detail(r.Context(), actor, r.PathValue("ticketID"))
+	return err == nil && ticket != nil && (actor.CanModerate || ticket.OwnerDiscordUserID == actor.DiscordUserID)
 }
-func writeError(c *gin.Context, err error) {
+
+func (rt routes) settings(w http.ResponseWriter, r *http.Request, actor Actor) {
+	settings, enabled, err := rt.service.Settings(r.Context(), actor)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	modules.WriteJSON(w, http.StatusOK, map[string]any{"enabled": enabled, "settings": settings})
+}
+
+func (rt routes) status(w http.ResponseWriter, r *http.Request, actor Actor) {
+	status, err := rt.service.Status(r.Context(), actor)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	modules.WriteJSON(w, http.StatusOK, map[string]any{"status": status})
+}
+
+func (rt routes) updateSettings(w http.ResponseWriter, r *http.Request, actor Actor) {
+	var input struct {
+		Enabled  bool     `json:"enabled"`
+		Settings Settings `json:"settings"`
+	}
+	if err := modules.DecodeJSON(r, &input); err != nil {
+		modules.WriteError(w, http.StatusBadRequest)
+		return
+	}
+	settings, err := rt.service.UpdateSettings(r.Context(), actor, input.Enabled, input.Settings)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	modules.WriteJSON(w, http.StatusOK, map[string]any{"enabled": input.Enabled, "settings": settings})
+}
+
+func (rt routes) queue(w http.ResponseWriter, r *http.Request, actor Actor) {
+	query := r.URL.Query()
+	limit, _ := strconv.Atoi(query.Get("limit"))
+	items, err := rt.service.Queue(r.Context(), actor, Status(query.Get("status")), limit)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	modules.WriteJSON(w, http.StatusOK, map[string]any{"tickets": items})
+}
+
+func (rt routes) detail(w http.ResponseWriter, r *http.Request, actor Actor) {
+	ticket, events, err := rt.service.Detail(r.Context(), actor, r.PathValue("ticketID"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	modules.WriteJSON(w, http.StatusOK, map[string]any{"ticket": ticket, "events": events})
+}
+
+func (rt routes) transcript(w http.ResponseWriter, r *http.Request, actor Actor) {
+	transcript, err := rt.service.Transcript(r.Context(), actor, r.PathValue("ticketID"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	modules.WriteJSON(w, http.StatusOK, map[string]any{"transcript": transcript})
+}
+
+func (rt routes) resolveTicket(w http.ResponseWriter, r *http.Request, actor Actor) {
+	var input struct {
+		Transcript string `json:"transcript"`
+	}
+	if err := modules.DecodeJSON(r, &input); err != nil {
+		modules.WriteError(w, http.StatusBadRequest)
+		return
+	}
+	ticket, err := rt.service.Resolve(r.Context(), actor, r.PathValue("ticketID"), input.Transcript)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	modules.WriteJSON(w, http.StatusOK, map[string]any{"ticket": ticket})
+}
+
+func (rt routes) cancel(w http.ResponseWriter, r *http.Request, actor Actor) {
+	ticket, err := rt.service.Cancel(r.Context(), actor, r.PathValue("ticketID"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	modules.WriteJSON(w, http.StatusOK, map[string]any{"ticket": ticket})
+}
+
+func (rt routes) reopen(w http.ResponseWriter, r *http.Request, actor Actor) {
+	ticket, err := rt.service.Reopen(r.Context(), actor, r.PathValue("ticketID"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	modules.WriteJSON(w, http.StatusOK, map[string]any{"ticket": ticket})
+}
+
+func writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrPermissionDenied):
-		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		modules.WriteError(w, http.StatusForbidden)
 	case errors.Is(err, ErrNotFound):
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		modules.WriteError(w, http.StatusNotFound)
 	case errors.Is(err, ErrDuplicateOpen), errors.Is(err, ErrInvalidTransition):
-		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		modules.WriteError(w, http.StatusConflict)
 	case errors.Is(err, ErrRateLimited):
-		c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
+		modules.WriteError(w, http.StatusTooManyRequests)
 	case errors.Is(err, ErrDisabled):
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+		modules.WriteError(w, http.StatusServiceUnavailable)
 	default:
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		modules.WriteError(w, http.StatusBadRequest)
 	}
 }

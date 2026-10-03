@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/url"
 	"slices"
 	"strings"
@@ -61,6 +62,25 @@ func (c Config) Validate() error {
 			fail("%s must have a positive max and window, got %s", l.key, l.value)
 		}
 	}
+	if blank(c.Auth.SessionCookieName) || blank(c.Auth.CSRFCookieName) {
+		fail("auth.session_cookie_name and auth.csrf_cookie_name are required")
+	} else if c.Auth.SessionCookieName == c.Auth.CSRFCookieName {
+		fail("auth.session_cookie_name and auth.csrf_cookie_name must differ")
+	}
+	for _, origin := range c.API.CORSOrigins {
+		u, err := url.Parse(origin)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil ||
+			u.Path != "" || u.RawQuery != "" || u.Fragment != "" || strings.Contains(origin, "*") {
+			fail("api.cors_origins: %q is not an exact http(s) origin", origin)
+		}
+	}
+	for _, proxy := range c.API.TrustedProxies {
+		if net.ParseIP(proxy) == nil {
+			if _, _, err := net.ParseCIDR(proxy); err != nil {
+				fail("api.trusted_proxies: %q is not an IP or CIDR", proxy)
+			}
+		}
+	}
 	if c.Queue.Size <= 0 || c.Queue.Workers <= 0 {
 		fail("queue.size and queue.workers must be positive")
 	}
@@ -81,6 +101,14 @@ func (c Config) Validate() error {
 		fail("discord.app_id is required")
 	}
 
+	if c.Environment != "dev" {
+		if len(c.API.CORSOrigins) == 0 {
+			fail("api.cors_origins is required outside dev")
+		}
+		if !c.Auth.CookieSecure {
+			fail("auth.cookie_secure must be true outside dev")
+		}
+	}
 	if c.Environment == "staging" || c.Environment == "production" {
 		if blank(c.Discord.ClientSecret) {
 			fail("discord.client_secret is required in %s", c.Environment)

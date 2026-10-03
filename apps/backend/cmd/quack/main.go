@@ -30,21 +30,6 @@ import (
 	"github.com/quackdiscord/bot/internal/v4import"
 )
 
-// @title Quack HTTP API
-// @version 5.0
-// @description HTTP boundary exposed by the Quack v5 backend.
-// @BasePath /
-// @schemes http https
-// @securityDefinitions.apikey CookieAuth
-// @in header
-// @name Cookie
-// @securityDefinitions.apikey MetricsKey
-// @in header
-// @name X-Quack-Metrics-Key
-// @securityDefinitions.apikey OpsKey
-// @in header
-// @name X-Quack-Ops-Key
-
 const usage = `Usage: quack <command> [flags]
 
 Commands:
