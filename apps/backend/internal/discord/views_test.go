@@ -10,15 +10,19 @@ import (
 )
 
 // TestMessagesMatchGolden renders every case and appeal view and compares it
-// with what the pre-rewrite adapter produced.
+// with testdata/views.golden.json, so copy, layout, and custom IDs cannot
+// drift unnoticed. Regenerate the golden file only for a deliberate change.
 func TestMessagesMatchGolden(t *testing.T) {
 	level := func(name string, position int) *quack.CaseSelectedLevel {
 		return &quack.CaseSelectedLevel{TemplateLevelDetails: quack.TemplateLevelDetails{Name: name, Position: position}}
 	}
-	created := &quack.CaseResponse{ID: "case-1", CaseNumber: 7, TargetDiscordUserID: "target", SelectedLevel: level("", 2), Actions: []quack.CaseActionResponse{
-		{ID: "a1", ActionType: quack.ActionTimeoutUser, Status: quack.ActionExecutionPending},
-		{ID: "a2", ActionType: quack.ActionBanUser, Status: quack.ActionExecutionSucceeded},
-	}}
+	created := &quack.CaseResponse{
+		ID: "case-1", CaseNumber: 7, TargetDiscordUserID: "target", SelectedLevel: level("", 2),
+		Actions: []quack.CaseActionResponse{
+			{ID: "a1", ActionType: quack.ActionTimeoutUser, Status: quack.ActionExecutionPending},
+			{ID: "a2", ActionType: quack.ActionBanUser, Status: quack.ActionExecutionSucceeded},
+		},
+	}
 	detail := &quack.CaseDetailResponse{
 		CaseResponse: quack.CaseResponse{
 			ID: "case-1", CaseNumber: 7, TargetDiscordUserID: "target", Reason: "Official reason",
@@ -26,11 +30,20 @@ func TestMessagesMatchGolden(t *testing.T) {
 			ContextValues: []quack.CaseContextValueResponse{{Key: "details", Label: "Details", Value: "Visible context"}},
 		},
 		Actions: []quack.CaseActionDetailResponse{{
-			CaseActionResponse: quack.CaseActionResponse{ID: "action-1", ActionType: quack.ActionBanUser, Status: quack.ActionExecutionSucceeded},
-			AttemptCount:       2, LastErrorCode: "permission_denied",
+			CaseActionResponse: quack.CaseActionResponse{
+				ID: "action-1", ActionType: quack.ActionBanUser, Status: quack.ActionExecutionSucceeded,
+			},
+			AttemptCount:  2,
+			LastErrorCode: "permission_denied",
 		}},
 		Evidence: []quack.CaseEvidenceResponse{
-			{MessageURL: "https://discord.com/channels/1/2/3", CaptureOutcome: "captured", Attachments: []quack.CaseEvidenceAttachmentResponse{{Filename: "a.png", OriginalURL: "https://cdn/a.png", CopyOutcome: "copied"}}},
+			{
+				MessageURL:     "https://discord.com/channels/1/2/3",
+				CaptureOutcome: "captured",
+				Attachments: []quack.CaseEvidenceAttachmentResponse{
+					{Filename: "a.png", OriginalURL: "https://cdn/a.png", CopyOutcome: "copied"},
+				},
+			},
 			{CaptureOutcome: "deleted"},
 		},
 		Events: []quack.CaseEventResponse{{EventType: quack.CaseEventCreated, Body: "Case created"}},

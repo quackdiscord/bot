@@ -45,25 +45,33 @@ func SyncCommands(ctx context.Context, bot *Bot, cache redis.UniversalClient, op
 	return s.sync(ctx, commands())
 }
 
-// commandClient is the part of Discord's command API the syncer uses.
+// commandClient is the part of Discord's command API the syncer uses. Tests
+// replace it with an in-memory fake.
 type commandClient interface {
 	list(ctx context.Context, appID, guildID string) ([]*discordgo.ApplicationCommand, error)
 	create(ctx context.Context, appID, guildID string, command *discordgo.ApplicationCommand) (*discordgo.ApplicationCommand, error)
-	edit(ctx context.Context, appID, guildID, commandID string, command *discordgo.ApplicationCommand) (*discordgo.ApplicationCommand, error)
+	edit(
+		ctx context.Context, appID, guildID, commandID string, command *discordgo.ApplicationCommand,
+	) (*discordgo.ApplicationCommand, error)
 	delete(ctx context.Context, appID, guildID, commandID string) error
 }
 
+// sessionCommands is the commandClient backed by the bot's session.
 type sessionCommands struct{ session *discordgo.Session }
 
 func (c sessionCommands) list(ctx context.Context, appID, guildID string) ([]*discordgo.ApplicationCommand, error) {
 	return c.session.ApplicationCommands(appID, guildID, rest(ctx)...)
 }
 
-func (c sessionCommands) create(ctx context.Context, appID, guildID string, command *discordgo.ApplicationCommand) (*discordgo.ApplicationCommand, error) {
+func (c sessionCommands) create(
+	ctx context.Context, appID, guildID string, command *discordgo.ApplicationCommand,
+) (*discordgo.ApplicationCommand, error) {
 	return c.session.ApplicationCommandCreate(appID, guildID, command, rest(ctx)...)
 }
 
-func (c sessionCommands) edit(ctx context.Context, appID, guildID, commandID string, command *discordgo.ApplicationCommand) (*discordgo.ApplicationCommand, error) {
+func (c sessionCommands) edit(
+	ctx context.Context, appID, guildID, commandID string, command *discordgo.ApplicationCommand,
+) (*discordgo.ApplicationCommand, error) {
 	return c.session.ApplicationCommandEdit(appID, guildID, commandID, command, rest(ctx)...)
 }
 
@@ -88,6 +96,7 @@ type commandCache interface {
 // redisCommandCache keeps one Redis hash per scope, keyed by command name.
 type redisCommandCache struct{ client redis.UniversalClient }
 
+// get returns the cached entry, or nil when the command was never cached.
 func (c redisCommandCache) get(ctx context.Context, scope, name string) (*cachedCommand, error) {
 	body, err := c.client.HGet(ctx, commandCacheKey(scope), name).Bytes()
 	if errors.Is(err, redis.Nil) {
@@ -114,6 +123,8 @@ func (c redisCommandCache) set(ctx context.Context, scope, name string, entry ca
 	return nil
 }
 
+// commandCacheKey is the Redis key of a scope's hash. Changing it makes
+// every deployment re-compare its commands once.
 func commandCacheKey(scope string) string {
 	return "discord:commands:" + scope + ":hashes"
 }
@@ -127,6 +138,7 @@ type syncer struct {
 	prune  bool
 }
 
+// scope names the cache scope: "global" or "guild:<id>".
 func (s syncer) scope() string {
 	if s.guild == "" {
 		return "global"
@@ -134,6 +146,8 @@ func (s syncer) scope() string {
 	return "guild:" + s.guild
 }
 
+// sync writes each local command that differs from Discord's copy, in name
+// order, and then reports or prunes commands only Discord still has.
 func (s syncer) sync(ctx context.Context, local []*discordgo.ApplicationCommand) error {
 	remote, err := s.client.list(ctx, s.appID, s.guild)
 	if err != nil {
@@ -275,6 +289,7 @@ type canonicalCommand struct {
 	Options                  []canonicalOption                       `json:"options,omitempty"`
 }
 
+// canonicalOption is the part of a command option that matters for sync.
 type canonicalOption struct {
 	Type                     discordgo.ApplicationCommandOptionType `json:"type"`
 	Name                     string                                 `json:"name"`
@@ -292,6 +307,7 @@ type canonicalOption struct {
 	MaxLength                int                                    `json:"max_length,omitempty"`
 }
 
+// canonicalChoice is the part of an option choice that matters for sync.
 type canonicalChoice struct {
 	Name              string                      `json:"name"`
 	NameLocalizations map[discordgo.Locale]string `json:"name_localizations,omitempty"`
@@ -309,6 +325,10 @@ func fingerprint(command *discordgo.ApplicationCommand) (string, string, error) 
 	if nsfw != nil && !*nsfw {
 		nsfw = nil
 	}
+	// DMPermission is deprecated but still what Quack's commands set; see
+	// moderatorCommand.
+	//lint:ignore SA1019 the fingerprint must cover the field the commands use.
+	dmPermission := command.DMPermission
 	body, err := json.Marshal(canonicalCommand{
 		Type:                     commandType,
 		Name:                     command.Name,
@@ -317,7 +337,7 @@ func fingerprint(command *discordgo.ApplicationCommand) (string, string, error) 
 		DescriptionLocalizations: command.DescriptionLocalizations,
 		DefaultPermission:        command.DefaultPermission,
 		DefaultMemberPermissions: command.DefaultMemberPermissions,
-		DMPermission:             command.DMPermission,
+		DMPermission:             dmPermission,
 		NSFW:                     nsfw,
 		Contexts:                 command.Contexts,
 		IntegrationTypes:         integrationTypes(command.IntegrationTypes),
@@ -330,6 +350,7 @@ func fingerprint(command *discordgo.ApplicationCommand) (string, string, error) 
 	return hex.EncodeToString(sum[:]), string(body), nil
 }
 
+// canonicalOptions converts options recursively, skipping nil entries.
 func canonicalOptions(options []*discordgo.ApplicationCommandOption) []canonicalOption {
 	var out []canonicalOption
 	for _, option := range options {
@@ -339,7 +360,11 @@ func canonicalOptions(options []*discordgo.ApplicationCommandOption) []canonical
 		var choices []canonicalChoice
 		for _, choice := range option.Choices {
 			if choice != nil {
-				choices = append(choices, canonicalChoice{Name: choice.Name, NameLocalizations: choice.NameLocalizations, Value: choice.Value})
+				choices = append(choices, canonicalChoice{
+					Name:              choice.Name,
+					NameLocalizations: choice.NameLocalizations,
+					Value:             choice.Value,
+				})
 			}
 		}
 		out = append(out, canonicalOption{
@@ -370,7 +395,11 @@ func integrationTypes(value *[]discordgo.ApplicationIntegrationType) *[]discordg
 	}
 	sorted := slices.Clone(*value)
 	slices.Sort(sorted)
-	if slices.Equal(sorted, []discordgo.ApplicationIntegrationType{discordgo.ApplicationIntegrationGuildInstall, discordgo.ApplicationIntegrationUserInstall}) {
+	defaults := []discordgo.ApplicationIntegrationType{
+		discordgo.ApplicationIntegrationGuildInstall,
+		discordgo.ApplicationIntegrationUserInstall,
+	}
+	if slices.Equal(sorted, defaults) {
 		return nil
 	}
 	return &sorted

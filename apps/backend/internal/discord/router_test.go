@@ -48,14 +48,18 @@ type fakeClient struct {
 	done       chan struct{}
 }
 
-func (f *fakeClient) InteractionRespond(_ *discordgo.Interaction, response *discordgo.InteractionResponse, _ ...discordgo.RequestOption) error {
+func (f *fakeClient) InteractionRespond(
+	_ *discordgo.Interaction, response *discordgo.InteractionResponse, _ ...discordgo.RequestOption,
+) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.responses = append(f.responses, response)
 	return f.respondErr
 }
 
-func (f *fakeClient) InteractionResponseEdit(_ *discordgo.Interaction, edit *discordgo.WebhookEdit, _ ...discordgo.RequestOption) (*discordgo.Message, error) {
+func (f *fakeClient) InteractionResponseEdit(
+	_ *discordgo.Interaction, edit *discordgo.WebhookEdit, _ ...discordgo.RequestOption,
+) (*discordgo.Message, error) {
 	f.mu.Lock()
 	f.edits = append(f.edits, edit)
 	f.mu.Unlock()
@@ -63,7 +67,9 @@ func (f *fakeClient) InteractionResponseEdit(_ *discordgo.Interaction, edit *dis
 	return &discordgo.Message{ID: "message-1"}, nil
 }
 
-func (f *fakeClient) FollowupMessageCreate(_ *discordgo.Interaction, _ bool, params *discordgo.WebhookParams, _ ...discordgo.RequestOption) (*discordgo.Message, error) {
+func (f *fakeClient) FollowupMessageCreate(
+	_ *discordgo.Interaction, _ bool, params *discordgo.WebhookParams, _ ...discordgo.RequestOption,
+) (*discordgo.Message, error) {
 	f.mu.Lock()
 	f.followups = append(f.followups, params)
 	f.mu.Unlock()
@@ -71,7 +77,9 @@ func (f *fakeClient) FollowupMessageCreate(_ *discordgo.Interaction, _ bool, par
 	return &discordgo.Message{ID: "followup-1"}, nil
 }
 
-func (f *fakeClient) FollowupMessageEdit(_ *discordgo.Interaction, messageID string, edit *discordgo.WebhookEdit, _ ...discordgo.RequestOption) (*discordgo.Message, error) {
+func (f *fakeClient) FollowupMessageEdit(
+	_ *discordgo.Interaction, messageID string, edit *discordgo.WebhookEdit, _ ...discordgo.RequestOption,
+) (*discordgo.Message, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.edits = append(f.edits, edit)
@@ -248,6 +256,57 @@ func TestRouterRejectsDuplicateRoutes(t *testing.T) {
 		}
 	}()
 	router.HandleComponent("ticket", "open", handler)
+}
+
+func TestCustomIDCodec(t *testing.T) {
+	id := CustomID{Namespace: "case", Action: "next", Version: "v1", Payload: "target=123"}
+	encoded, err := EncodeCustomID(id)
+	if err != nil || encoded != "case:next:v1:target=123" {
+		t.Fatalf("EncodeCustomID = %q, %v; want %q", encoded, err, "case:next:v1:target=123")
+	}
+	decoded, err := DecodeCustomID(encoded)
+	if err != nil || decoded != id {
+		t.Fatalf("DecodeCustomID = %+v, %v; want %+v", decoded, err, id)
+	}
+
+	invalid := []struct {
+		name string
+		id   CustomID
+		want error
+	}{
+		{"missing version", CustomID{Namespace: "case", Action: "next"}, ErrCustomIDInvalid},
+		{"separator in action", CustomID{Namespace: "case", Action: "a:b", Version: "v1"}, ErrCustomIDInvalid},
+		{"too long", CustomID{Namespace: "case", Action: "next", Version: "v1", Payload: strings.Repeat("x", customIDLimit)}, ErrCustomIDTooLong},
+	}
+	for _, test := range invalid {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := EncodeCustomID(test.id); !errors.Is(err, test.want) {
+				t.Errorf("EncodeCustomID(%+v) = %v, want %v", test.id, err, test.want)
+			}
+		})
+	}
+	if _, err := DecodeCustomID("case:missing"); !errors.Is(err, ErrCustomIDInvalid) {
+		t.Errorf("DecodeCustomID(short) = %v, want %v", err, ErrCustomIDInvalid)
+	}
+}
+
+func FuzzCustomIDCodec(f *testing.F) {
+	f.Add("case:next:v1:target=123")
+	f.Add("case:missing")
+	f.Add("")
+	f.Fuzz(func(t *testing.T, encoded string) {
+		decoded, err := DecodeCustomID(encoded)
+		if err != nil {
+			return
+		}
+		roundTrip, err := EncodeCustomID(decoded)
+		if err != nil {
+			t.Fatalf("decoded custom ID could not be encoded: %v", err)
+		}
+		if want := strings.TrimSpace(encoded); roundTrip != want {
+			t.Fatalf("round trip = %q, want %q", roundTrip, want)
+		}
+	})
 }
 
 func TestNewRouterInstallsCoreRoutes(t *testing.T) {

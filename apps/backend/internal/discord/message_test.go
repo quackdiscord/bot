@@ -12,7 +12,8 @@ func TestResponseVisibility(t *testing.T) {
 	if r := Ephemeral(Content("private", false)); r.Data.Flags&discordgo.MessageFlagsEphemeral == 0 {
 		t.Error("Ephemeral response is not private")
 	}
-	if r := DeferEphemeral(); r.Type != discordgo.InteractionResponseDeferredChannelMessageWithSource || r.Data.Flags&discordgo.MessageFlagsEphemeral == 0 {
+	r := DeferEphemeral()
+	if r.Type != discordgo.InteractionResponseDeferredChannelMessageWithSource || r.Data.Flags&discordgo.MessageFlagsEphemeral == 0 {
 		t.Errorf("DeferEphemeral = %+v", r)
 	}
 	if r := DeferUpdate(); r.Type != discordgo.InteractionResponseDeferredMessageUpdate {
@@ -53,45 +54,9 @@ func TestEmbedTruncatesByRunes(t *testing.T) {
 			t.Errorf("%s has %d runes, want %d", name, got[0], got[1])
 		}
 	}
-	if embed.Fields[1].Name != "​" || embed.Fields[1].Value != "​" {
+	if embed.Fields[1].Name != "\u200b" || embed.Fields[1].Value != "\u200b" {
 		t.Errorf("blank field not filled: %+v", embed.Fields[1])
 	}
-}
-
-func TestCustomIDCodec(t *testing.T) {
-	encoded, err := EncodeCustomID(CustomID{Namespace: "case", Action: "next", Version: "v1", Payload: "target=123"})
-	if err != nil || encoded != "case:next:v1:target=123" {
-		t.Fatalf("EncodeCustomID = %q, %v", encoded, err)
-	}
-	decoded, err := DecodeCustomID(encoded)
-	if err != nil || decoded != (CustomID{Namespace: "case", Action: "next", Version: "v1", Payload: "target=123"}) {
-		t.Fatalf("DecodeCustomID = %+v, %v", decoded, err)
-	}
-	if _, err := DecodeCustomID("case:missing"); !errors.Is(err, ErrCustomIDInvalid) {
-		t.Errorf("short ID: got %v", err)
-	}
-	if _, err := EncodeCustomID(CustomID{Namespace: "case", Action: "next", Version: "v1", Payload: strings.Repeat("x", customIDLimit)}); !errors.Is(err, ErrCustomIDTooLong) {
-		t.Errorf("long ID: got %v", err)
-	}
-}
-
-func FuzzCustomIDCodec(f *testing.F) {
-	f.Add("case:next:v1:target=123")
-	f.Add("case:missing")
-	f.Add("")
-	f.Fuzz(func(t *testing.T, encoded string) {
-		decoded, err := DecodeCustomID(encoded)
-		if err != nil {
-			return
-		}
-		roundTrip, err := EncodeCustomID(decoded)
-		if err != nil {
-			t.Fatalf("decoded custom ID could not be encoded: %v", err)
-		}
-		if roundTrip != strings.TrimSpace(encoded) {
-			t.Fatalf("round trip changed value: got %q want %q", roundTrip, strings.TrimSpace(encoded))
-		}
-	})
 }
 
 // deferredResponder models Discord treating the first followup to a

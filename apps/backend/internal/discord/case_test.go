@@ -83,7 +83,11 @@ func (h *caseHarness) template(t *testing.T, input quack.TemplateInput) *quack.T
 	return created
 }
 
-func interaction(kind discordgo.InteractionType, permissions uint64, options []*discordgo.ApplicationCommandInteractionDataOption) *discordgo.InteractionCreate {
+// interaction returns a /case interaction from moderator mod-1, whose
+// interaction payload claims permissions.
+func interaction(
+	kind discordgo.InteractionType, permissions uint64, options []*discordgo.ApplicationCommandInteractionDataOption,
+) *discordgo.InteractionCreate {
 	return &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{
 		ID: "interaction-1", AppID: "app-1", Type: kind, GuildID: "guild-1", ChannelID: "channel-1",
 		Member: &discordgo.Member{
@@ -94,23 +98,33 @@ func interaction(kind discordgo.InteractionType, permissions uint64, options []*
 	}}
 }
 
+// addSubcommand wraps options in the /case add subcommand.
+func addSubcommand(options ...*discordgo.ApplicationCommandInteractionDataOption) []*discordgo.ApplicationCommandInteractionDataOption {
+	return []*discordgo.ApplicationCommandInteractionDataOption{{
+		Name:    "add",
+		Type:    discordgo.ApplicationCommandOptionSubCommand,
+		Options: options,
+	}}
+}
+
 func caseAdd(templateID, targetID string, permissions uint64) *discordgo.InteractionCreate {
-	return interaction(discordgo.InteractionApplicationCommand, permissions, []*discordgo.ApplicationCommandInteractionDataOption{{
-		Name: "add", Type: discordgo.ApplicationCommandOptionSubCommand,
-		Options: []*discordgo.ApplicationCommandInteractionDataOption{
-			{Name: "template", Type: discordgo.ApplicationCommandOptionString, Value: templateID},
-			{Name: "user", Type: discordgo.ApplicationCommandOptionUser, Value: targetID},
+	return interaction(discordgo.InteractionApplicationCommand, permissions, addSubcommand(
+		&discordgo.ApplicationCommandInteractionDataOption{
+			Name: "template", Type: discordgo.ApplicationCommandOptionString, Value: templateID,
 		},
-	}})
+		&discordgo.ApplicationCommandInteractionDataOption{
+			Name: "user", Type: discordgo.ApplicationCommandOptionUser, Value: targetID,
+		},
+	))
 }
 
 func templateAutocomplete(query string) *discordgo.InteractionCreate {
-	return interaction(discordgo.InteractionApplicationCommandAutocomplete, uint64(discordgo.PermissionModerateMembers), []*discordgo.ApplicationCommandInteractionDataOption{{
-		Name: "add", Type: discordgo.ApplicationCommandOptionSubCommand,
-		Options: []*discordgo.ApplicationCommandInteractionDataOption{
-			{Name: "template", Type: discordgo.ApplicationCommandOptionString, Value: query, Focused: true},
+	permissions := uint64(discordgo.PermissionModerateMembers)
+	return interaction(discordgo.InteractionApplicationCommandAutocomplete, permissions, addSubcommand(
+		&discordgo.ApplicationCommandInteractionDataOption{
+			Name: "template", Type: discordgo.ApplicationCommandOptionString, Value: query, Focused: true,
 		},
-	}})
+	))
 }
 
 // fakeResponder records a task's output. Like Discord, a followup before
@@ -256,8 +270,10 @@ func TestCaseAddContextModalKeepsPublicSummaryLimited(t *testing.T) {
 	h := newCaseHarness(t, uint64(discordgo.PermissionModerateMembers))
 	template := h.template(t, quack.TemplateInput{
 		Slug: "abuse", Name: "Abuse", ReasonTemplate: "Abusive behavior",
-		ContextFields: []quack.TemplateContextFieldInput{{Key: "details", Label: "What happened?", FieldType: quack.ContextFieldLongText, Position: 1, Required: true}},
-		Levels:        []quack.TemplateLevelInput{{Name: "Default", Position: 1, IsDefault: true}},
+		ContextFields: []quack.TemplateContextFieldInput{{
+			Key: "details", Label: "What happened?", FieldType: quack.ContextFieldLongText, Position: 1, Required: true,
+		}},
+		Levels: []quack.TemplateLevelInput{{Name: "Default", Position: 1, IsDefault: true}},
 	})
 	result := h.cases.Command(context.Background(), caseAdd(template.ID, "target-2", uint64(discordgo.PermissionModerateMembers)))
 	if result.Response.Type != discordgo.InteractionResponseModal || len(result.Response.Data.Components) != 1 {
@@ -292,8 +308,8 @@ func TestCaseAddContextModalKeepsPublicSummaryLimited(t *testing.T) {
 }
 
 // TestCaseInteractionsMatchGolden replays the /case flows and compares
-// every response with what the pre-rewrite adapter produced, so modal
-// fields, custom IDs, select menus, and copy stay exactly as they were.
+// every response with testdata/commands.golden.json, so modal fields,
+// custom IDs, select menus, and copy cannot drift unnoticed.
 func TestCaseInteractionsMatchGolden(t *testing.T) {
 	h := newCaseHarness(t, uint64(discordgo.PermissionModerateMembers))
 	fields := make([]quack.TemplateContextFieldInput, 0, 6)
@@ -332,7 +348,8 @@ func TestCaseInteractionsMatchGolden(t *testing.T) {
 		if index == 3 {
 			value = "true"
 		}
-		page = append(page, discordgo.ActionsRow{Components: []discordgo.MessageComponent{discordgo.TextInput{CustomID: fmt.Sprintf("context_field_%d", index), Value: value}}})
+		input := discordgo.TextInput{CustomID: fmt.Sprintf("context_field_%d", index), Value: value}
+		page = append(page, discordgo.ActionsRow{Components: []discordgo.MessageComponent{input}})
 	}
 	submit := interaction(discordgo.InteractionModalSubmit, 0, nil)
 	submit.ID = "modal-many-1"

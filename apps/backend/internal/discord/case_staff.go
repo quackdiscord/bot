@@ -43,7 +43,11 @@ func (c *cases) staffCommand(i *discordgo.InteractionCreate, data discordgo.Appl
 	})
 }
 
-func (c *cases) runStaffCommand(ctx context.Context, staff *quack.GuildStaffContext, selected *discordgo.ApplicationCommandInteractionDataOption) (Message, error) {
+// runStaffCommand performs the selected subcommand and renders its result.
+// The irreversible ones, void and reverse, require the confirm option.
+func (c *cases) runStaffCommand(
+	ctx context.Context, staff *quack.GuildStaffContext, selected *discordgo.ApplicationCommandInteractionDataOption,
+) (Message, error) {
 	option := func(name string) string { return optionString(selected.GetOption(name)) }
 	confirmed := func() bool {
 		confirm := selected.GetOption("confirm")
@@ -79,7 +83,9 @@ func (c *cases) runStaffCommand(ctx context.Context, staff *quack.GuildStaffCont
 		if _, err := c.services.Actions.Retry(ctx, staff, option("execution")); err != nil {
 			return Message{}, err
 		}
-		return Content("**Action retry queued**\nThe same configured action will be attempted after current permission and hierarchy checks.", false), nil
+		const text = "**Action retry queued**\n" +
+			"The same configured action will be attempted after current permission and hierarchy checks."
+		return Content(text, false), nil
 	case "dismiss":
 		if _, err := c.services.Actions.Dismiss(ctx, staff, option("execution")); err != nil {
 			return Message{}, err
@@ -97,7 +103,8 @@ func (c *cases) runStaffCommand(ctx context.Context, staff *quack.GuildStaffCont
 		if !confirmed() {
 			return Message{}, quack.ErrCaseValidation
 		}
-		if _, err := c.services.Actions.Reverse(ctx, staff, option("case"), option("execution"), quack.ActionType(option("action"))); err != nil {
+		action := quack.ActionType(option("action"))
+		if _, err := c.services.Actions.Reverse(ctx, staff, option("case"), option("execution"), action); err != nil {
 			return Message{}, err
 		}
 		return Content("**Reversal queued**\nThe original action and reversal remain visible in history.", false), nil
@@ -107,12 +114,19 @@ func (c *cases) runStaffCommand(ctx context.Context, staff *quack.GuildStaffCont
 }
 
 // userHistory returns one page of a member's cases as a case list.
-func (c *cases) userHistory(ctx context.Context, staff *quack.GuildStaffContext, targetID string, input quack.CaseListInput) (*quack.CaseListResponse, error) {
+func (c *cases) userHistory(
+	ctx context.Context, staff *quack.GuildStaffContext, targetID string, input quack.CaseListInput,
+) (*quack.CaseListResponse, error) {
 	profile, err := c.services.Cases.UserHistory(ctx, staff, targetID, input)
 	if err != nil || profile == nil {
 		return nil, err
 	}
-	return &quack.CaseListResponse{Cases: profile.Cases, Total: profile.Total, Limit: profile.Limit, Offset: profile.Offset}, nil
+	return &quack.CaseListResponse{
+		Cases:  profile.Cases,
+		Total:  profile.Total,
+		Limit:  profile.Limit,
+		Offset: profile.Offset,
+	}, nil
 }
 
 // pageCases handles the Prev and Next buttons of a case list. The payload is
@@ -135,7 +149,10 @@ func (c *cases) pageCases(delta int, user bool) Handler {
 			if err != nil {
 				return err
 			}
-			input := quack.CaseListInput{Limit: strconv.Itoa(casePageSize), Offset: strconv.Itoa((page - 1) * casePageSize)}
+			input := quack.CaseListInput{
+				Limit:  strconv.Itoa(casePageSize),
+				Offset: strconv.Itoa((page - 1) * casePageSize),
+			}
 			var list *quack.CaseListResponse
 			if user {
 				list, err = c.userHistory(ctx, staff, targetID, input)
@@ -221,6 +238,8 @@ func (c *cases) voidButton(_ context.Context, i *discordgo.InteractionCreate) Re
 	return Immediate(Modal("Void case", customID, []discordgo.MessageComponent{Row(reason)}))
 }
 
+// voidModal voids the case once the moderator has given a reason, and posts
+// the correction publicly.
 func (c *cases) voidModal(_ context.Context, i *discordgo.InteractionCreate) Result {
 	data := i.ModalSubmitData()
 	id, err := DecodeCustomID(data.CustomID)
@@ -259,6 +278,8 @@ func (c *cases) reverseButton(_ context.Context, i *discordgo.InteractionCreate)
 	return Immediate(Modal("Confirm reversal", customID, []discordgo.MessageComponent{Row(confirm)}))
 }
 
+// reverseModal queues the reversal once the moderator has typed REVERSE.
+// Permission and hierarchy are checked again when the reversal is queued.
 func (c *cases) reverseModal(_ context.Context, i *discordgo.InteractionCreate) Result {
 	data := i.ModalSubmitData()
 	id, err := DecodeCustomID(data.CustomID)

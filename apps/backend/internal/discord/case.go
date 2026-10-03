@@ -14,6 +14,10 @@ import (
 const (
 	caseCommandName        = "case"
 	messageCaseCommandName = "Create moderation case"
+
+	// choiceLimit is the most choices Discord accepts in an autocomplete
+	// answer or a select menu.
+	choiceLimit = 25
 )
 
 // errNotInGuild rejects /case outside a server. Discord should never send
@@ -21,7 +25,7 @@ const (
 var errNotInGuild = errors.New("case commands must be used in a server")
 
 // commands returns Quack's application commands, freshly built so callers
-// can modify them.
+// can modify them without affecting anyone else's copy.
 func commands() []*discordgo.ApplicationCommand {
 	return []*discordgo.ApplicationCommand{caseCommand(), messageCaseCommand()}
 }
@@ -29,72 +33,101 @@ func commands() []*discordgo.ApplicationCommand {
 // caseCommand defines /case: add creates a case from a template, and the
 // other subcommands browse cases and recover failed actions.
 func caseCommand() *discordgo.ApplicationCommand {
-	permissions := int64(discordgo.PermissionModerateMembers)
-	dm := false
-	str := func(name, description string, required bool) *discordgo.ApplicationCommandOption {
-		return &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionString, Name: name, Description: description, Required: required}
+	text := func(name, description string, required bool) *discordgo.ApplicationCommandOption {
+		return &discordgo.ApplicationCommandOption{
+			Type:        discordgo.ApplicationCommandOptionString,
+			Name:        name,
+			Description: description,
+			Required:    required,
+		}
 	}
 	user := func(description string) *discordgo.ApplicationCommandOption {
-		return &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionUser, Name: "user", Description: description, Required: true}
-	}
-	sub := func(name, description string, options ...*discordgo.ApplicationCommandOption) *discordgo.ApplicationCommandOption {
-		return &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionSubCommand, Name: name, Description: description, Options: options}
+		return &discordgo.ApplicationCommandOption{
+			Type:        discordgo.ApplicationCommandOptionUser,
+			Name:        "user",
+			Description: description,
+			Required:    true,
+		}
 	}
 	confirm := func() *discordgo.ApplicationCommandOption {
-		return &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionBoolean, Name: "confirm", Description: "Confirm this irreversible control.", Required: true}
+		return &discordgo.ApplicationCommandOption{
+			Type:        discordgo.ApplicationCommandOptionBoolean,
+			Name:        "confirm",
+			Description: "Confirm this irreversible control.",
+			Required:    true,
+		}
 	}
-	template := str("template", "Case template to apply.", true)
+	subcommand := func(name, description string, options ...*discordgo.ApplicationCommandOption) *discordgo.ApplicationCommandOption {
+		return &discordgo.ApplicationCommandOption{
+			Type:        discordgo.ApplicationCommandOptionSubCommand,
+			Name:        name,
+			Description: description,
+			Options:     options,
+		}
+	}
+	template := text("template", "Case template to apply.", true)
 	template.Autocomplete = true
-	reversal := str("action", "Reversal action.", true)
+	reversal := text("action", "Reversal action.", true)
 	reversal.Choices = []*discordgo.ApplicationCommandOptionChoice{
 		{Name: "Remove timeout", Value: string(quack.ActionRemoveTimeout)},
 		{Name: "Unban", Value: string(quack.ActionUnbanUser)},
 	}
-	return &discordgo.ApplicationCommand{
-		Name:                     caseCommandName,
-		Description:              "Create and manage moderation cases.",
-		DefaultMemberPermissions: &permissions,
-		DMPermission:             &dm,
+	return moderatorCommand(&discordgo.ApplicationCommand{
+		Name:        caseCommandName,
+		Description: "Create and manage moderation cases.",
 		Options: []*discordgo.ApplicationCommandOption{
-			sub("add", "Create a moderation case from a template.",
+			subcommand("add", "Create a moderation case from a template.",
 				template,
 				user("User to moderate."),
-				str("context", "Visible context values as a JSON object.", false),
-				str("message_link", "Discord message link to capture as evidence.", false),
+				text("context", "Visible context values as a JSON object.", false),
+				text("message_link", "Discord message link to capture as evidence.", false),
 			),
-			sub("view", "View authorized case detail.", str("case", "Case number or ID.", true)),
-			sub("list", "List recent guild cases."),
-			sub("user", "View a member's case history.", user("Member to review.")),
-			sub("failures", "Review failed Discord actions."),
-			sub("retry", "Retry the same failed action.", str("execution", "Failed execution ID.", true)),
-			sub("dismiss", "Dismiss a failure from active review.", str("execution", "Failed execution ID.", true)),
-			sub("void", "Void an incorrect case.",
-				str("case", "Case number or ID.", true),
-				str("reason", "Required correction reason.", true),
+			subcommand("view", "View authorized case detail.", text("case", "Case number or ID.", true)),
+			subcommand("list", "List recent guild cases."),
+			subcommand("user", "View a member's case history.", user("Member to review.")),
+			subcommand("failures", "Review failed Discord actions."),
+			subcommand("retry", "Retry the same failed action.", text("execution", "Failed execution ID.", true)),
+			subcommand("dismiss", "Dismiss a failure from active review.", text("execution", "Failed execution ID.", true)),
+			subcommand("void", "Void an incorrect case.",
+				text("case", "Case number or ID.", true),
+				text("reason", "Required correction reason.", true),
 				confirm(),
 			),
-			sub("reverse", "Remove a timeout or unban.",
-				str("case", "Case ID.", true),
-				str("execution", "Original execution ID.", true),
+			subcommand("reverse", "Remove a timeout or unban.",
+				text("case", "Case ID.", true),
+				text("execution", "Original execution ID.", true),
 				reversal,
 				confirm(),
 			),
 		},
-	}
+	})
 }
 
 // messageCaseCommand defines the "Create moderation case" message action,
 // which starts a case against a message's author with the message as
 // evidence.
 func messageCaseCommand() *discordgo.ApplicationCommand {
+	return moderatorCommand(&discordgo.ApplicationCommand{
+		Type: discordgo.MessageApplicationCommand,
+		Name: messageCaseCommandName,
+	})
+}
+
+// moderatorCommand limits command to guilds and, by default, to members with
+// Moderate Members. Server admins can widen or narrow that in Discord's
+// integration settings; handlers still check live permissions either way.
+//
+// DMPermission is deprecated in favor of Contexts, but it is what the
+// registered commands use and it is part of their fingerprint. Switching
+// would change every command's hash and re-register them for no change in
+// behavior, so it stays until the definitions change for another reason.
+func moderatorCommand(command *discordgo.ApplicationCommand) *discordgo.ApplicationCommand {
 	permissions := int64(discordgo.PermissionModerateMembers)
-	dm := false
-	return &discordgo.ApplicationCommand{
-		Type:                     discordgo.MessageApplicationCommand,
-		Name:                     messageCaseCommandName,
-		DefaultMemberPermissions: &permissions,
-		DMPermission:             &dm,
-	}
+	dmAllowed := false
+	command.DefaultMemberPermissions = &permissions
+	//lint:ignore SA1019 see the comment above.
+	command.DMPermission = &dmAllowed
+	return command
 }
 
 // cases handles the /case command, the message action, and the case
@@ -105,6 +138,7 @@ type cases struct {
 	drafts   *draftStore
 }
 
+// newCases returns the case handlers with an empty draft store.
 func newCases(services *quack.Services) *cases {
 	return &cases{services: services, drafts: newDraftStore()}
 }
@@ -116,9 +150,12 @@ func (c *cases) register(r *Router) {
 	r.commands[caseCommandName] = c.command
 	r.commands[messageCaseCommandName] = c.messageCommand
 	components := map[string]Handler{
-		"list_prev": c.pageCases(-1, false), "list_next": c.pageCases(1, false),
-		"user_prev": c.pageCases(-1, true), "user_next": c.pageCases(1, true),
-		"failures_prev": c.pageFailures(-1), "failures_next": c.pageFailures(1),
+		"list_prev":        c.pageCases(-1, false),
+		"list_next":        c.pageCases(1, false),
+		"user_prev":        c.pageCases(-1, true),
+		"user_next":        c.pageCases(1, true),
+		"failures_prev":    c.pageFailures(-1),
+		"failures_next":    c.pageFailures(1),
 		"retry":            c.actionControl("retry"),
 		"dismiss":          c.actionControl("dismiss"),
 		"void":             c.voidButton,
@@ -180,7 +217,10 @@ func (c *cases) template(ctx context.Context, staff *quack.GuildStaffContext, va
 // It answers with no choices when they cannot create cases.
 func (c *cases) autocomplete(ctx context.Context, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	staff, err := c.staff(ctx, i)
-	if err != nil || c.services.Guilds.Authorize(ctx, staff, quack.PermissionActionCaseCreate, quack.AuditSourceDiscord) != nil {
+	if err == nil {
+		err = c.services.Guilds.Authorize(ctx, staff, quack.PermissionActionCaseCreate, quack.AuditSourceDiscord)
+	}
+	if err != nil {
 		return autocomplete(nil)
 	}
 	add := i.ApplicationCommandData().GetOption("add")
@@ -197,14 +237,17 @@ func (c *cases) autocomplete(ctx context.Context, i *discordgo.InteractionCreate
 		slog.Error("failed to list templates for case autocomplete", "error", err)
 		return autocomplete(nil)
 	}
-	choices := make([]*discordgo.ApplicationCommandOptionChoice, 0, 25)
+	choices := make([]*discordgo.ApplicationCommandOptionChoice, 0, choiceLimit)
 	for _, template := range templates {
 		search := strings.ToLower(template.Slug + " " + template.Name + " " + template.Description)
 		if query != "" && !strings.Contains(search, query) {
 			continue
 		}
-		choices = append(choices, &discordgo.ApplicationCommandOptionChoice{Name: templateLabel(template), Value: template.ID})
-		if len(choices) == 25 {
+		choices = append(choices, &discordgo.ApplicationCommandOptionChoice{
+			Name:  templateLabel(template),
+			Value: template.ID,
+		})
+		if len(choices) == choiceLimit {
 			break
 		}
 	}
@@ -232,6 +275,8 @@ func interactionMember(i *discordgo.InteractionCreate) (string, string) {
 	return i.Member.User.ID, displayName(i.Member)
 }
 
+// optionString returns an option's value as text, or "" when the option is
+// missing. Non-string values, such as a user option, are formatted.
 func optionString(option *discordgo.ApplicationCommandInteractionDataOption) string {
 	if option == nil || option.Value == nil {
 		return ""

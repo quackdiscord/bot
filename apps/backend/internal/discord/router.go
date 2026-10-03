@@ -107,11 +107,12 @@ type Router struct {
 func NewRouter(bot *Bot, services *quack.Services, deduper Deduper) *Router {
 	r := newRouter(bot.Session, deduper)
 	newCases(services).register(r)
-	r.HandleComponent("appeal", "reverse", appealReversal(services))
+	r.HandleComponent(appealNamespace, appealReverseAction, appealReversal(services))
 	bot.Session.AddHandler(r.handle)
 	return r
 }
 
+// newRouter returns a router with no routes, answering through client.
 func newRouter(client interactionClient, deduper Deduper) *Router {
 	return &Router{
 		client:     client,
@@ -120,6 +121,65 @@ func newRouter(client interactionClient, deduper Deduper) *Router {
 		components: map[string]Handler{},
 		modals:     map[string]Handler{},
 	}
+}
+
+// Custom ID errors.
+var (
+	ErrCustomIDInvalid = errors.New("custom id is invalid")
+	ErrCustomIDTooLong = errors.New("custom id exceeds Discord limit")
+)
+
+// CustomID is the routing identity Quack puts in a button, select menu, or
+// modal: "namespace:action:version:payload". The router dispatches on
+// namespace and action; payload carries the IDs the handler needs. Custom
+// IDs live on messages already posted in Discord, so existing ones must keep
+// decoding to the same route.
+type CustomID struct {
+	Namespace string
+	Action    string
+	Version   string
+	Payload   string
+}
+
+// EncodeCustomID formats id, rejecting missing parts, separators inside the
+// routing parts, and values over Discord's 100-character limit.
+func EncodeCustomID(id CustomID) (string, error) {
+	namespace := strings.TrimSpace(id.Namespace)
+	action := strings.TrimSpace(id.Action)
+	version := strings.TrimSpace(id.Version)
+	if namespace == "" || action == "" || version == "" {
+		return "", ErrCustomIDInvalid
+	}
+	if strings.Contains(namespace, ":") || strings.Contains(action, ":") || strings.Contains(version, ":") {
+		return "", ErrCustomIDInvalid
+	}
+	value := namespace + ":" + action + ":" + version + ":" + strings.TrimSpace(id.Payload)
+	if len([]rune(value)) > customIDLimit {
+		return "", ErrCustomIDTooLong
+	}
+	return value, nil
+}
+
+// DecodeCustomID parses a custom ID produced by EncodeCustomID.
+func DecodeCustomID(value string) (CustomID, error) {
+	parts := strings.SplitN(strings.TrimSpace(value), ":", 4)
+	if len(parts) != 4 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
+		return CustomID{}, ErrCustomIDInvalid
+	}
+	if len([]rune(value)) > customIDLimit {
+		return CustomID{}, ErrCustomIDTooLong
+	}
+	return CustomID{Namespace: parts[0], Action: parts[1], Version: parts[2], Payload: parts[3]}, nil
+}
+
+// MustCustomID is EncodeCustomID for IDs built from code, where an invalid
+// ID is a programming error.
+func MustCustomID(id CustomID) string {
+	value, err := EncodeCustomID(id)
+	if err != nil {
+		panic(fmt.Sprintf("invalid custom id: %v", err))
+	}
+	return value
 }
 
 // HandleComponent routes buttons and select menus whose custom ID has the
@@ -135,6 +195,8 @@ func (r *Router) HandleModal(namespace, action string, handler Handler) {
 	addRoute(r.modals, namespace, action, handler)
 }
 
+// addRoute registers handler under "namespace:action", panicking on a route
+// that is empty, ambiguous, or already taken.
 func addRoute(routes map[string]Handler, namespace, action string, handler Handler) {
 	namespace, action = strings.TrimSpace(namespace), strings.TrimSpace(action)
 	key := namespace + ":" + action
@@ -232,7 +294,10 @@ func (r *Router) call(ctx context.Context, interaction *discordgo.InteractionCre
 }
 
 // runTask runs a deferred task and reports a failure or panic to the user.
-func (r *Router) runTask(ctx context.Context, interaction *discordgo.InteractionCreate, name string, task Task, responseType discordgo.InteractionResponseType) {
+func (r *Router) runTask(
+	ctx context.Context, interaction *discordgo.InteractionCreate, name string,
+	task Task, responseType discordgo.InteractionResponseType,
+) {
 	responder := responder{client: r.client, interaction: interaction.Interaction}
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -295,18 +360,23 @@ type responder struct {
 	interaction *discordgo.Interaction
 }
 
+// EditOriginal edits the interaction's first response.
 func (r responder) EditOriginal(edit Edit) (*discordgo.Message, error) {
 	return r.client.InteractionResponseEdit(r.interaction, edit.webhookEdit())
 }
 
+// Followup posts another message through the interaction's webhook,
+// waiting for Discord to return it.
 func (r responder) Followup(message Message) (*discordgo.Message, error) {
 	return r.client.FollowupMessageCreate(r.interaction, true, message.webhookParams())
 }
 
+// EditFollowup edits a message posted by Followup.
 func (r responder) EditFollowup(messageID string, edit Edit) (*discordgo.Message, error) {
 	return r.client.FollowupMessageEdit(r.interaction, messageID, edit.webhookEdit())
 }
 
+// DeleteOriginal deletes the interaction's first response.
 func (r responder) DeleteOriginal() error {
 	return r.client.InteractionResponseDelete(r.interaction)
 }

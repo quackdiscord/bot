@@ -97,6 +97,8 @@ func (l *lifecycle) channelDelete(_ *discordgo.Session, event *discordgo.Channel
 	}
 }
 
+// lifecycleInput describes guild for the guild service. channelIDs is the
+// guild's full channel list, or nil when the event does not carry one.
 func lifecycleInput(guild *discordgo.Guild, channelIDs []string) quack.DiscordGuildLifecycleInput {
 	return quack.DiscordGuildLifecycleInput{
 		DiscordGuildID:         guild.ID,

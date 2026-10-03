@@ -97,16 +97,25 @@ func (b *Bot) SendAuditMirror(ctx context.Context, message quack.AuditMirrorMess
 	}
 }
 
+// auditMirrorEmbed renders one audit entry, colored by its result. The
+// footer carries the audit and trace IDs so staff can find the full record.
 func auditMirrorEmbed(message quack.AuditMirrorMessage) *discordgo.MessageEmbed {
 	fields := []*discordgo.MessageEmbedField{
 		{Name: "Result", Value: string(message.Result), Inline: true},
 		{Name: "Resource", Value: fmt.Sprintf("%s · `%s`", message.ResourceType, message.ResourceID), Inline: true},
 	}
 	if message.ActorDiscordUserID != "" {
-		fields = append(fields, &discordgo.MessageEmbedField{Name: "Actor", Value: "<@" + message.ActorDiscordUserID + ">", Inline: true})
+		fields = append(fields, &discordgo.MessageEmbedField{
+			Name:   "Actor",
+			Value:  "<@" + message.ActorDiscordUserID + ">",
+			Inline: true,
+		})
 	}
 	if message.FailureReason != "" {
-		fields = append(fields, &discordgo.MessageEmbedField{Name: "Failure", Value: Truncate(strings.TrimSpace(message.FailureReason), 256)})
+		fields = append(fields, &discordgo.MessageEmbedField{
+			Name:  "Failure",
+			Value: Truncate(strings.TrimSpace(message.FailureReason), 256),
+		})
 	}
 	trace := strings.TrimSpace(message.CorrelationID)
 	if trace == "" {

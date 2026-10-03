@@ -22,12 +22,12 @@ func (b *Bot) UserGuilds(ctx context.Context, accessToken string) ([]quack.Disco
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, userGuildsURL, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("build user guilds request: %w", err)
 	}
 	request.Header.Set("Authorization", "Bearer "+accessToken)
 	response, err := b.httpClient.Do(request)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetch user guilds: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode >= 400 {
@@ -35,7 +35,7 @@ func (b *Bot) UserGuilds(ctx context.Context, accessToken string) ([]quack.Disco
 	}
 	var guilds []quack.DiscordUserGuild
 	if err := json.NewDecoder(response.Body).Decode(&guilds); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decode user guilds: %w", err)
 	}
 	return guilds, nil
 }
@@ -90,6 +90,150 @@ func (b *Bot) GuildAuthorization(ctx context.Context, guildID, actorID, targetID
 		snapshot.Target = &target
 	}
 	return snapshot, nil
+}
+
+// TimeoutMember times the member out for exactly durationSeconds.
+func (b *Bot) TimeoutMember(ctx context.Context, guildID, userID string, durationSeconds int, reason string) (map[string]any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	until := time.Now().UTC().Add(time.Duration(durationSeconds) * time.Second)
+	if err := b.Session.GuildMemberTimeout(guildID, userID, &until, rest(ctx, discordgo.WithAuditLogReason(reason))...); err != nil {
+		return nil, classify("timeout", err, false)
+	}
+	return map[string]any{"timeout_until": until.Format(time.RFC3339)}, nil
+}
+
+// KickMember removes the member from the guild.
+func (b *Bot) KickMember(ctx context.Context, guildID, userID, reason string) (map[string]any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := b.Session.GuildMemberDeleteWithReason(guildID, userID, reason, rest(ctx)...); err != nil {
+		return nil, classify("kick", err, true)
+	}
+	return map[string]any{"result": "kicked"}, nil
+}
+
+// BanMember bans the member. deleteMessageSeconds is sent as is, because
+// discordgo's helper only accepts whole days.
+func (b *Bot) BanMember(ctx context.Context, guildID, userID string, deleteMessageSeconds int, reason string) (map[string]any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	body := map[string]any{"delete_message_seconds": deleteMessageSeconds}
+	bucket := discordgo.EndpointGuildBan(guildID, "")
+	endpoint := discordgo.EndpointGuildBan(guildID, userID)
+	options := rest(ctx, discordgo.WithAuditLogReason(reason))
+	if _, err := b.Session.RequestWithBucketID(http.MethodPut, endpoint, body, bucket, options...); err != nil {
+		return nil, classify("ban", err, true)
+	}
+	return map[string]any{"result": "banned", "delete_message_seconds": deleteMessageSeconds}, nil
+}
+
+// RemoveMemberTimeout lifts a timeout as a staff-confirmed reversal.
+func (b *Bot) RemoveMemberTimeout(ctx context.Context, guildID, userID, reason string) (map[string]any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := b.Session.GuildMemberTimeout(guildID, userID, nil, rest(ctx, discordgo.WithAuditLogReason(reason))...); err != nil {
+		return nil, classify("remove_timeout", err, true)
+	}
+	return map[string]any{"result": "timeout_removed"}, nil
+}
+
+// UnbanMember lifts a ban as a staff-confirmed reversal.
+func (b *Bot) UnbanMember(ctx context.Context, guildID, userID, reason string) (map[string]any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := b.Session.GuildBanDelete(guildID, userID, rest(ctx, discordgo.WithAuditLogReason(reason))...); err != nil {
+		return nil, classify("unban", err, true)
+	}
+	return map[string]any{"result": "unbanned"}, nil
+}
+
+// SendDM sends message to the user's direct-message channel.
+func (b *Bot) SendDM(ctx context.Context, userID, message string) (map[string]any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	channel, err := b.Session.UserChannelCreate(userID, rest(ctx)...)
+	if err != nil {
+		return nil, classify("send_dm_channel", err, false)
+	}
+	sent, err := b.send(ctx, channel.ID, &discordgo.MessageSend{Content: message})
+	if err != nil {
+		return nil, classify("send_dm_message", err, false)
+	}
+	return sentResult(channel.ID, sent), nil
+}
+
+// PrepareDM opens the user's direct-message channel. Quack calls it before a
+// kick or ban, while the bot still shares a guild with the member.
+func (b *Bot) PrepareDM(ctx context.Context, userID string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	channel, err := b.Session.UserChannelCreate(userID, rest(ctx)...)
+	if err != nil {
+		return "", classify("dm_prepare", err, false)
+	}
+	return channel.ID, nil
+}
+
+// SendPreparedDM sends message through a channel opened by PrepareDM.
+func (b *Bot) SendPreparedDM(ctx context.Context, channelID, message string) (map[string]any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	sent, err := b.send(ctx, channelID, &discordgo.MessageSend{Content: message})
+	if err != nil {
+		return nil, classify("dm_send", err, true)
+	}
+	return sentResult(channelID, sent), nil
+}
+
+// SendCaseNotification sends a case notification with a button that opens
+// the case's appeal page in the dashboard. channelID may be a prepared DM
+// channel or empty.
+func (b *Bot) SendCaseNotification(
+	ctx context.Context, userID, channelID, message, dashboardBaseURL, guildID, caseID string,
+) (map[string]any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(channelID) == "" {
+		channel, err := b.Session.UserChannelCreate(userID, rest(ctx)...)
+		if err != nil {
+			return nil, classify("dm_prepare", err, false)
+		}
+		channelID = channel.ID
+	}
+	entry, err := appealEntryMessage(dashboardBaseURL, guildID, caseID)
+	if err != nil {
+		return nil, err
+	}
+	sent, err := b.send(ctx, channelID, &discordgo.MessageSend{Content: message, Components: entry.Components})
+	if err != nil {
+		return nil, classify("dm_send", err, true)
+	}
+	return sentResult(channelID, sent), nil
+}
+
+// send posts a message with every mention suppressed.
+func (b *Bot) send(ctx context.Context, channelID string, message *discordgo.MessageSend) (*discordgo.Message, error) {
+	message.AllowedMentions = &discordgo.MessageAllowedMentions{}
+	return b.Session.ChannelMessageSendComplex(channelID, message, rest(ctx)...)
+}
+
+// sentResult is the result Quack records for a delivered DM.
+func sentResult(channelID string, sent *discordgo.Message) map[string]any {
+	result := map[string]any{"channel_id": channelID}
+	if sent != nil {
+		result["message_id"] = sent.ID
+	}
+	return result
 }
 
 // member fetches one member's current standing. Discord's unknown-member
@@ -163,146 +307,7 @@ func displayName(member *discordgo.Member) string {
 	return strings.TrimSpace(member.User.Username)
 }
 
+// botGuild converts a discordgo guild to the quack summary of it.
 func botGuild(guild *discordgo.Guild) quack.DiscordBotGuild {
 	return quack.DiscordBotGuild{ID: guild.ID, Name: guild.Name, Icon: guild.Icon, OwnerID: guild.OwnerID}
-}
-
-// TimeoutMember times the member out for exactly durationSeconds.
-func (b *Bot) TimeoutMember(ctx context.Context, guildID, userID string, durationSeconds int, reason string) (map[string]any, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	until := time.Now().UTC().Add(time.Duration(durationSeconds) * time.Second)
-	if err := b.Session.GuildMemberTimeout(guildID, userID, &until, rest(ctx, discordgo.WithAuditLogReason(reason))...); err != nil {
-		return nil, classify("timeout", err, false)
-	}
-	return map[string]any{"timeout_until": until.Format(time.RFC3339)}, nil
-}
-
-// KickMember removes the member from the guild.
-func (b *Bot) KickMember(ctx context.Context, guildID, userID, reason string) (map[string]any, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if err := b.Session.GuildMemberDeleteWithReason(guildID, userID, reason, rest(ctx)...); err != nil {
-		return nil, classify("kick", err, true)
-	}
-	return map[string]any{"result": "kicked"}, nil
-}
-
-// BanMember bans the member. deleteMessageSeconds is sent as is, because
-// discordgo's helper only accepts whole days.
-func (b *Bot) BanMember(ctx context.Context, guildID, userID string, deleteMessageSeconds int, reason string) (map[string]any, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	body := map[string]any{"delete_message_seconds": deleteMessageSeconds}
-	bucket := discordgo.EndpointGuildBan(guildID, "")
-	endpoint := discordgo.EndpointGuildBan(guildID, userID)
-	if _, err := b.Session.RequestWithBucketID(http.MethodPut, endpoint, body, bucket, rest(ctx, discordgo.WithAuditLogReason(reason))...); err != nil {
-		return nil, classify("ban", err, true)
-	}
-	return map[string]any{"result": "banned", "delete_message_seconds": deleteMessageSeconds}, nil
-}
-
-// RemoveMemberTimeout lifts a timeout as a staff-confirmed reversal.
-func (b *Bot) RemoveMemberTimeout(ctx context.Context, guildID, userID, reason string) (map[string]any, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if err := b.Session.GuildMemberTimeout(guildID, userID, nil, rest(ctx, discordgo.WithAuditLogReason(reason))...); err != nil {
-		return nil, classify("remove_timeout", err, true)
-	}
-	return map[string]any{"result": "timeout_removed"}, nil
-}
-
-// UnbanMember lifts a ban as a staff-confirmed reversal.
-func (b *Bot) UnbanMember(ctx context.Context, guildID, userID, reason string) (map[string]any, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if err := b.Session.GuildBanDelete(guildID, userID, rest(ctx, discordgo.WithAuditLogReason(reason))...); err != nil {
-		return nil, classify("unban", err, true)
-	}
-	return map[string]any{"result": "unbanned"}, nil
-}
-
-// SendDM sends message to the user's direct-message channel.
-func (b *Bot) SendDM(ctx context.Context, userID, message string) (map[string]any, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	channel, err := b.Session.UserChannelCreate(userID, rest(ctx)...)
-	if err != nil {
-		return nil, classify("send_dm_channel", err, false)
-	}
-	sent, err := b.send(ctx, channel.ID, &discordgo.MessageSend{Content: message})
-	if err != nil {
-		return nil, classify("send_dm_message", err, false)
-	}
-	return sentResult(channel.ID, sent), nil
-}
-
-// PrepareDM opens the user's direct-message channel. Quack calls it before a
-// kick or ban, while the bot still shares a guild with the member.
-func (b *Bot) PrepareDM(ctx context.Context, userID string) (string, error) {
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-	channel, err := b.Session.UserChannelCreate(userID, rest(ctx)...)
-	if err != nil {
-		return "", classify("dm_prepare", err, false)
-	}
-	return channel.ID, nil
-}
-
-// SendPreparedDM sends message through a channel opened by PrepareDM.
-func (b *Bot) SendPreparedDM(ctx context.Context, channelID, message string) (map[string]any, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	sent, err := b.send(ctx, channelID, &discordgo.MessageSend{Content: message})
-	if err != nil {
-		return nil, classify("dm_send", err, true)
-	}
-	return sentResult(channelID, sent), nil
-}
-
-// SendCaseNotification sends a case notification with a button that opens
-// the case's appeal page in the dashboard. channelID may be a prepared DM
-// channel or empty.
-func (b *Bot) SendCaseNotification(ctx context.Context, userID, channelID, message, dashboardBaseURL, guildID, caseID string) (map[string]any, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(channelID) == "" {
-		channel, err := b.Session.UserChannelCreate(userID, rest(ctx)...)
-		if err != nil {
-			return nil, classify("dm_prepare", err, false)
-		}
-		channelID = channel.ID
-	}
-	entry, err := appealEntryMessage(dashboardBaseURL, guildID, caseID)
-	if err != nil {
-		return nil, err
-	}
-	sent, err := b.send(ctx, channelID, &discordgo.MessageSend{Content: message, Components: entry.Components})
-	if err != nil {
-		return nil, classify("dm_send", err, true)
-	}
-	return sentResult(channelID, sent), nil
-}
-
-// send posts a message with every mention suppressed.
-func (b *Bot) send(ctx context.Context, channelID string, message *discordgo.MessageSend) (*discordgo.Message, error) {
-	message.AllowedMentions = &discordgo.MessageAllowedMentions{}
-	return b.Session.ChannelMessageSendComplex(channelID, message, rest(ctx)...)
-}
-
-func sentResult(channelID string, sent *discordgo.Message) map[string]any {
-	result := map[string]any{"channel_id": channelID}
-	if sent != nil {
-		result["message_id"] = sent.ID
-	}
-	return result
 }

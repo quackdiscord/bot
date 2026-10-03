@@ -131,7 +131,9 @@ func channelPermissions(guild *discordgo.Guild, channel *discordgo.Channel, memb
 // PreserveEvidenceAttachment copies one attachment from Discord's CDN into
 // the guild's staff-only evidence channel, so the evidence survives the
 // original message being deleted.
-func (b *Bot) PreserveEvidenceAttachment(ctx context.Context, guildID, channelID string, item quack.DiscordAttachmentSnapshot) (*quack.PreservedDiscordAttachment, error) {
+func (b *Bot) PreserveEvidenceAttachment(
+	ctx context.Context, guildID, channelID string, item quack.DiscordAttachmentSnapshot,
+) (*quack.PreservedDiscordAttachment, error) {
 	if item.SizeBytes < 0 || item.SizeBytes > quack.MaxPreservedAttachmentBytes || !attachmentURL(item.URL) {
 		return nil, errors.New("attachment is not eligible for managed copying")
 	}
@@ -156,7 +158,11 @@ func (b *Bot) PreserveEvidenceAttachment(ctx context.Context, guildID, channelID
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, quack.DiscordError{Code: "evidence_download_failed", Message: "attachment download failed", Retryable: response.StatusCode >= 500}
+		return nil, quack.DiscordError{
+			Code:      "evidence_download_failed",
+			Message:   "attachment download failed",
+			Retryable: response.StatusCode >= 500,
+		}
 	}
 	content, err := io.ReadAll(io.LimitReader(response.Body, item.SizeBytes+1))
 	if err != nil || int64(len(content)) != item.SizeBytes {

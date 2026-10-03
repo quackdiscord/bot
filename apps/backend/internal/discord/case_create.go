@@ -136,8 +136,8 @@ func (c *cases) messageCommand(ctx context.Context, i *discordgo.InteractionCrea
 // templatePicker asks which active template applies to message. The choice
 // arrives at messageTemplate.
 func (c *cases) templatePicker(message *discordgo.Message, templates []quack.TemplateResponse) Result {
-	options := make([]discordgo.SelectMenuOption, 0, 25)
-	for _, template := range templates[:min(len(templates), 25)] {
+	options := make([]discordgo.SelectMenuOption, 0, choiceLimit)
+	for _, template := range templates[:min(len(templates), choiceLimit)] {
 		options = append(options, discordgo.SelectMenuOption{Label: templateLabel(template), Value: template.ID})
 	}
 	payload := strings.Join([]string{message.Author.ID, message.ChannelID, message.ID}, "|")
@@ -146,7 +146,13 @@ func (c *cases) templatePicker(message *discordgo.Message, templates []quack.Tem
 		return Immediate(Error("Use `/case add` to select a template for this message."))
 	}
 	minValues := 1
-	menu := discordgo.SelectMenu{CustomID: customID, Placeholder: "Choose an active case template", MinValues: &minValues, MaxValues: 1, Options: options}
+	menu := discordgo.SelectMenu{
+		CustomID:    customID,
+		Placeholder: "Choose an active case template",
+		MinValues:   &minValues,
+		MaxValues:   1,
+		Options:     options,
+	}
 	return Immediate(Ephemeral(Message{
 		Content:    "Choose the template that matches this message.",
 		Components: []discordgo.MessageComponent{Row(menu)},
@@ -213,7 +219,9 @@ func (c *cases) publish(ctx context.Context, responder Responder, created *quack
 // followResult polls the case's actions for up to 30 seconds and edits the
 // public result once they all reach a final state. It works on a copy so the
 // caller's case is never mutated.
-func (c *cases) followResult(ctx context.Context, responder Responder, created *quack.CaseResponse, messageID string, template *quack.TemplateResponse) {
+func (c *cases) followResult(
+	ctx context.Context, responder Responder, created *quack.CaseResponse, messageID string, template *quack.TemplateResponse,
+) {
 	if created.ID == "" || messageID == "" || len(created.Actions) == 0 {
 		return
 	}
@@ -261,6 +269,7 @@ func (c *cases) followResult(ctx context.Context, responder Responder, created *
 	}()
 }
 
+// messageLink returns the jump URL of a guild message.
 func messageLink(guildID, channelID, messageID string) string {
 	return fmt.Sprintf("https://discord.com/channels/%s/%s/%s", guildID, channelID, messageID)
 }
@@ -279,7 +288,9 @@ func messageLinkValues(template *quack.TemplateResponse, link string) []quack.Ca
 
 // withMessageLink fills the template's first message-link field with link
 // unless the context option already set it.
-func withMessageLink(values []quack.CaseContextValueInput, link string, template *quack.TemplateResponse) []quack.CaseContextValueInput {
+func withMessageLink(
+	values []quack.CaseContextValueInput, link string, template *quack.TemplateResponse,
+) []quack.CaseContextValueInput {
 	if link == "" || template == nil {
 		return values
 	}
@@ -299,7 +310,9 @@ func withMessageLink(values []quack.CaseContextValueInput, link string, template
 // contextValuesFromOption decodes the "context" option, a JSON object of
 // field values. Invalid JSON becomes an unknown key so case validation
 // rejects it with the usual message.
-func contextValuesFromOption(option *discordgo.ApplicationCommandInteractionDataOption, template *quack.TemplateResponse) []quack.CaseContextValueInput {
+func contextValuesFromOption(
+	option *discordgo.ApplicationCommandInteractionDataOption, template *quack.TemplateResponse,
+) []quack.CaseContextValueInput {
 	if option == nil || template == nil {
 		return nil
 	}
@@ -314,6 +327,7 @@ func contextValuesFromOption(option *discordgo.ApplicationCommandInteractionData
 	return out
 }
 
+// nonEmpty returns value as a one-element list, or nil when it is empty.
 func nonEmpty(value string) []string {
 	if value == "" {
 		return nil

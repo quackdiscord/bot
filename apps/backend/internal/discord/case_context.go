@@ -15,9 +15,45 @@ import (
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
-// contextPageSize is how many context fields fit in one modal; Discord
-// allows five inputs per modal.
-const contextPageSize = 5
+const (
+	// contextPageSize is how many context fields fit in one modal; Discord
+	// allows five inputs per modal.
+	contextPageSize = 5
+
+	// draftLifetime is how long a moderator has to finish a context form.
+	draftLifetime = 15 * time.Minute
+)
+
+// contextDraft is a context form in progress. Discord modals hold at most
+// five inputs, so templates with more fields are filled across pages.
+type contextDraft struct {
+	// Token is the ID of the interaction that started the form, and becomes
+	// the case's idempotency key.
+	Token                   string
+	ActorDiscordUserID      string
+	GuildID                 string
+	ContextChannelDiscordID string
+	ContextMessageDiscordID string
+	TargetDiscordUserID     string
+	Template                quack.TemplateResponse
+	Values                  map[string]json.RawMessage
+	EvidenceLinks           []string
+	Page                    int
+	ExpiresAt               time.Time
+}
+
+// draftStore keeps context drafts in memory until they expire. Drafts are
+// per process, which is fine because Discord routes a modal back within
+// seconds of opening it.
+type draftStore struct {
+	mu     sync.Mutex
+	drafts map[string]contextDraft
+}
+
+// newDraftStore returns an empty draft store.
+func newDraftStore() *draftStore {
+	return &draftStore{drafts: map[string]contextDraft{}}
+}
 
 // contextModal handles one submitted page of the context form. Earlier pages
 // are kept in the draft until the last page creates the case.
@@ -39,7 +75,12 @@ func (c *cases) contextModal(ctx context.Context, i *discordgo.InteractionCreate
 	draft.Page++
 	if draft.Page*contextPageSize < len(draft.Template.ContextFields) {
 		c.drafts.save(draft)
-		continueID := MustCustomID(CustomID{Namespace: "case", Action: "context_next", Version: "v1", Payload: draft.Token})
+		continueID := MustCustomID(CustomID{
+			Namespace: "case",
+			Action:    "context_next",
+			Version:   "v1",
+			Payload:   draft.Token,
+		})
 		return Immediate(Ephemeral(Message{
 			Content:    fmt.Sprintf("Saved context page %d. Continue to page %d.", draft.Page, draft.Page+1),
 			Components: []discordgo.MessageComponent{Row(Button(continueID, "Continue context", discordgo.PrimaryButton, false))},
@@ -119,15 +160,114 @@ func (c *cases) startContext(
 		Template:                *template,
 		Values:                  values,
 		EvidenceLinks:           appendUnique(nil, evidenceLink),
-		ExpiresAt:               time.Now().UTC().Add(15 * time.Minute),
+		ExpiresAt:               time.Now().UTC().Add(draftLifetime),
 	}
 	c.drafts.put(draft)
 	return draft.modal()
 }
 
+// matches reports whether i comes from the moderator who started the draft,
+// in the same guild.
+func (d contextDraft) matches(i *discordgo.InteractionCreate) bool {
+	actorID, _ := interactionMember(i)
+	return d.GuildID == i.GuildID && actorID != "" && actorID == d.ActorDiscordUserID
+}
+
+// page returns the fields on the draft's current page.
+func (d contextDraft) page() []quack.TemplateContextFieldResponse {
+	fields := d.Template.ContextFields
+	start := d.Page * contextPageSize
+	if start >= len(fields) {
+		return nil
+	}
+	return fields[start:min(start+contextPageSize, len(fields))]
+}
+
+// modal renders the draft's current page, prefilled with saved values.
+func (d contextDraft) modal() (*discordgo.InteractionResponse, error) {
+	customID, err := EncodeCustomID(CustomID{Namespace: "case", Action: "context_submit", Version: "v1", Payload: d.Token})
+	if err != nil {
+		return nil, err
+	}
+	fields := d.page()
+	rows := make([]discordgo.MessageComponent, 0, len(fields))
+	for _, field := range fields {
+		style, maxLength := discordgo.TextInputShort, 1000
+		if field.FieldType == quack.ContextFieldLongText {
+			style, maxLength = discordgo.TextInputParagraph, 4000
+		}
+		placeholder := "Enter a value"
+		if field.FieldType == quack.ContextFieldBoolean {
+			placeholder = "true or false"
+		}
+		value := ""
+		if raw, ok := d.Values[field.Key]; ok {
+			_ = json.Unmarshal(raw, &value)
+		}
+		rows = append(rows, Row(discordgo.TextInput{
+			CustomID:    "context_" + field.Key,
+			Label:       field.Label,
+			Style:       style,
+			Required:    field.Required,
+			MaxLength:   maxLength,
+			Placeholder: placeholder,
+			Value:       value,
+		}))
+	}
+	pages := (len(d.Template.ContextFields) + contextPageSize - 1) / contextPageSize
+	return Modal(fmt.Sprintf("Case context (%d/%d)", d.Page+1, pages), customID, rows), nil
+}
+
+// put stores draft and drops expired ones.
+func (s *draftStore) put(draft contextDraft) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().UTC()
+	for token, existing := range s.drafts {
+		if !existing.ExpiresAt.After(now) {
+			delete(s.drafts, token)
+		}
+	}
+	s.drafts[draft.Token] = draft
+}
+
+// get returns a copy of the draft that the caller may modify freely.
+func (s *draftStore) get(token string) (contextDraft, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	draft, ok := s.drafts[token]
+	if !ok || !draft.ExpiresAt.After(time.Now().UTC()) {
+		delete(s.drafts, token)
+		return contextDraft{}, false
+	}
+	values := make(map[string]json.RawMessage, len(draft.Values))
+	for key, value := range draft.Values {
+		values[key] = slices.Clone(value)
+	}
+	draft.Values = values
+	draft.EvidenceLinks = slices.Clone(draft.EvidenceLinks)
+	return draft, true
+}
+
+// save writes back a draft obtained from get, keeping its expiry.
+func (s *draftStore) save(draft contextDraft) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.drafts[draft.Token] = draft
+}
+
+// delete drops a draft once its case has been submitted.
+func (s *draftStore) delete(token string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.drafts, token)
+}
+
 // contextValuesFromModal reads and type-checks one page of the context form.
 // Message-link values are also returned as evidence links.
-func contextValuesFromModal(data discordgo.ModalSubmitInteractionData, fields []quack.TemplateContextFieldResponse) ([]quack.CaseContextValueInput, []string, error) {
+func contextValuesFromModal(
+	data discordgo.ModalSubmitInteractionData, fields []quack.TemplateContextFieldResponse,
+) ([]quack.CaseContextValueInput, []string, error) {
 	values := make([]quack.CaseContextValueInput, 0, len(fields))
 	evidence := []string{}
 	for _, field := range fields {
@@ -171,122 +311,4 @@ func appendUnique(values []string, additions ...string) []string {
 		}
 	}
 	return values
-}
-
-// contextDraft is a context form in progress. Discord modals hold at most
-// five inputs, so templates with more fields are filled across pages.
-type contextDraft struct {
-	Token                   string
-	ActorDiscordUserID      string
-	GuildID                 string
-	ContextChannelDiscordID string
-	ContextMessageDiscordID string
-	TargetDiscordUserID     string
-	Template                quack.TemplateResponse
-	Values                  map[string]json.RawMessage
-	EvidenceLinks           []string
-	Page                    int
-	ExpiresAt               time.Time
-}
-
-// matches reports whether i comes from the moderator who started the draft,
-// in the same guild.
-func (d contextDraft) matches(i *discordgo.InteractionCreate) bool {
-	actorID, _ := interactionMember(i)
-	return d.GuildID == i.GuildID && actorID != "" && actorID == d.ActorDiscordUserID
-}
-
-// page returns the fields on the draft's current page.
-func (d contextDraft) page() []quack.TemplateContextFieldResponse {
-	fields := d.Template.ContextFields
-	start := d.Page * contextPageSize
-	if start >= len(fields) {
-		return nil
-	}
-	return fields[start:min(start+contextPageSize, len(fields))]
-}
-
-// modal renders the draft's current page, prefilled with saved values.
-func (d contextDraft) modal() (*discordgo.InteractionResponse, error) {
-	customID, err := EncodeCustomID(CustomID{Namespace: "case", Action: "context_submit", Version: "v1", Payload: d.Token})
-	if err != nil {
-		return nil, err
-	}
-	fields := d.page()
-	rows := make([]discordgo.MessageComponent, 0, len(fields))
-	for _, field := range fields {
-		style, maxLength := discordgo.TextInputShort, 1000
-		if field.FieldType == quack.ContextFieldLongText {
-			style, maxLength = discordgo.TextInputParagraph, 4000
-		}
-		placeholder := "Enter a value"
-		if field.FieldType == quack.ContextFieldBoolean {
-			placeholder = "true or false"
-		}
-		value := ""
-		if raw, ok := d.Values[field.Key]; ok {
-			_ = json.Unmarshal(raw, &value)
-		}
-		rows = append(rows, Row(discordgo.TextInput{
-			CustomID: "context_" + field.Key, Label: field.Label, Style: style,
-			Required: field.Required, MaxLength: maxLength, Placeholder: placeholder, Value: value,
-		}))
-	}
-	pages := (len(d.Template.ContextFields) + contextPageSize - 1) / contextPageSize
-	return Modal(fmt.Sprintf("Case context (%d/%d)", d.Page+1, pages), customID, rows), nil
-}
-
-// draftStore keeps context drafts in memory for 15 minutes. Drafts are
-// per process, which is fine because Discord routes a modal back within
-// seconds of opening it.
-type draftStore struct {
-	mu     sync.Mutex
-	drafts map[string]contextDraft
-}
-
-func newDraftStore() *draftStore {
-	return &draftStore{drafts: map[string]contextDraft{}}
-}
-
-// put stores draft and drops expired ones.
-func (s *draftStore) put(draft contextDraft) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	now := time.Now().UTC()
-	for token, existing := range s.drafts {
-		if !existing.ExpiresAt.After(now) {
-			delete(s.drafts, token)
-		}
-	}
-	s.drafts[draft.Token] = draft
-}
-
-// get returns a copy of the draft that the caller may modify freely.
-func (s *draftStore) get(token string) (contextDraft, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	draft, ok := s.drafts[token]
-	if !ok || !draft.ExpiresAt.After(time.Now().UTC()) {
-		delete(s.drafts, token)
-		return contextDraft{}, false
-	}
-	values := make(map[string]json.RawMessage, len(draft.Values))
-	for key, value := range draft.Values {
-		values[key] = slices.Clone(value)
-	}
-	draft.Values = values
-	draft.EvidenceLinks = slices.Clone(draft.EvidenceLinks)
-	return draft, true
-}
-
-func (s *draftStore) save(draft contextDraft) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.drafts[draft.Token] = draft
-}
-
-func (s *draftStore) delete(token string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.drafts, token)
 }

@@ -1,6 +1,7 @@
 package discord
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -31,6 +32,8 @@ func caseCreatedMessage(created *quack.CaseResponse, template *quack.TemplateRes
 	return Content(Truncate(strings.Join(lines, "\n"), 2000), false)
 }
 
+// publicActionStatus lists each action's type and status, without the error
+// details staff see.
 func publicActionStatus(actions []quack.CaseActionResponse) string {
 	if len(actions) == 0 {
 		return "No Discord action configured"
@@ -93,29 +96,35 @@ func caseDetailMessage(detail *quack.CaseDetailResponse) Message {
 // caseDetailControls offers Void, plus Retry and Dismiss for the first
 // failed action or Reverse for the first succeeded timeout or ban.
 func caseDetailControls(detail *quack.CaseDetailResponse) []discordgo.MessageComponent {
-	button := func(action, payload, label string, style discordgo.ButtonStyle) discordgo.MessageComponent {
-		return Button(MustCustomID(CustomID{Namespace: "case", Action: action, Version: "v1", Payload: payload}), label, style, false)
+	button := func(action, payload, label string, style discordgo.ButtonStyle, disabled bool) discordgo.MessageComponent {
+		customID := MustCustomID(CustomID{Namespace: "case", Action: action, Version: "v1", Payload: payload})
+		return Button(customID, label, style, disabled)
 	}
-	void := Button(MustCustomID(CustomID{Namespace: "case", Action: "void", Version: "v1", Payload: detail.ID}),
-		"Void case", discordgo.DangerButton, detail.Validity == quack.CaseValidityVoided)
-	buttons := []discordgo.MessageComponent{void}
+	voided := detail.Validity == quack.CaseValidityVoided
+	buttons := []discordgo.MessageComponent{button("void", detail.ID, "Void case", discordgo.DangerButton, voided)}
 	for _, action := range detail.Actions {
 		if action.Status == quack.ActionExecutionFailed {
 			buttons = append(buttons,
-				button("retry", action.ID, "Retry", discordgo.PrimaryButton),
-				button("dismiss", action.ID, "Dismiss", discordgo.SecondaryButton),
+				button("retry", action.ID, "Retry", discordgo.PrimaryButton, false),
+				button("dismiss", action.ID, "Dismiss", discordgo.SecondaryButton, false),
 			)
 			break
 		}
-		if action.Status == quack.ActionExecutionSucceeded && (action.ActionType == quack.ActionTimeoutUser || action.ActionType == quack.ActionBanUser) {
-			reversal := quack.ActionRemoveTimeout
-			if action.ActionType == quack.ActionBanUser {
-				reversal = quack.ActionUnbanUser
-			}
-			payload := strings.Join([]string{detail.ID, action.ID, string(reversal)}, "|")
-			buttons = append(buttons, button("reverse", payload, "Reverse action", discordgo.SecondaryButton))
-			break
+		if action.Status != quack.ActionExecutionSucceeded {
+			continue
 		}
+		var reversal quack.ActionType
+		switch action.ActionType {
+		case quack.ActionTimeoutUser:
+			reversal = quack.ActionRemoveTimeout
+		case quack.ActionBanUser:
+			reversal = quack.ActionUnbanUser
+		default:
+			continue
+		}
+		payload := strings.Join([]string{detail.ID, action.ID, string(reversal)}, "|")
+		buttons = append(buttons, button("reverse", payload, "Reverse action", discordgo.SecondaryButton, false))
+		break
 	}
 	return []discordgo.MessageComponent{Row(buttons...)}
 }
@@ -190,6 +199,8 @@ func pageCount(total int64) int {
 	return max(int((total+casePageSize-1)/casePageSize), 1)
 }
 
+// staffActionSummary lists each action with its attempt count and last
+// failure.
 func staffActionSummary(actions []quack.CaseActionDetailResponse) string {
 	if len(actions) == 0 {
 		return "No Discord action configured"
@@ -205,6 +216,8 @@ func staffActionSummary(actions []quack.CaseActionDetailResponse) string {
 	return strings.Join(rows, "\n")
 }
 
+// contextSummary lists the case's visible context values, each cut short so
+// the field stays within Discord's limit.
 func contextSummary(values []quack.CaseContextValueResponse) string {
 	rows := make([]string, 0, len(values))
 	for _, value := range values {
@@ -253,8 +266,11 @@ func failureLabel(code string) string {
 }
 
 // appealStaffMessage is the staff view of an appeal: its timeline and a
-// confirmation button for each reversal Quack offers after acceptance. The
-// button's payload is "appeal,execution,action".
+// confirmation button for each reversal Quack offers after acceptance,
+// handled by appealReversal.
+//
+// Nothing posts this view yet: staff appeal notifications are plain text, so
+// the reversal buttons only appear once the appeal flow sends this message.
 func appealStaffMessage(appeal *quack.AppealResponse) Message {
 	if appeal == nil {
 		return embedMessage(errorEmbed("Appeal not found."), true)
@@ -274,7 +290,12 @@ func appealStaffMessage(appeal *quack.AppealResponse) Message {
 	message := embedMessage(e.build(), false)
 	for _, offer := range appeal.ReversalOffers {
 		payload := appeal.ID + "," + offer.OriginalExecutionID + "," + string(offer.ActionType)
-		customID, err := EncodeCustomID(CustomID{Namespace: "appeal", Action: "reverse", Version: "v1", Payload: payload})
+		customID, err := EncodeCustomID(CustomID{
+			Namespace: appealNamespace,
+			Action:    appealReverseAction,
+			Version:   "v1",
+			Payload:   payload,
+		})
 		if err != nil {
 			continue
 		}
@@ -290,9 +311,11 @@ func appealStaffMessage(appeal *quack.AppealResponse) Message {
 func appealEntryMessage(baseURL, guildID, caseID string) (Message, error) {
 	parsed, err := url.Parse(strings.TrimSpace(baseURL))
 	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
-		return Message{}, fmt.Errorf("secure dashboard base URL is required")
+		return Message{}, errors.New("secure dashboard base URL is required")
 	}
-	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/guilds/" + url.PathEscape(guildID) + "/cases/" + url.PathEscape(caseID) + "/appeal"
+	parsed.Path = strings.TrimRight(parsed.Path, "/") +
+		"/guilds/" + url.PathEscape(guildID) +
+		"/cases/" + url.PathEscape(caseID) + "/appeal"
 	parsed.RawQuery = ""
 	parsed.Fragment = ""
 	return Message{
