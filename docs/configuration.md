@@ -65,10 +65,10 @@ Secrets (`discord.token`, `discord.client_secret`, `api.ops_token`,
 | `api.read_timeout` | `15s` | Whole-request read limit. |
 | `api.write_timeout` | `30s` | Response write limit. |
 | `api.idle_timeout` | `1m` | Keep-alive idle limit. |
-| `api.shutdown_timeout` | `20s` | Time allowed for a graceful shutdown of the whole process. |
+| `api.shutdown_timeout` | `20s` | How long the HTTP server may drain on shutdown. The other components then get the same amount again, so a full stop can take up to twice this. |
 | `api.idempotency_ttl` | `24h` | How long a completed write can be replayed by its `Idempotency-Key`. |
-| `api.ops_token` | none | Enables `GET /ops/status` for callers sending it in `X-Quack-Ops-Key`. Required in prod. |
-| `api.metrics_token` | none | Required in `X-Quack-Metrics-Key` to read metrics. Required in prod. |
+| `api.ops_token` | none | Enables `GET /ops/status`, and operator access to `GET /guilds/{discordGuildID}/ops/status`, for callers sending it in `X-Quack-Ops-Key`. Required in prod. |
+| `api.metrics_token` | none | Required in `X-Quack-Metrics-Key` to read `GET /metrics`; without it the endpoint is a 404. Required in prod. |
 | `auth.session_cookie_name` | `quack_session` | Session cookie name. |
 | `auth.csrf_cookie_name` | `quack_csrf` | Double-submit CSRF cookie name. |
 | `auth.session_ttl` | `168h` | Dashboard session lifetime. |
@@ -83,25 +83,24 @@ Secrets (`discord.token`, `discord.client_secret`, `api.ops_token`,
 | `discord.command_guild_id` | none | Sync slash commands to this guild only. Guild commands update instantly. |
 | `discord.command_prune` | `false` | Delete registered commands Quack no longer defines. |
 | `limits.oauth` | `20/10m` | OAuth login and callback, per client IP. |
-| `limits.member_read` | `120/1m` | Dashboard reads, appeals, and module routes. |
-| `limits.template_write` | `30/1m` | Other dashboard writes. |
+| `limits.member_read` | `120/1m` | Dashboard reads, plus the per-actor limit on member, appeal review, and module routes. |
+| `limits.template_write` | `30/1m` | Dashboard writes other than case creation, retries, and reversals. |
 | `limits.case_create` | `20/1m` | Case creation. |
 | `limits.retry` | `10/1m` | Action retries and reversals. |
-| `limits.evidence` | `20/1m` | Evidence uploads, and also applied to case creation. |
+| `limits.evidence` | `20/1m` | A second limit spent by case creation, which may capture evidence. |
 | `database.dsn` | none | MySQL DSN, e.g. `user:pass@tcp(host:3306)/quack?charset=utf8mb4&parseTime=True&loc=Local`. Required. |
 | `redis.url` | none | Redis URL, e.g. `redis://host:6379/0`. Required for `serve`. |
 | `queue.size` | `1000` | Action queue buffer. |
 | `queue.workers` | `3` | Action queue workers. |
 | `log.level` | `info` | `debug`, `info`, `warn`, or `error`. Dev logs are colored text; others are JSON. |
 
-See `docs/http-api-platform.md` for how the rate limit classes map to routes.
+[`architecture.md`](architecture.md#http-api) describes how the rate limit classes map to routes.
 
 ## Development and production Discord apps
 
 Use a separate Discord application for development and keep its credentials
 in your local `.env`. Production credentials live only in the production
-environment. (Earlier versions swapped in `DEV_DISCORD_*` variables when
-`ENVIRONMENT=dev`; that indirection is gone.)
+environment.
 
 ## Docker Compose
 
@@ -112,34 +111,30 @@ also runs the app, reading `.env` and replacing `QUACK_DATABASE_DSN` and
 
 ## Discord install permissions and intents
 
-The install URL needs the `bot` and `applications.commands` OAuth scopes. Core
-case responses require the bot to view the invoking staff channel, send
-messages, embed links, and read message history. Configured v5 enforcement also
-requires the bot's `Moderate Members`, `Kick Members`, or `Ban Members`
-permission for the action an admin places on a template; V5-003 owns the live
-actor/bot permission and hierarchy preflight before a punitive case is created.
+The install URL needs the `bot` and `applications.commands` OAuth scopes.
 
-The managed-evidence slice will additionally require `Manage Channels` and
-permission-overwrite access to create and repair its staff-only channel. Merely
-persisting the configured evidence-channel reference in the current guild
-settings contract does not create or permission that channel. Audit mirroring
-uses the normal view/send/embed permissions in its selected staff channel.
+The bot needs:
 
-Gateway intent needs by product surface are:
+- View Channel, Send Messages, Embed Links, and Read Message History, for case
+  results, evidence capture, the audit mirror, and module channels.
+- Moderate Members, Kick Members, and Ban Members, for whichever actions the
+  guild's templates use. Case creation is refused up front when the bot lacks
+  the permission a level's action needs.
+- Manage Channels, for the managed evidence channel and ticket channels.
 
-- Core guild lifecycle and application-command interactions: `Guilds`; no
-  privileged intent is inherently required for the current setup/settings
-  flow.
-- Message evidence, honeypot messages, and message-based general logging:
-  `Guild Messages` plus the privileged `Message Content` intent when content is
-  consumed outside an interaction payload.
-- General-logging member join/leave events: the privileged `Guild Members`
-  intent.
-- Tickets driven by interactions: no additional privileged intent by itself.
+The guild ops status (`GET /guilds/{discordGuildID}/ops/status`) reports the
+guild as degraded when the bot lacks Moderate Members, Kick Members, Ban
+Members, or Manage Channels.
 
-The current binary still requests the legacy broad integer mask `3276543`,
-which includes privileged intents. Production applications using that binary
-must enable every privileged intent it requests in the Discord developer
-portal or Discord may reject the gateway session. Reducing this mask to the
-minimum enabled feature set remains tracked work; `Guild Presences` is not a v5
-product requirement.
+Gateway intents are chosen at startup (`internal/app/app.go`). Quack always requests
+`Guilds`. It adds more only when at least one guild has the matching module
+on, so a module switched on later gets its events after a restart:
+
+- General logging: Guild Members, Guild Moderation, Guild Messages, and
+  Message Content.
+- Honeypot: Guild Messages.
+
+Guild Members and Message Content are privileged, so enable them in the
+Discord developer portal before turning on general logging. Discord also
+blanks message text in REST responses for apps without Message Content, which
+affects captured evidence.

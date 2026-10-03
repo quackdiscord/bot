@@ -3,7 +3,8 @@
 The schema lives in `apps/backend/internal/store`: `schema.go` has one record
 struct per table, and `migrate.go` has the ordered list of migrations. Each
 applied migration is recorded in `quack_schema_migrations` by version and name.
-`quack migrate up` and `quack serve` both apply whatever is pending.
+`quack migrate up` (or just `quack migrate`) and `quack serve` both apply
+whatever is pending. `migrate` only needs `database.dsn`.
 
 There is one migration today, version 1 `baseline`. It creates every table,
 including the module tables (`modules.Models`, `tickets.Models`,
