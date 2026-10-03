@@ -89,18 +89,6 @@ func (f *fakeResponder) content() string {
 	return ""
 }
 
-func run(t *testing.T, result discord.Result) *fakeResponder {
-	t.Helper()
-	if result.Task == nil {
-		t.Fatalf("expected a deferred task: %+v", result.Response)
-	}
-	responder := &fakeResponder{}
-	if err := result.Task(context.Background(), responder); err != nil {
-		t.Fatal(err)
-	}
-	return responder
-}
-
 // TestAppealDMFormOwnershipAndSingleSubmission drives the DM button and form
 // with no guild member, as for a banned member.
 func TestAppealDMFormOwnershipAndSingleSubmission(t *testing.T) {

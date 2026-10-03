@@ -24,8 +24,9 @@ const (
 	draftLifetime = 15 * time.Minute
 )
 
-// contextDraft is a context form in progress. Discord modals hold at most
-// five inputs, so templates with more fields are filled across pages.
+// contextDraft is a context form in progress, opened when /case add names a
+// template with required context fields. Discord modals hold at most five
+// inputs, so templates with more fields are filled across pages.
 type contextDraft struct {
 	// Token is the ID of the interaction that started the form, and becomes
 	// the case's idempotency key.
@@ -38,6 +39,7 @@ type contextDraft struct {
 	Template                quack.TemplateResponse
 	Values                  map[string]json.RawMessage
 	EvidenceLinks           []string
+	Attachments             []quack.DiscordAttachmentSnapshot
 	Page                    int
 	ExpiresAt               time.Time
 }
@@ -111,13 +113,15 @@ func (c *cases) contextModal(ctx context.Context, i *discordgo.InteractionCreate
 			ContextMessageDiscordID: draft.ContextMessageDiscordID,
 			ContextValues:           ordered,
 			EvidenceLinks:           draft.EvidenceLinks,
+			Attachments:             draft.Attachments,
 			IdempotencyKey:          draft.Token,
 		})
 		if err != nil {
 			_, err := responder.EditOriginal(ErrorEdit(caseCreateErrorMessage(err)))
 			return err
 		}
-		return c.publish(ctx, responder, created, template)
+		c.publishInPlace(ctx, responder, i, created)
+		return nil
 	})
 }
 
@@ -141,6 +145,7 @@ func (c *cases) contextNext(_ context.Context, i *discordgo.InteractionCreate) R
 func (c *cases) startContext(
 	i *discordgo.InteractionCreate, template *quack.TemplateResponse,
 	targetID, evidenceLink, channelID, messageID string, prefilled []quack.CaseContextValueInput,
+	files []quack.DiscordAttachmentSnapshot,
 ) (*discordgo.InteractionResponse, error) {
 	if len(template.ContextFields) == 0 || strings.TrimSpace(i.ID) == "" {
 		return nil, errors.New("template context is empty")
@@ -160,6 +165,7 @@ func (c *cases) startContext(
 		Template:                *template,
 		Values:                  values,
 		EvidenceLinks:           appendUnique(nil, evidenceLink),
+		Attachments:             files,
 		ExpiresAt:               time.Now().UTC().Add(draftLifetime),
 	}
 	c.drafts.put(draft)
@@ -246,6 +252,7 @@ func (s *draftStore) get(token string) (contextDraft, bool) {
 	}
 	draft.Values = values
 	draft.EvidenceLinks = slices.Clone(draft.EvidenceLinks)
+	draft.Attachments = slices.Clone(draft.Attachments)
 	return draft, true
 }
 

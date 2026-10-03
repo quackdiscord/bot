@@ -167,40 +167,12 @@
       "title": "Case context (2/2)"
     }
   },
-  "message_select": {
+  "edit_context_modal_missing_case": {
     "type": 4,
     "data": {
       "tts": false,
-      "content": "Choose the template that matches this message.",
-      "components": [
-        {
-          "components": [
-            {
-              "custom_id": "case:message_template:v1:target-1|channel-1|message-1",
-              "placeholder": "Choose an active case template",
-              "min_values": 1,
-              "max_values": 1,
-              "options": [
-                {
-                  "label": "Many Fields - Lots",
-                  "value": "TEMPLATE_MANY",
-                  "description": "",
-                  "default": false
-                },
-                {
-                  "label": "Spam - Unwanted repeated messages",
-                  "value": "TEMPLATE_SPAM",
-                  "description": "",
-                  "default": false
-                }
-              ],
-              "disabled": false,
-              "type": 3
-            }
-          ],
-          "type": 1
-        }
-      ],
+      "content": "{{quack:error}} That case couldn’t be found. Check its number and try again.",
+      "components": null,
       "embeds": null,
       "allowed_mentions": {
         "parse": null,
@@ -208,6 +180,52 @@
       },
       "flags": 64
     }
+  },
+  "message_menu_ack": {
+    "type": 5,
+    "data": {
+      "tts": false,
+      "content": "",
+      "components": null,
+      "embeds": null,
+      "flags": 64
+    }
+  },
+  "message_menu_picker": {
+    "PrivateError": false,
+    "Content": "{{quack:case}} Which rule did they break?",
+    "Embeds": [],
+    "Components": [
+      {
+        "components": [
+          {
+            "custom_id": "case:message_template:v1:target-1|channel-1|message-1",
+            "placeholder": "Select a rule",
+            "min_values": 1,
+            "max_values": 1,
+            "options": [
+              {
+                "label": "Many Fields - Lots",
+                "value": "TEMPLATE_MANY",
+                "description": "",
+                "default": false
+              },
+              {
+                "label": "Spam - Unwanted repeated messages",
+                "value": "TEMPLATE_SPAM",
+                "description": "",
+                "default": false
+              }
+            ],
+            "disabled": false,
+            "type": 3
+          }
+        ],
+        "type": 1
+      }
+    ],
+    "Files": null,
+    "AllowedMentions": null
   },
   "reverse_button": {
     "type": 9,
@@ -234,6 +252,42 @@
       "custom_id": "case:reverse_submit:v1:case-1|exec-1|unban_user",
       "title": "Confirm reversal"
     }
+  },
+  "user_menu_picker": {
+    "PrivateError": false,
+    "Content": "{{quack:case}} Which rule did they break?",
+    "Embeds": [],
+    "Components": [
+      {
+        "components": [
+          {
+            "custom_id": "case:user_template:v1:target-2",
+            "placeholder": "Select a rule",
+            "min_values": 1,
+            "max_values": 1,
+            "options": [
+              {
+                "label": "Many Fields - Lots",
+                "value": "TEMPLATE_MANY",
+                "description": "",
+                "default": false
+              },
+              {
+                "label": "Spam - Unwanted repeated messages",
+                "value": "TEMPLATE_SPAM",
+                "description": "",
+                "default": false
+              }
+            ],
+            "disabled": false,
+            "type": 3
+          }
+        ],
+        "type": 1
+      }
+    ],
+    "Files": null,
+    "AllowedMentions": null
   },
   "void_button": {
     "type": 9,

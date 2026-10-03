@@ -4,53 +4,102 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/internal/discordtext"
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
-// caseCreatedMessage announces a new case in the channel it was created
-// from: who, which rule, what Quack did about it, and the context staff
-// gave. Member notifications have their own wording.
-func caseCreatedMessage(created *quack.CaseResponse, template *quack.TemplateResponse) Message {
-	if created == nil {
+// pageBudget is how much text one page of a paged staff view holds, leaving
+// room under Discord's limit for its footer and command mentions.
+const pageBudget = 1750
+
+// caseReceiptMessage announces a case in the channel it was created from:
+// who, which rule, what Quack did about it, and the context staff gave,
+// never evidence. Member notifications have their own wording. A receipt
+// too long for one message shows its first page and a "View full case"
+// button.
+func caseReceiptMessage(receipt *quack.CaseReceipt) Message {
+	if receipt == nil {
 		return Signal("case_add", "Case added.", false)
 	}
-	meta := []string{fmt.Sprintf("Case #%d", created.CaseNumber)}
-	if date := RelativeTime(created.CreatedAt); date != "" {
+	meta := []string{fmt.Sprintf("Case #%d", receipt.CaseNumber)}
+	if date := RelativeTime(receipt.CreatedAt); date != "" {
 		meta = append(meta, date)
 	}
 	icon := "case_add"
-	if len(created.Actions) == 0 {
+	if len(receipt.Actions) == 0 {
 		icon = "warn"
 	}
-	for _, action := range created.Actions {
+	for _, action := range receipt.Actions {
 		if action.Status == quack.ActionExecutionFailed {
 			icon = "error"
 			break
 		}
-		if action.Status == quack.ActionExecutionPending || action.Status == quack.ActionExecutionRunning ||
-			action.Status == quack.ActionExecutionRetrying {
+		if pendingStatus(action.Status) {
 			icon = "pending"
 		}
 	}
-	status := publicActionStatus(created.Actions)
-	if created.ModeratorDiscordUserID != "" {
-		status += "\nModerator: <@" + created.ModeratorDiscordUserID + ">"
+	status := publicActionStatus(receipt.Actions)
+	if receipt.ModeratorDiscordUserID != "" {
+		status += "\nModerator: <@" + receipt.ModeratorDiscordUserID + ">"
 	}
-	if context := contextSummary(created.ContextValues); context != "" {
+	if context := contextSummary(receipt.ContextValues); context != "" {
 		status += "\n\n" + context
 	}
-	lead := fmt.Sprintf("Case #%d · <@%s>", created.CaseNumber, created.TargetDiscordUserID)
-	if name := templateName(template); name != "" {
+	if receipt.EvidenceIncomplete {
+		status += "\nSome evidence couldn’t be saved. Staff can check **View evidence**."
+	}
+	lead := fmt.Sprintf("Case #%d · <@%s>", receipt.CaseNumber, receipt.TargetDiscordUserID)
+	if name := strings.TrimSpace(receipt.RuleName); name != "" {
 		lead += " · **" + PlainText(name) + "**"
 	}
-	if created.Validity == quack.CaseValidityVoided {
+	voided := receipt.Validity == quack.CaseValidityVoided
+	if voided {
 		lead = "**Voided** · " + lead
 	}
-	message := Conversation(icon, lead, PlainText(created.Reason), status, strings.Join(meta, " · "), false)
-	message.Components = []discordgo.MessageComponent{Row(casePrimaryControls(created.ID, created.Validity == quack.CaseValidityVoided)...)}
+	message := Conversation(icon, lead, PlainText(receipt.Reason), status, strings.Join(meta, " · "), false)
+	message.Components = []discordgo.MessageComponent{Row(casePrimaryControls(receipt.CaseID, receipt.TargetDiscordUserID, voided)...)}
+	if pages := TextPages(message.Content, pageBudget); len(pages) > 1 {
+		message.Content = pages[0]
+		message.Components = append(message.Components, Row(caseButton("view", receipt.CaseID, "View full case", discordgo.SecondaryButton, false)))
+	}
 	return message
+}
+
+// pendingStatus reports whether an execution has not settled yet.
+func pendingStatus(status quack.ActionExecutionStatus) bool {
+	return status == quack.ActionExecutionPending || status == quack.ActionExecutionRunning || status == quack.ActionExecutionRetrying
+}
+
+// publicActionStatus describes each action's progress, never calling a
+// queued action done.
+func publicActionStatus(actions []quack.CaseReceiptAction) string {
+	if len(actions) == 0 {
+		return "Warning recorded."
+	}
+	parts := make([]string, 0, len(actions))
+	for _, action := range actions {
+		parts = append(parts, actionSentence(action.ActionType, action.Status, action.TimeoutUntil))
+	}
+	return strings.Join(parts, "\n")
+}
+
+// casePrimaryControls are the controls every case receipt and detail
+// carries: Edit context, View evidence, History, and Void case.
+func casePrimaryControls(caseID, targetID string, voided bool) []discordgo.MessageComponent {
+	return []discordgo.MessageComponent{
+		caseButton("edit_context", caseID, "Edit context", discordgo.SecondaryButton, false),
+		caseButton("evidence", caseID, "View evidence", discordgo.SecondaryButton, false),
+		caseButton("user_detail", targetID, "History", discordgo.SecondaryButton, false),
+		caseButton("void", caseID, "Void case", discordgo.DangerButton, voided),
+	}
+}
+
+// caseButton returns a button routed to the case namespace.
+func caseButton(action, payload, label string, style discordgo.ButtonStyle, disabled bool) discordgo.Button {
+	return Button(MustCustomID(CustomID{Namespace: "case", Action: action, Version: "v1", Payload: payload}), label, style, disabled)
 }
 
 // caseVoidedMessage confirms a void, and says when a punishment is still
@@ -59,7 +108,7 @@ func caseVoidedMessage(item *quack.CaseResponse) Message {
 	status := "It stays in history and no longer counts toward escalation."
 	for _, action := range item.Actions {
 		if action.ActionType == quack.ActionRemoveTimeout || action.ActionType == quack.ActionUnbanUser {
-			status += "\n" + publicActionStatus([]quack.CaseActionResponse{action})
+			status += "\n" + ActionSentence(action.ActionType, action.Status)
 		} else if action.Status == quack.ActionExecutionRunning {
 			status += "\nEnforcement is still finishing. Quack will try to undo any ban or timeout that succeeds."
 		}
@@ -67,38 +116,25 @@ func caseVoidedMessage(item *quack.CaseResponse) Message {
 	return Conversation("case_void", fmt.Sprintf("Case #%d was voided.", item.CaseNumber), "", status, "", false)
 }
 
-// publicActionStatus describes each action's progress, never calling a
-// queued action done.
-func publicActionStatus(actions []quack.CaseActionResponse) string {
-	if len(actions) == 0 {
-		return "Warning recorded."
+// caseDetailPage is page (1-based, clamped) of the staff view of a case.
+// Long context and history page in Discord rather than spilling into a
+// file, and every page keeps the case controls. Icons are resolved for
+// applicationID before measuring, because they count toward Discord's
+// limit.
+func caseDetailPage(detail *quack.CaseDetailResponse, page int, applicationID string) Message {
+	message := caseDetailMessage(detail)
+	if detail == nil {
+		return message
 	}
-	parts := make([]string, 0, len(actions))
-	for _, action := range actions {
-		parts = append(parts, ActionSentence(action.ActionType, action.Status))
+	pages := TextPages(discordtext.Resolve(message.Content, applicationID), pageBudget)
+	page = min(max(page, 1), len(pages))
+	message.Content = pages[page-1]
+	if len(pages) > 1 {
+		message.Content += fmt.Sprintf("\n\n-# Case #%d · Page %d/%d", detail.CaseNumber, page, len(pages))
+		controls, _ := Pagination("case", "detail", fmt.Sprintf("%d|%s", page, detail.ID), page, len(pages))
+		message.Components = append(message.Components, controls...)
 	}
-	return strings.Join(parts, "\n")
-}
-
-// templateName prefers the admin-facing name and falls back to the slug.
-func templateName(template *quack.TemplateResponse) string {
-	if template == nil {
-		return ""
-	}
-	if name := strings.TrimSpace(template.Name); name != "" {
-		return name
-	}
-	return strings.TrimSpace(template.Slug)
-}
-
-// casePrimaryControls are the controls every case message carries.
-func casePrimaryControls(caseID string, voided bool) []discordgo.MessageComponent {
-	return []discordgo.MessageComponent{caseButton("void", caseID, "Void case", discordgo.DangerButton, voided)}
-}
-
-// caseButton returns a button routed to the case namespace.
-func caseButton(action, payload, label string, style discordgo.ButtonStyle, disabled bool) discordgo.Button {
-	return Button(MustCustomID(CustomID{Namespace: "case", Action: action, Version: "v1", Payload: payload}), label, style, disabled)
+	return message
 }
 
 // caseDetailMessage is the staff view of one case, written as a
@@ -163,7 +199,7 @@ func caseDetailMessage(detail *quack.CaseDetailResponse) Message {
 // and Dismiss for the first failed action, or Reverse for the first
 // succeeded timeout or ban.
 func caseDetailControls(detail *quack.CaseDetailResponse) []discordgo.MessageComponent {
-	rows := []discordgo.MessageComponent{Row(casePrimaryControls(detail.ID, detail.Validity == quack.CaseValidityVoided)...)}
+	rows := []discordgo.MessageComponent{Row(casePrimaryControls(detail.ID, detail.TargetDiscordUserID, detail.Validity == quack.CaseValidityVoided)...)}
 	var buttons []discordgo.MessageComponent
 	for _, action := range detail.Actions {
 		if action.Status == quack.ActionExecutionFailed {
@@ -214,132 +250,6 @@ func notificationDeliverySentence(status string) string {
 	}
 }
 
-// caseListMessage renders one page of cases, guild-wide or for targetID,
-// with Prev and Next buttons whose payload is "page|target".
-func caseListMessage(list *quack.CaseListResponse, page int, targetID string) Message {
-	return boundedCaseHistoryMessage(list, page, targetID, "")
-}
-
-// caseProfileMessage is a member's case history page with their all-time
-// totals underneath.
-func caseProfileMessage(profile *quack.CaseProfileResponse, page int, targetID string) Message {
-	if profile == nil {
-		return caseListMessage(nil, page, targetID)
-	}
-	summary := fmt.Sprintf("\n-# %d total · %d active · %d voided", profile.Summary.Total,
-		profile.Summary.ByValidity[string(quack.CaseValidityValid)], profile.Summary.ByValidity[string(quack.CaseValidityVoided)])
-	return boundedCaseHistoryMessage(&profile.CaseListResponse, page, targetID, summary)
-}
-
-// boundedCaseHistoryMessage fits a whole page in one message by shortening
-// only the row labels: every row and control stays. Each icon placeholder
-// reserves room for the emoji it becomes.
-func boundedCaseHistoryMessage(list *quack.CaseListResponse, page int, targetID, summary string) Message {
-	for limit := 100; ; limit-- {
-		message := caseHistoryMessage(list, page, targetID, limit)
-		message.Content += summary
-		units := utf16Len(message.Content) + 64*strings.Count(message.Content, "{{quack:")
-		if units <= contentLimit || limit == 0 {
-			return message
-		}
-	}
-}
-
-// caseHistoryMessage renders a page of cases with row labels cut to
-// labelLimit runes.
-func caseHistoryMessage(list *quack.CaseListResponse, page int, targetID string, labelLimit int) Message {
-	page = max(page, 1)
-	var rows []string
-	var total int64
-	if list != nil {
-		total = list.Total
-		for _, item := range list.Cases {
-			row := fmt.Sprintf("**#%d**  <@%s> · %s", item.CaseNumber, item.TargetDiscordUserID, caseRowLabel(item, labelLimit))
-			if item.Source == quack.CaseSourceV4Import {
-				row = fmt.Sprintf("**#%d**  <@%s> · %s · **Imported v4**", item.CaseNumber, item.TargetDiscordUserID, historicalCaseLabel(item))
-			}
-			if item.Validity == quack.CaseValidityVoided {
-				row += " · **Voided**"
-			}
-			if date := RelativeTime(item.CreatedAt); date != "" {
-				row += "\n-# " + date
-			}
-			rows = append(rows, row)
-		}
-	}
-	totalPages := pageCount(total)
-	prefix := "list"
-	if targetID != "" {
-		prefix = "user"
-	}
-	components, _ := Pagination("case", prefix, fmt.Sprintf("%d|%s", page, targetID), page, totalPages)
-	lead := "Here are the latest cases."
-	if targetID != "" {
-		lead = "Here’s the case history for <@" + targetID + ">."
-	}
-	if total == 0 {
-		lead = "No cases yet."
-		if targetID != "" {
-			lead = "No cases found for <@" + targetID + ">."
-		}
-		rows = nil
-	}
-	message := Conversation("history", lead, "", strings.Join(rows, "\n\n"), fmt.Sprintf("Page %d/%d · %d total", page, totalPages, total), false)
-	message.Components = components
-	return message
-}
-
-// caseRowLabel names a case in a list by its selected level, cut to limit
-// runes.
-func caseRowLabel(item quack.CaseResponse, limit int) string {
-	if item.SelectedLevel == nil || strings.TrimSpace(item.SelectedLevel.Name) == "" {
-		return "Case recorded"
-	}
-	name := item.SelectedLevel.Name
-	label := PlainText(Truncate(name, limit))
-	if len([]rune(name)) > limit {
-		label += "…"
-	}
-	return label
-}
-
-// failedActionMessage renders the queue of failed actions awaiting review,
-// with Retry, Dismiss, and Void controls for the first one.
-func failedActionMessage(result *quack.FailedCaseActionResult, page int) Message {
-	page = max(page, 1)
-	var rows []string
-	var components []discordgo.MessageComponent
-	var total int64
-	if result != nil {
-		total = result.Total
-		for index, item := range result.Executions {
-			rows = append(rows, fmt.Sprintf("`%s` · %s · %s", item.ID, item.ActionType.Label(), safeFailure(item.LastErrorCode)))
-			if index == 0 {
-				components = append(components, Row(
-					caseButton("retry", item.ID, "Retry first", discordgo.SecondaryButton, false),
-					caseButton("dismiss", item.ID, "Dismiss first", discordgo.SecondaryButton, false),
-					caseButton("void", item.CaseID, "Void case", discordgo.DangerButton, false),
-				))
-			}
-		}
-	}
-	totalPages := pageCount(total)
-	pages, _ := Pagination("case", "failures", fmt.Sprintf("%d", page), page, totalPages)
-	components = append(components, pages...)
-	icon, lead := "success", "No action failures need review."
-	if len(rows) > 0 {
-		icon, lead = "error", "These actions need a hand."
-	}
-	message := Conversation(icon, lead, "", strings.Join(rows, "\n\n"), fmt.Sprintf("Page %d/%d · %d active", page, totalPages, total), false)
-	message.Components = components
-	return message
-}
-
-// pageCount returns how many pages total items fill, at least one.
-func pageCount(total int64) int {
-	return max(int((total+casePageSize-1)/casePageSize), 1)
-}
-
 // staffActionSummary describes each action and its last failure in
 // sentences.
 func staffActionSummary(actions []quack.CaseActionDetailResponse) string {
@@ -348,7 +258,7 @@ func staffActionSummary(actions []quack.CaseActionDetailResponse) string {
 	}
 	rows := make([]string, 0, len(actions))
 	for _, action := range actions {
-		row := ActionSentence(action.ActionType, action.Status)
+		row := actionSentence(action.ActionType, action.Status, action.TimeoutUntil)
 		if action.LastErrorCode != "" {
 			row += "\n" + safeFailure(action.LastErrorCode)
 		}
@@ -357,10 +267,23 @@ func staffActionSummary(actions []quack.CaseActionDetailResponse) string {
 	return strings.Join(rows, "\n")
 }
 
+// actionSentence is ActionSentence with the confirmed end of a succeeded
+// timeout, written as Discord timestamps so each reader sees it in their
+// own time zone.
+func actionSentence(action quack.ActionType, status quack.ActionExecutionStatus, timeoutUntil *time.Time) string {
+	if action == quack.ActionTimeoutUser && status == quack.ActionExecutionSucceeded && timeoutUntil != nil {
+		return fmt.Sprintf("Timed out until <t:%d:f> (<t:%d:R>).", timeoutUntil.Unix(), timeoutUntil.Unix())
+	}
+	return ActionSentence(action, status)
+}
+
 // contextSummary quotes each staff-visible context value, escaped.
 func contextSummary(values []quack.CaseContextValueResponse) string {
 	rows := make([]string, 0, len(values))
 	for _, value := range values {
+		if value.Value == nil {
+			continue
+		}
 		rows = append(rows, Quote(PlainText(value.Label)+" — "+PlainText(fmt.Sprint(value.Value))))
 	}
 	return strings.Join(rows, "\n")

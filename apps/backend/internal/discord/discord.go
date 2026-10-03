@@ -30,6 +30,10 @@ type Bot struct {
 	// Session is exposed so the composition root can set gateway intents and
 	// optional modules can subscribe to gateway events.
 	Session *discordgo.Session
+	// DashboardURL is the dashboard origin that staff case views link to
+	// with "Open on web". Empty leaves the links out. Set it before
+	// NewRouter.
+	DashboardURL string
 
 	httpClient *http.Client
 	connected  atomic.Bool

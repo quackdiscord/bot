@@ -2,6 +2,7 @@ package discord
 
 import (
 	"context"
+	"log/slog"
 	"strconv"
 	"strings"
 
@@ -12,9 +13,9 @@ import (
 // casePageSize is how many cases or failures one page shows.
 const casePageSize = 10
 
-// staffCommand handles the /case subcommands other than add: browsing cases
-// and recovering failed actions. Results replace the public placeholder;
-// errors go only to the moderator.
+// staffCommand handles the /case subcommands other than add: adding
+// evidence, browsing cases, and recovering failed actions. Results replace
+// the public placeholder; errors go only to the moderator.
 func (c *cases) staffCommand(i *discordgo.InteractionCreate, data discordgo.ApplicationCommandInteractionData) Result {
 	var selected *discordgo.ApplicationCommandInteractionDataOption
 	for _, option := range data.Options {
@@ -32,7 +33,7 @@ func (c *cases) staffCommand(i *discordgo.InteractionCreate, data discordgo.Appl
 			_, err := responder.EditOriginal(ErrorEdit(caseErrorMessage(err)))
 			return err
 		}
-		response, err := c.runStaffCommand(ctx, staff, selected)
+		response, err := c.runStaffCommand(ctx, i, staff, selected)
 		if err != nil {
 			_, err := responder.EditOriginal(ErrorEdit(caseErrorMessage(err)))
 			return err
@@ -45,7 +46,8 @@ func (c *cases) staffCommand(i *discordgo.InteractionCreate, data discordgo.Appl
 // runStaffCommand performs the selected subcommand and renders its result.
 // The irreversible ones, void and reverse, require the confirm option.
 func (c *cases) runStaffCommand(
-	ctx context.Context, staff *quack.GuildStaffContext, selected *discordgo.ApplicationCommandInteractionDataOption,
+	ctx context.Context, i *discordgo.InteractionCreate, staff *quack.GuildStaffContext,
+	selected *discordgo.ApplicationCommandInteractionDataOption,
 ) (Message, error) {
 	option := func(name string) string { return optionString(selected.GetOption(name)) }
 	confirmed := func() bool {
@@ -53,25 +55,32 @@ func (c *cases) runStaffCommand(
 		return confirm != nil && confirm.BoolValue()
 	}
 	switch selected.Name {
-	case "view":
-		detail, err := c.services.Cases.Get(ctx, staff, option("case"))
+	case "evidence":
+		links := nonEmpty(strings.TrimSpace(option("message_link")))
+		detail, err := c.services.Cases.AddEvidence(ctx, staff, option("case"), links, interactionFiles(i, selected.GetOption("file")))
 		if err != nil {
 			return Message{}, err
 		}
-		return caseDetailMessage(detail), nil
+		return c.webLink(caseDetailPage(detail, 1, i.AppID), i.GuildID, "cases", detail.ID), nil
+	case "view":
+		detail, err := c.services.Cases.GetCompact(ctx, staff, option("case"))
+		if err != nil {
+			return Message{}, err
+		}
+		return c.webLink(caseDetailPage(detail, 1, i.AppID), i.GuildID, "cases", detail.ID), nil
 	case "list":
 		list, err := c.services.Cases.List(ctx, staff, quack.CaseListInput{Limit: strconv.Itoa(casePageSize)})
 		if err != nil {
 			return Message{}, err
 		}
-		return caseListMessage(list, 1, ""), nil
+		return c.webLink(caseListMessage(list, 1, ""), i.GuildID, "cases", ""), nil
 	case "user":
 		targetID := option("user")
 		profile, err := c.services.Cases.UserHistory(ctx, staff, targetID, quack.CaseListInput{Limit: strconv.Itoa(casePageSize)})
 		if err != nil {
 			return Message{}, err
 		}
-		return caseProfileMessage(profile, 1, targetID), nil
+		return c.webLink(caseProfileMessage(profile, 1, targetID), i.GuildID, "members", targetID), nil
 	case "failures":
 		failed, err := c.services.Actions.ListFailures(ctx, staff, casePageSize, 0)
 		if err != nil {
@@ -141,13 +150,13 @@ func (c *cases) pageCases(delta int, user bool) Handler {
 				if err != nil {
 					return err
 				}
-				message = caseProfileMessage(profile, page, targetID)
+				message = c.webLink(caseProfileMessage(profile, page, targetID), i.GuildID, "members", targetID)
 			} else {
 				list, err := c.services.Cases.List(ctx, staff, input)
 				if err != nil {
 					return err
 				}
-				message = caseListMessage(list, page, targetID)
+				message = c.webLink(caseListMessage(list, page, targetID), i.GuildID, "cases", "")
 			}
 			_, err = responder.EditOriginal(EditMessage(message))
 			return err
@@ -179,33 +188,62 @@ func (c *cases) pageFailures(delta int) Handler {
 	}
 }
 
+// actionOperation is a recovery control on a failed execution.
+type actionOperation int
+
+const (
+	retryControl actionOperation = iota
+	dismissControl
+)
+
 // actionControl handles the Retry and Dismiss buttons, whose payload is the
-// execution ID, and then refreshes the failed-action queue in place.
-func (c *cases) actionControl(operation string) Handler {
+// execution ID. On a private view, such as a failure queue a moderator
+// paged through, the view refreshes in place; anywhere else, such as a case
+// detail or an audit mirror entry, the result is posted in the channel and
+// the source message is left alone.
+func (c *cases) actionControl(operation actionOperation) Handler {
 	return func(_ context.Context, i *discordgo.InteractionCreate) Result {
 		id, err := DecodeCustomID(i.MessageComponentData().CustomID)
 		if err != nil {
 			return Immediate(Error("That action control is invalid."))
 		}
-		return Async(DeferUpdate(), func(ctx context.Context, responder Responder) error {
+		private := i.Message != nil && i.Message.Flags&discordgo.MessageFlagsEphemeral != 0
+		acknowledgement := DeferPublic()
+		if private {
+			acknowledgement = DeferUpdate()
+		}
+		return Async(acknowledgement, func(ctx context.Context, responder Responder) error {
 			staff, err := c.staff(ctx, i)
 			if err != nil {
 				return err
 			}
-			if operation == "retry" {
+			lead := "The action retry is queued."
+			if operation == retryControl {
 				_, err = c.services.Actions.Retry(ctx, staff, id.Payload)
 			} else {
+				lead = "The action failure was dismissed."
 				_, err = c.services.Actions.Dismiss(ctx, staff, id.Payload)
 			}
 			if err != nil {
 				return err
 			}
-			failed, err := c.services.Actions.ListFailures(ctx, staff, casePageSize, 0)
-			if err != nil {
-				return err
+			// The change is committed; a failed read or edit below must not
+			// turn it into a generic failure.
+			receipt := Conversation("retry", lead, "", "Use `/case failures` to review remaining failures.", "", false)
+			if failed, err := c.services.Actions.ListFailures(ctx, staff, casePageSize, 0); err == nil {
+				receipt = failedActionMessage(failed, 1)
+				receipt.Content = lead + "\n\n" + receipt.Content
 			}
-			_, err = responder.EditOriginal(EditMessage(failedActionMessage(failed, 1)))
-			return err
+			if _, err := editWithRetry(ctx, responder, receipt); err != nil {
+				slog.WarnContext(ctx, "Could not show committed recovery result", "error", err)
+				receipt.Ephemeral = true
+				if private {
+					_, _ = responder.Followup(receipt)
+				} else {
+					_, _ = responder.Followup(Signal("error", "The change was saved, but I couldn’t update this message. Check `/case view` for the result.", true))
+				}
+			}
+			return nil
 		})
 	}
 }
@@ -244,8 +282,8 @@ func (c *cases) voidModal(_ context.Context, i *discordgo.InteractionCreate) Res
 			_, err := responder.EditOriginal(ErrorEdit(caseErrorMessage(err)))
 			return err
 		}
-		_, err = Publish(responder, caseVoidedMessage(voided))
-		return err
+		keepRecoveryReceipt(ctx, responder, caseVoidedMessage(voided))
+		return nil
 	})
 }
 
@@ -282,7 +320,17 @@ func (c *cases) reverseModal(_ context.Context, i *discordgo.InteractionCreate) 
 			_, err := responder.EditOriginal(ErrorEdit(caseErrorMessage(err)))
 			return err
 		}
-		_, err = Publish(responder, Conversation("retry", "The reversal is queued.", "", "The original action stays in the case history.", "", false))
-		return err
+		keepRecoveryReceipt(ctx, responder, Conversation("retry", "The reversal is queued.", "", "The original action stays in the case history.", "", false))
+		return nil
 	})
+}
+
+// keepRecoveryReceipt publishes the result of a committed correction. If
+// Discord rejects the edit, the moderator is told privately that the change
+// was saved, so they never repeat it.
+func keepRecoveryReceipt(ctx context.Context, responder Responder, receipt Message) {
+	if _, err := editWithRetry(ctx, responder, receipt); err != nil {
+		slog.WarnContext(ctx, "Could not show committed recovery result", "error", err)
+		_, _ = responder.Followup(Signal("error", "The change was saved, but I couldn’t update this message. Check `/case view` for the result.", true))
+	}
 }

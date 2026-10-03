@@ -2,6 +2,8 @@ package discord
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -18,7 +20,7 @@ func TestEvidenceDownloadRejectsUnsafeSourcesBeforeUpload(t *testing.T) {
 	})
 	bot.httpClient = &http.Client{Transport: roundTripper(func(request *http.Request) (*http.Response, error) {
 		calls++
-		return textResponse(request, http.StatusOK, "too many bytes"), nil
+		return textResponse(request, http.StatusBadGateway, "unavailable"), nil
 	})}
 	ctx := context.Background()
 	preserve := func(url string) error {
@@ -26,7 +28,7 @@ func TestEvidenceDownloadRejectsUnsafeSourcesBeforeUpload(t *testing.T) {
 		return err
 	}
 	if err := preserve("https://cdn.discordapp.com/attachments/1/2/file.png"); err == nil || calls != 1 {
-		t.Fatalf("size mismatch was accepted: calls=%d err=%v", calls, err)
+		t.Fatalf("failed download was accepted: calls=%d err=%v", calls, err)
 	}
 	for _, raw := range []string{
 		"http://cdn.discordapp.com/attachments/1/2/x",
@@ -80,5 +82,81 @@ func TestEvidenceChecksModeratorAccessBeforeBotRead(t *testing.T) {
 	allowed = true
 	if _, err := bot.FetchMessageEvidence(context.Background(), ref); err != nil || reads != 1 {
 		t.Fatalf("readable evidence failed: %v", err)
+	}
+}
+
+// TestEvidenceCopyKeepsConvertedFileAndReturnsJumpLink accepts a download
+// whose size differs from the metadata, as Discord's converted images do,
+// and links the copy by its message, which outlives signed CDN URLs.
+func TestEvidenceCopyKeepsConvertedFileAndReturnsJumpLink(t *testing.T) {
+	bot := testBot(t, func(request *http.Request) (*http.Response, error) {
+		switch path := request.URL.Path; {
+		case strings.HasSuffix(path, "/channels/evidence") && request.Method == http.MethodGet:
+			return jsonResponse(request, &discordgo.Channel{ID: "evidence", GuildID: "guild", Type: discordgo.ChannelTypeGuildText,
+				PermissionOverwrites: []*discordgo.PermissionOverwrite{{ID: "guild", Type: discordgo.PermissionOverwriteTypeRole, Deny: discordgo.PermissionViewChannel}}}), nil
+		case strings.HasSuffix(path, "/guilds/guild"):
+			return jsonResponse(request, &discordgo.Guild{ID: "guild", Roles: []*discordgo.Role{{ID: "guild"}}}), nil
+		case strings.HasSuffix(path, "/channels/evidence/messages"):
+			return jsonResponse(request, &discordgo.Message{ID: "copy", Attachments: []*discordgo.MessageAttachment{{ID: "file", URL: "https://cdn.discordapp.com/attachments/signed"}}}), nil
+		}
+		t.Fatalf("unexpected request %s %s", request.Method, request.URL.Path)
+		return nil, nil
+	})
+	bot.httpClient = &http.Client{Transport: roundTripper(func(request *http.Request) (*http.Response, error) {
+		return textResponse(request, http.StatusOK, "converted bytes"), nil
+	})}
+	copied, err := bot.PreserveEvidenceAttachment(context.Background(), "guild", "evidence",
+		quack.DiscordAttachmentSnapshot{URL: "https://cdn.discordapp.com/attachments/1/2/a.png", Filename: "a.png", SizeBytes: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if copied.URL != "https://discord.com/channels/guild/evidence/copy" || copied.MessageID != "copy" {
+		t.Fatalf("copy = %+v", copied)
+	}
+}
+
+// TestEvidenceChannelLeavesExistingAndOpensNewToStaff keeps an existing
+// channel as administrators set it up, and creates a missing one readable
+// by staff roles only.
+func TestEvidenceChannelLeavesExistingAndOpensNewToStaff(t *testing.T) {
+	var created discordgo.GuildChannelCreateData
+	bot := testBot(t, func(request *http.Request) (*http.Response, error) {
+		switch path := request.URL.Path; {
+		case strings.HasSuffix(path, "/channels/existing"):
+			if request.Method != http.MethodGet {
+				t.Fatal("existing evidence channel was modified")
+			}
+			return jsonResponse(request, &discordgo.Channel{ID: "existing", GuildID: "guild"}), nil
+		case strings.HasSuffix(path, "/channels/gone"):
+			return textResponse(request, http.StatusNotFound, `{"code":10003}`), nil
+		case strings.HasSuffix(path, "/guilds/guild/roles"):
+			return jsonResponse(request, []*discordgo.Role{
+				{ID: "guild"}, {ID: "mods", Permissions: discordgo.PermissionModerateMembers}, {ID: "managers", Permissions: discordgo.PermissionManageGuild},
+			}), nil
+		case strings.HasSuffix(path, "/guilds/guild/channels"):
+			body, _ := io.ReadAll(request.Body)
+			_ = json.Unmarshal(body, &created)
+			return jsonResponse(request, &discordgo.Channel{ID: "new", GuildID: "guild"}), nil
+		case strings.HasSuffix(path, "/channels/new/messages"):
+			return jsonResponse(request, &discordgo.Message{ID: "intro"}), nil
+		}
+		t.Fatalf("unexpected request %s %s", request.Method, request.URL.Path)
+		return nil, nil
+	})
+	ctx := context.Background()
+	if id, err := bot.EnsureEvidenceChannel(ctx, "guild", "existing"); err != nil || id != "existing" {
+		t.Fatalf("existing channel = %q, %v", id, err)
+	}
+	if id, err := bot.EnsureEvidenceChannel(ctx, "guild", "gone"); err != nil || id != "new" {
+		t.Fatalf("new channel = %q, %v", id, err)
+	}
+	var readers []string
+	for _, overwrite := range created.PermissionOverwrites {
+		if overwrite.Allow&discordgo.PermissionViewChannel != 0 {
+			readers = append(readers, overwrite.ID)
+		}
+	}
+	if strings.Join(readers, ",") != "bot,mods" {
+		t.Fatalf("new channel readers = %v, want the bot and staff roles", readers)
 	}
 }

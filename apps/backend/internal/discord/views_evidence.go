@@ -4,8 +4,58 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/internal/discordtext"
 	"github.com/quackdiscord/bot/internal/quack"
 )
+
+// evidencePages splits one evidence item, after the case's context, into
+// text pages. Icons are resolved for applicationID first, since they count
+// toward Discord's limit.
+func evidencePages(page *quack.CaseEvidencePage, applicationID string) []string {
+	var evidence []quack.CaseEvidenceResponse
+	if page.Evidence != nil {
+		evidence = []quack.CaseEvidenceResponse{*page.Evidence}
+	}
+	body := evidenceSummary(evidence)
+	if body == "" {
+		body = "No evidence has been added yet."
+	}
+	if context := contextSummary(page.ContextValues); context != "" {
+		body = context + "\n\n" + body
+	}
+	return TextPages(discordtext.Resolve(body, applicationID), 1600)
+}
+
+// evidencePageMessage shows text page textPage (1-based, clamped) of one
+// evidence item. Previous and Next step through the item's text pages and
+// on into the neighboring items, with the payload "position:page|case".
+func evidencePageMessage(evidence *quack.CaseEvidencePage, textPage int, applicationID string) Message {
+	if evidence == nil {
+		return Signal("error", "That case could not be found.", true)
+	}
+	pages := evidencePages(evidence, applicationID)
+	textPage = min(max(textPage, 1), len(pages))
+	body := pages[textPage-1] + fmt.Sprintf("\n\nAdd a screenshot with `/case evidence case:%d file:` or use its `message_link` option.", evidence.CaseNumber)
+	footer := ""
+	if evidence.Total > 0 {
+		footer = fmt.Sprintf("Evidence %d of %d", evidence.Position, evidence.Total)
+	}
+	if len(pages) > 1 {
+		footer += fmt.Sprintf(" · page %d of %d", textPage, len(pages))
+	}
+	message := Conversation("evidence", fmt.Sprintf("Evidence for case #%d", evidence.CaseNumber), "", body, footer, false)
+	previous := evidence.Position > 1 || textPage > 1
+	next := int64(evidence.Position) < evidence.Total || textPage < len(pages)
+	if previous || next {
+		payload := fmt.Sprintf("%d:%d|%s", evidence.Position, textPage, evidence.CaseID)
+		message.Components = []discordgo.MessageComponent{Row(
+			caseButton("evidence_prev", payload, "Previous", discordgo.SecondaryButton, !previous),
+			caseButton("evidence_next", payload, "Next", discordgo.SecondaryButton, !next),
+		)}
+	}
+	return message
+}
 
 // evidenceSummary lists each piece of evidence with a descriptive link, its
 // quoted text, its files, and any capture warning in plain words.

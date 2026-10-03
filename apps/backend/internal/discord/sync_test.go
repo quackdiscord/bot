@@ -3,6 +3,7 @@ package discord
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
@@ -15,8 +16,9 @@ import (
 // guild, so it must be deliberate.
 func TestCommandDefinitionsAreUnchanged(t *testing.T) {
 	want := map[string]string{
-		caseCommandName:        "58f25940bf8fe38cc382d4d057563eb1c8dad9c91f5c9fd01a39a00008e1aefa",
-		messageCaseCommandName: "9eeaed148c9e935ad4b6cfaa628be6fc4887e21f8457c130813f2c2ec96d2b51",
+		caseCommandName:        "b6809d0a613e848ba24aeb1321c98be8296ed6a833e7842271fdfde4410fa6d2",
+		messageCaseCommandName: "57ff5e9c60b08d46c0742deaad1239e86ee00415a67b5b5a54f31c2852797d46",
+		userCaseCommandName:    "8deda4a790a677cbccc1b8192e176be4c5bbda9fe5ea7540de64b8a8c5f09d8c",
 		templateCommandName:    "7094a68153fa4671fe89ecf8372fcef92a53215fe92446b14cc255771d37c51b",
 		appealsCommandName:     "c4c28da3d479feb6128a58df54a86f3ec144841a812275f3ba017e6c5bbb09ca",
 		helpCommandName:        "45656e62a33c545f254b43453d75d86f8113fed9d75cb2189186fcab7e3469e8",
@@ -52,6 +54,20 @@ func TestCaseCommandShape(t *testing.T) {
 		if option.Required != (position < 2) {
 			t.Fatalf("required options must come first: %+v", add.Options)
 		}
+		if option.Name == "context" {
+			t.Fatal("add still takes raw JSON context")
+		}
+	}
+	if file := add.Options[3]; file.Name != "file" || file.Type != discordgo.ApplicationCommandOptionAttachment {
+		t.Fatalf("add has no file option: %+v", file)
+	}
+	var names []string
+	for _, option := range command.Options {
+		names = append(names, option.Name)
+	}
+	want := "add evidence view list user failures retry dismiss void reverse"
+	if got := strings.Join(names, " "); got != want {
+		t.Fatalf("subcommands = %q, want %q", got, want)
 	}
 	for _, option := range command.Options {
 		switch option.Name {
@@ -247,5 +263,33 @@ func TestRedisCommandCacheRoundTrip(t *testing.T) {
 	entry, err := cache.get(ctx, "guild:1", "case")
 	if err != nil || entry == nil || *entry != (cachedCommand{DiscordCommandID: "id", Hash: "hash"}) {
 		t.Fatalf("cache round trip = %+v, %v", entry, err)
+	}
+}
+
+// TestSyncRetiresRenamedContextMenus checks that the old "Create moderation
+// case" and "Create case for member" registrations go once their
+// replacements sync, even with pruning off, and only then.
+func TestSyncRetiresRenamedContextMenus(t *testing.T) {
+	old := func() []*discordgo.ApplicationCommand {
+		return []*discordgo.ApplicationCommand{
+			{ID: "old-message", Type: discordgo.MessageApplicationCommand, Name: "Create moderation case"},
+			{ID: "old-user", Type: discordgo.UserApplicationCommand, Name: "Create case for member"},
+		}
+	}
+	client := &fakeCommands{remote: old()}
+	s := syncer{client: client, cache: memoryCommandCache{}, appID: "sync-rename"}
+	if err := s.sync(context.Background(), commands()); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.deleted) != 2 || client.deleted[0] != "old-message" || client.deleted[1] != "old-user" {
+		t.Fatalf("deleted %v, want both old context menus", client.deleted)
+	}
+	client = &fakeCommands{remote: old()}
+	s = syncer{client: client, cache: memoryCommandCache{}, appID: "sync-rename-missing"}
+	if err := s.sync(context.Background(), []*discordgo.ApplicationCommand{caseCommand()}); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.deleted) != 0 {
+		t.Fatalf("retired %v without its replacement", client.deleted)
 	}
 }

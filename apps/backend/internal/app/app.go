@@ -124,6 +124,7 @@ type quackApp struct {
 // and touches the network only through st and rdb, so tests can call it.
 func build(ctx context.Context, cfg config.Config, st *store.Store, rdb *redis.Client, bot *discord.Bot) (*quackApp, error) {
 	w := worker.New(cfg.Queue.Size, cfg.Queue.Workers)
+	bot.DashboardURL = quack.DashboardBaseURL(cfg.API.CORSOrigins)
 	registry := modules.NewRegistry(st.DB())
 	services := quack.New(quack.Deps{
 		Store:            st,
@@ -153,6 +154,8 @@ func build(ctx context.Context, cfg config.Config, st *store.Store, rdb *redis.C
 	})
 	w.Every("audit mirror", auditMirrorInterval, quack.NewAuditMirror(st, bot).PollOnce)
 	w.Every("ticket transcripts", transcriptInterval, q.tickets.SweepTranscripts)
+	w.Every("case publications", discord.PublicationRefreshInterval,
+		discord.NewPublicationRefresher(bot, services.Publications).RefreshDue)
 
 	intents, err := gatewayIntents(ctx, q.logging, q.honeypot)
 	if err != nil {

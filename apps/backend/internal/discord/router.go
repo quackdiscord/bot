@@ -108,7 +108,7 @@ type Router struct {
 // before the gateway opens.
 func NewRouter(bot *Bot, services *quack.Services, deduper Deduper) *Router {
 	r := newRouter(bot.Session, deduper)
-	newCases(services).register(r)
+	newCases(services, bot, bot.DashboardURL).register(r)
 	appeals{services: services}.register(r)
 	templates{services: services}.register(r)
 	r.commands[helpCommandName] = help

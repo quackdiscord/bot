@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discord"
@@ -40,6 +41,16 @@ func (f *fakeDirectory) GuildAuthorization(_ context.Context, _, actorID, target
 	}, nil
 }
 
+// fakePoster records channel posts made with bot credentials.
+type fakePoster struct {
+	sent []discord.Message
+}
+
+func (f *fakePoster) Send(_ context.Context, channelID string, message discord.Message) (*discordgo.Message, error) {
+	f.sent = append(f.sent, message)
+	return &discordgo.Message{ID: fmt.Sprintf("posted-%d", len(f.sent)), ChannelID: channelID}, nil
+}
+
 // caseHarness is a case handler backed by SQLite and a fake Discord, with a
 // "spam" template already created.
 type caseHarness struct {
@@ -47,6 +58,7 @@ type caseHarness struct {
 	cases     discord.Cases
 	services  *quack.Services
 	directory *fakeDirectory
+	poster    *fakePoster
 	owner     *quack.GuildStaffContext
 	spamID    string
 }
@@ -65,7 +77,11 @@ func newCaseHarness(t *testing.T, liveActorBits uint64) *caseHarness {
 	if err != nil {
 		t.Fatalf("resolve owner: %v", err)
 	}
-	h := &caseHarness{store: repository, cases: discord.NewCases(services), services: services, directory: directory, owner: owner}
+	poster := &fakePoster{}
+	h := &caseHarness{
+		store: repository, services: services, directory: directory, poster: poster, owner: owner,
+		cases: discord.NewCases(services, poster, "https://dash.example"),
+	}
 	h.spamID = h.template(t, quack.TemplateInput{
 		Slug: "spam", Name: "Spam", Description: "Unwanted repeated messages", ReasonTemplate: "Spam",
 		Levels: []quack.TemplateLevelInput{{Name: "Default", Position: 1, IsDefault: true, NotifyUser: true}},
@@ -83,6 +99,16 @@ func (h *caseHarness) template(t *testing.T, input quack.TemplateInput) *quack.T
 	return created
 }
 
+// publications returns the receipts recorded for refresh.
+func (h *caseHarness) publications(t *testing.T) []quack.CasePublication {
+	t.Helper()
+	due, err := h.services.Publications.Due(context.Background(), time.Now().Add(time.Minute), 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return due
+}
+
 // interaction returns a /case interaction from moderator mod-1, whose
 // interaction payload claims permissions.
 func interaction(
@@ -98,17 +124,24 @@ func interaction(
 	}}
 }
 
-// addSubcommand wraps options in the /case add subcommand.
-func addSubcommand(options ...*discordgo.ApplicationCommandInteractionDataOption) []*discordgo.ApplicationCommandInteractionDataOption {
+// component returns a button or select interaction for customID.
+func component(customID string, values ...string) *discordgo.InteractionCreate {
+	i := interaction(discordgo.InteractionMessageComponent, 0, nil)
+	i.Data = discordgo.MessageComponentInteractionData{CustomID: customID, Values: values}
+	return i
+}
+
+// subcommand wraps options in the named /case subcommand.
+func subcommand(name string, options ...*discordgo.ApplicationCommandInteractionDataOption) []*discordgo.ApplicationCommandInteractionDataOption {
 	return []*discordgo.ApplicationCommandInteractionDataOption{{
-		Name:    "add",
+		Name:    name,
 		Type:    discordgo.ApplicationCommandOptionSubCommand,
 		Options: options,
 	}}
 }
 
 func caseAdd(templateID, targetID string, permissions uint64) *discordgo.InteractionCreate {
-	return interaction(discordgo.InteractionApplicationCommand, permissions, addSubcommand(
+	return interaction(discordgo.InteractionApplicationCommand, permissions, subcommand("add",
 		&discordgo.ApplicationCommandInteractionDataOption{
 			Name: "template", Type: discordgo.ApplicationCommandOptionString, Value: templateID,
 		},
@@ -120,11 +153,35 @@ func caseAdd(templateID, targetID string, permissions uint64) *discordgo.Interac
 
 func templateAutocomplete(query string) *discordgo.InteractionCreate {
 	permissions := uint64(discordgo.PermissionModerateMembers)
-	return interaction(discordgo.InteractionApplicationCommandAutocomplete, permissions, addSubcommand(
+	return interaction(discordgo.InteractionApplicationCommandAutocomplete, permissions, subcommand("add",
 		&discordgo.ApplicationCommandInteractionDataOption{
 			Name: "template", Type: discordgo.ApplicationCommandOptionString, Value: query, Focused: true,
 		},
 	))
+}
+
+// userMenu returns an "Add case for member" interaction on targetID.
+func userMenu(targetID string) *discordgo.InteractionCreate {
+	i := interaction(discordgo.InteractionApplicationCommand, 0, nil)
+	i.ID = "user-menu"
+	i.Data = discordgo.ApplicationCommandInteractionData{
+		Name: discord.UserCaseCommandName, CommandType: discordgo.UserApplicationCommand, TargetID: targetID,
+		Resolved: &discordgo.ApplicationCommandInteractionDataResolved{Users: map[string]*discordgo.User{targetID: {ID: targetID}}},
+	}
+	return i
+}
+
+// messageMenu returns an "Add case" interaction on a message by target-1.
+func messageMenu() *discordgo.InteractionCreate {
+	i := interaction(discordgo.InteractionApplicationCommand, 0, nil)
+	i.ID = "message-menu"
+	i.Data = discordgo.ApplicationCommandInteractionData{
+		Name: discord.MessageCaseCommandName, TargetID: "message-1",
+		Resolved: &discordgo.ApplicationCommandInteractionDataResolved{Messages: map[string]*discordgo.Message{
+			"message-1": {ID: "message-1", ChannelID: "channel-1", Author: &discordgo.User{ID: "target-1"}},
+		}},
+	}
+	return i
 }
 
 // fakeResponder records a task's output. Like Discord, a followup before
@@ -140,7 +197,7 @@ type fakeResponder struct {
 func (f *fakeResponder) EditOriginal(edit discord.Edit) (*discordgo.Message, error) {
 	f.edit = edit
 	f.editCount++
-	return &discordgo.Message{ID: "message-1"}, nil
+	return &discordgo.Message{ID: "message-1", ChannelID: "channel-1"}, nil
 }
 
 func (f *fakeResponder) Followup(message discord.Message) (*discordgo.Message, error) {
@@ -161,6 +218,19 @@ func (f *fakeResponder) DeleteOriginal() error {
 	return nil
 }
 
+// run runs result's task and returns what it sent.
+func run(t *testing.T, result discord.Result) *fakeResponder {
+	t.Helper()
+	if result.Task == nil {
+		t.Fatalf("expected a deferred task, got %+v", result.Response)
+	}
+	responder := &fakeResponder{}
+	if err := result.Task(context.Background(), responder); err != nil {
+		t.Fatalf("run deferred task: %v", err)
+	}
+	return responder
+}
+
 func TestCaseAddCreatesCaseAndResolvesStaffOnce(t *testing.T) {
 	h := newCaseHarness(t, uint64(discordgo.PermissionModerateMembers))
 	ctx := context.Background()
@@ -172,19 +242,16 @@ func TestCaseAddCreatesCaseAndResolvesStaffOnce(t *testing.T) {
 	if calls := h.directory.calls.Load(); calls != 1 {
 		t.Fatalf("staff context resolved %d times before the task, want 1", calls)
 	}
-	responder := &fakeResponder{}
-	if err := result.Task(ctx, responder); err != nil {
-		t.Fatalf("run deferred task: %v", err)
-	}
+	responder := run(t, result)
 	// The task reuses the resolved context; the only extra call is the
 	// case preflight's deliberate re-check.
 	if calls := h.directory.calls.Load(); calls != 2 {
 		t.Fatalf("Discord asked %d times for one /case add, want 2", calls)
 	}
-	if responder.deleted || responder.editCount != 1 || len(*responder.edit.Embeds) != 0 {
+	if responder.deleted || responder.editCount != 1 || len(*responder.edit.Embeds) != 0 || responder.followup.Content != "" {
 		t.Fatalf("expected the public placeholder to become the result: %+v", responder)
 	}
-	for _, want := range []string{"{{quack:warn}} Case #1 · <@target-1> · **Spam**", "Warning recorded.", "-# Case #1"} {
+	for _, want := range []string{"{{quack:warn}} Case #1 · <@target-1> · **Spam**", "Warning recorded.", "Moderator: <@mod-1>", "-# Case #1"} {
 		if !strings.Contains(*responder.edit.Content, want) {
 			t.Fatalf("missing %q in %q", want, *responder.edit.Content)
 		}
@@ -200,29 +267,46 @@ func TestCaseAddCreatesCaseAndResolvesStaffOnce(t *testing.T) {
 	if created[0].Source != quack.CaseSourceDiscord || created[0].TargetDiscordUserID != "target-1" || created[0].Reason != "Spam" {
 		t.Fatalf("unexpected case: %+v", created[0])
 	}
+	publications := h.publications(t)
+	if len(publications) != 1 || publications[0].MessageID != "message-1" || publications[0].ChannelID != "channel-1" ||
+		publications[0].CaseID != created[0].ID {
+		t.Fatalf("receipt not recorded for refresh: %+v", publications)
+	}
 }
 
-// TestMessageTemplateExplainsCreateFailure checks that the template picker
+// TestCaseAddActsImmediatelyWithOptionalContext checks that optional
+// context never delays a case: staff add it afterwards with Edit context.
+func TestCaseAddActsImmediatelyWithOptionalContext(t *testing.T) {
+	h := newCaseHarness(t, uint64(discordgo.PermissionModerateMembers))
+	template := h.template(t, quack.TemplateInput{
+		Slug: "abuse", Name: "Abuse", ReasonTemplate: "Abusive behavior",
+		ContextFields: []quack.TemplateContextFieldInput{{Key: "details", Label: "What happened?", FieldType: quack.ContextFieldLongText, Position: 1}},
+		Levels:        []quack.TemplateLevelInput{{Name: "Default", Position: 1, IsDefault: true}},
+	})
+	result := h.cases.Command(context.Background(), caseAdd(template.ID, "target-2", 0))
+	if result.Response.Type != discordgo.InteractionResponseDeferredChannelMessageWithSource {
+		t.Fatalf("case creation waited for optional context: %+v", result.Response)
+	}
+	responder := run(t, result)
+	for _, want := range []string{"Case #1", "<@target-2>", "**Abuse**", "case:edit_context:v1:"} {
+		if !strings.Contains(*responder.edit.Content+fmt.Sprint(*responder.edit.Components), want) {
+			t.Fatalf("missing %q: %s", want, *responder.edit.Content)
+		}
+	}
+}
+
+// TestMessageTemplateExplainsCreateFailure checks that the rule picker
 // answers a rejected case with the same specific message as /case add,
 // rather than failing the task with a generic error.
 func TestMessageTemplateExplainsCreateFailure(t *testing.T) {
 	h := newCaseHarness(t, uint64(discordgo.PermissionModerateMembers))
-	pick := interaction(discordgo.InteractionMessageComponent, 0, nil)
 	// The moderator cannot open a case against themselves.
-	pick.Data = discordgo.MessageComponentInteractionData{
-		CustomID: "case:message_template:v1:mod-1|channel-1|message-1",
-		Values:   []string{h.spamID},
+	result := h.cases.MessageTemplate(context.Background(), component("case:message_template:v1:mod-1|channel-1|message-1", h.spamID))
+	if result.Response.Type != discordgo.InteractionResponseDeferredMessageUpdate {
+		t.Fatalf("selection was not deferred: %+v", result.Response)
 	}
-	result := h.cases.MessageTemplate(context.Background(), pick)
-	if result.Task == nil {
-		t.Fatalf("expected deferred creation, got %+v", result.Response)
-	}
-	responder := &fakeResponder{}
-	if err := result.Task(context.Background(), responder); err != nil {
-		t.Fatalf("task returned %v, want the failure shown to the moderator", err)
-	}
-	if !responder.deleted || !responder.followup.Ephemeral || responder.editCount != 0 ||
-		!strings.Contains(responder.followup.Content, "No case was created.") {
+	responder := run(t, result)
+	if !responder.edit.PrivateError || !strings.Contains(*responder.edit.Content, "No case was created.") || len(h.poster.sent) != 0 {
 		t.Fatalf("want the case error privately, got %+v", responder)
 	}
 }
@@ -302,7 +386,7 @@ func TestCaseAddContextModalKeepsPublicSummaryLimited(t *testing.T) {
 	})
 	result := h.cases.Command(context.Background(), caseAdd(template.ID, "target-2", uint64(discordgo.PermissionModerateMembers)))
 	if result.Response.Type != discordgo.InteractionResponseModal || len(result.Response.Data.Components) != 1 {
-		t.Fatalf("expected structured context modal, got %+v", result.Response)
+		t.Fatalf("expected required context modal, got %+v", result.Response)
 	}
 	submit := interaction(discordgo.InteractionModalSubmit, 0, nil)
 	submit.ID = "modal-interaction-2"
@@ -310,13 +394,10 @@ func TestCaseAddContextModalKeepsPublicSummaryLimited(t *testing.T) {
 		discordgo.ActionsRow{Components: []discordgo.MessageComponent{discordgo.TextInput{CustomID: "context_details", Value: "Repeated abusive replies"}}},
 	}}
 	modal := h.cases.ContextModal(context.Background(), submit)
-	if modal.Task == nil || modal.Response.Data != nil {
+	if modal.Response.Data != nil {
 		t.Fatalf("expected public acknowledgement, got %+v", modal)
 	}
-	responder := &fakeResponder{}
-	if err := modal.Task(context.Background(), responder); err != nil {
-		t.Fatal(err)
-	}
+	responder := run(t, modal)
 	if responder.deleted || responder.editCount != 1 {
 		t.Fatalf("expected public result, got %+v", responder)
 	}
@@ -354,13 +435,8 @@ func TestCaseInteractionsMatchGolden(t *testing.T) {
 	c := h.cases
 	out := map[string]any{}
 
-	void := interaction(discordgo.InteractionMessageComponent, 0, nil)
-	void.Data = discordgo.MessageComponentInteractionData{CustomID: "case:void:v1:case-1"}
-	out["void_button"] = c.VoidButton(ctx, void).Response
-
-	reverse := interaction(discordgo.InteractionMessageComponent, 0, nil)
-	reverse.Data = discordgo.MessageComponentInteractionData{CustomID: "case:reverse:v1:case-1|exec-1|unban_user"}
-	out["reverse_button"] = c.ReverseButton(ctx, reverse).Response
+	out["void_button"] = c.VoidButton(ctx, component("case:void:v1:case-1")).Response
+	out["reverse_button"] = c.ReverseButton(ctx, component("case:reverse:v1:case-1|exec-1|unban_user")).Response
 
 	command := caseAdd(many.ID, "target-many", uint64(discordgo.PermissionModerateMembers))
 	command.ID = "interaction-many"
@@ -381,26 +457,19 @@ func TestCaseInteractionsMatchGolden(t *testing.T) {
 	submit.Data = discordgo.ModalSubmitInteractionData{CustomID: first.Response.Data.CustomID, Components: page}
 	out["context_continue"] = c.ContextModal(ctx, submit).Response
 
-	next := interaction(discordgo.InteractionMessageComponent, 0, nil)
+	next := component("case:context_next:v1:interaction-many")
 	next.ID = "component-many"
-	next.Data = discordgo.MessageComponentInteractionData{CustomID: "case:context_next:v1:interaction-many"}
 	out["context_modal_next"] = c.ContextNext(ctx, next).Response
 
 	empty := interaction(discordgo.InteractionModalSubmit, 0, nil)
 	empty.Data = discordgo.ModalSubmitInteractionData{CustomID: first.Response.Data.CustomID}
 	out["context_missing_required"] = c.ContextModal(ctx, empty).Response
 
-	message := &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{
-		ID: "message-command", Type: discordgo.InteractionApplicationCommand, GuildID: "guild-1", ChannelID: "channel-1",
-		Member: &discordgo.Member{User: &discordgo.User{ID: "mod-1", Username: "mod"}},
-		Data: discordgo.ApplicationCommandInteractionData{
-			Name: discord.MessageCaseCommandName, TargetID: "message-1",
-			Resolved: &discordgo.ApplicationCommandInteractionDataResolved{Messages: map[string]*discordgo.Message{
-				"message-1": {ID: "message-1", ChannelID: "channel-1", Author: &discordgo.User{ID: "target-1"}},
-			}},
-		},
-	}}
-	out["message_select"] = c.MessageCommand(ctx, message).Response
+	message := c.MessageCommand(ctx, messageMenu())
+	out["message_menu_ack"] = message.Response
+	out["message_menu_picker"] = run(t, message).edit
+	out["user_menu_picker"] = run(t, c.UserCommand(ctx, userMenu("target-2"))).edit
+	out["edit_context_modal_missing_case"] = c.Component("edit_context")(ctx, component("case:edit_context:v1:missing")).Response
 	out["autocomplete_all"] = c.Command(ctx, templateAutocomplete("")).Response
 
 	body, err := json.MarshalIndent(out, "", "  ")
@@ -417,12 +486,7 @@ func TestCaseInteractionsMatchGolden(t *testing.T) {
 	final.Data = discordgo.ModalSubmitInteractionData{CustomID: first.Response.Data.CustomID, Components: []discordgo.MessageComponent{
 		discordgo.ActionsRow{Components: []discordgo.MessageComponent{discordgo.TextInput{CustomID: "context_field_6", Value: "value-6"}}},
 	}}
-	created := c.ContextModal(ctx, final)
-	responder := &fakeResponder{}
-	if created.Task == nil {
-		t.Fatalf("completed form did not create a case: %+v", created.Response)
-	}
-	if err := created.Task(ctx, responder); err != nil || responder.editCount != 1 {
-		t.Fatalf("completed form did not publish: responder=%+v err=%v", responder, err)
+	if responder := run(t, c.ContextModal(ctx, final)); responder.editCount != 1 || responder.followup.Content != "" {
+		t.Fatalf("completed form did not publish: responder=%+v", responder)
 	}
 }

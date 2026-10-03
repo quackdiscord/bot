@@ -2,6 +2,7 @@ package discord
 
 import (
 	"context"
+	"flag"
 	"os"
 	"testing"
 
@@ -13,12 +14,42 @@ import (
 // store, and the store may import module packages that import this one, so
 // they cannot be internal tests.
 
-const MessageCaseCommandName = messageCaseCommandName
+const (
+	MessageCaseCommandName = messageCaseCommandName
+	UserCaseCommandName    = userCaseCommandName
+)
+
+// ChannelPoster is what case handlers post channel messages through.
+type ChannelPoster = channelPoster
 
 // Cases exposes the case handlers.
-type Cases struct{ c *cases }
+type Cases struct {
+	c      *cases
+	router *Router
+}
 
-func NewCases(services *quack.Services) Cases { return Cases{newCases(services)} }
+func NewCases(services *quack.Services, poster ChannelPoster, dashboardURL string) Cases {
+	c := newCases(services, poster, dashboardURL)
+	router := newRouter(nil, nil)
+	c.register(router)
+	return Cases{c, router}
+}
+
+// Component returns the handler routed for the case component action.
+func (c Cases) Component(action string) Handler {
+	handler, _ := lookup(c.router.components, MustCustomID(CustomID{Namespace: "case", Action: action, Version: "v1"}))
+	return handler
+}
+
+// Modal returns the handler routed for the case modal action.
+func (c Cases) Modal(action string) Handler {
+	handler, _ := lookup(c.router.modals, MustCustomID(CustomID{Namespace: "case", Action: action, Version: "v1"}))
+	return handler
+}
+
+func (c Cases) UserCommand(ctx context.Context, i *discordgo.InteractionCreate) Result {
+	return c.c.userCommand(ctx, i)
+}
 
 func (c Cases) Command(ctx context.Context, i *discordgo.InteractionCreate) Result {
 	return c.c.command(ctx, i)
@@ -60,9 +91,20 @@ func (l Lifecycle) GuildUpdate(e *discordgo.GuildUpdate)     { l.guildUpdate(nil
 func (l Lifecycle) GuildDelete(e *discordgo.GuildDelete)     { l.guildDelete(nil, e) }
 func (l Lifecycle) ChannelDelete(e *discordgo.ChannelDelete) { l.channelDelete(nil, e) }
 
+// updateGolden rewrites golden files instead of comparing: go test
+// ./internal/discord -update. Review the diff; only deliberate copy or
+// layout changes belong in it.
+var updateGolden = flag.Bool("update", false, "rewrite golden files")
+
 // AssertGolden fails t unless got matches the golden file at path.
 func AssertGolden(t *testing.T, path, got string) {
 	t.Helper()
+	if *updateGolden {
+		if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
 	want, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

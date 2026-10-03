@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -17,7 +18,7 @@ import (
 
 const (
 	evidenceChannelName  = "quack-evidence"
-	evidenceChannelTopic = "Quack-managed immutable moderation evidence"
+	evidenceChannelTopic = "Saved case evidence. Keep these messages to preserve attached files."
 )
 
 // FetchMessageEvidence reads a linked message for a case. Unless the capture
@@ -164,9 +165,15 @@ func (b *Bot) PreserveEvidenceAttachment(
 			Retryable: response.StatusCode >= 500,
 		}
 	}
-	content, err := io.ReadAll(io.LimitReader(response.Body, item.SizeBytes+1))
-	if err != nil || int64(len(content)) != item.SizeBytes {
-		return nil, errors.New("attachment download size did not match its metadata")
+	// Discord may serve a converted image whose size differs from the
+	// message metadata, so the download is bounded on its own and the bytes
+	// Discord returned are kept as they are.
+	content, err := io.ReadAll(io.LimitReader(response.Body, quack.MaxPreservedAttachmentBytes+1))
+	if err != nil {
+		return nil, errors.New("attachment download could not be read")
+	}
+	if int64(len(content)) > quack.MaxPreservedAttachmentBytes {
+		return nil, errors.New("attachment download exceeds the managed copy size limit")
 	}
 	if err := b.ValidateStaffChannel(ctx, guildID, channelID); err != nil {
 		return nil, err
@@ -178,8 +185,12 @@ func (b *Bot) PreserveEvidenceAttachment(
 	if sent == nil || len(sent.Attachments) == 0 || sent.Attachments[0] == nil || sent.Attachments[0].URL == "" {
 		return nil, errors.New("discord did not confirm an attachment copy")
 	}
-	copied := sent.Attachments[0]
-	return &quack.PreservedDiscordAttachment{MessageID: sent.ID, AttachmentID: copied.ID, URL: copied.URL}, nil
+	// The jump link outlives the signed CDN URL, which Discord expires.
+	return &quack.PreservedDiscordAttachment{
+		MessageID:    sent.ID,
+		AttachmentID: sent.Attachments[0].ID,
+		URL:          messageLink(guildID, channelID, sent.ID),
+	}, nil
 }
 
 // attachmentURL reports whether raw points at Discord's attachment CDN.
@@ -194,17 +205,57 @@ func attachmentURL(raw string) bool {
 	return strings.HasPrefix(parsed.Path, "/attachments/") || strings.HasPrefix(parsed.Path, "/ephemeral-attachments/")
 }
 
-// EnsureEvidenceChannel returns the guild's evidence channel, resetting its
-// name and permissions if it still exists and creating a new one otherwise.
-// Only the bot can see the channel until staff grant themselves access.
+// EnsureEvidenceChannel returns the guild's evidence channel, creating one
+// when currentChannelID is empty or gone. An existing channel is left as
+// administrators configured it. A new channel is hidden from everyone but
+// Quack and staff roles, who may open the saved copies but not post there.
 func (b *Bot) EnsureEvidenceChannel(ctx context.Context, guildID, currentChannelID string) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
+	}
+	if currentChannelID != "" {
+		channel, err := b.Session.Channel(currentChannelID, rest(ctx)...)
+		if err != nil && statusCode(err) != http.StatusNotFound {
+			return "", classify("evidence_channel_lookup", err, false)
+		}
+		if err == nil && channel.GuildID == guildID {
+			return channel.ID, nil
+		}
 	}
 	botID, err := b.botID(ctx)
 	if err != nil {
 		return "", err
 	}
+	roles, err := b.Session.GuildRoles(guildID, rest(ctx)...)
+	if err != nil {
+		return "", classify("evidence_channel_roles", err, false)
+	}
+	created, err := b.Session.GuildChannelCreateComplex(guildID, discordgo.GuildChannelCreateData{
+		Name:                 evidenceChannelName,
+		Type:                 discordgo.ChannelTypeGuildText,
+		Topic:                evidenceChannelTopic,
+		PermissionOverwrites: evidenceChannelPermissions(guildID, botID, roles),
+	}, rest(ctx)...)
+	if err != nil {
+		return "", classify("evidence_channel_create", err, false)
+	}
+	if created == nil || created.ID == "" {
+		return "", errors.New("discord did not confirm the evidence channel")
+	}
+	// The channel exists either way; a missing introduction must not make
+	// the next attempt create a second one.
+	intro := Content("# Case evidence\nQuack saves copies of case attachments here. Keep these messages so the files stay available when the original messages are gone.", false)
+	if _, err := b.Send(ctx, created.ID, intro); err != nil {
+		slog.WarnContext(ctx, "Could not send evidence channel introduction", "channel_id", created.ID, "error", err)
+	}
+	return created.ID, nil
+}
+
+// evidenceChannelPermissions hides a new evidence channel from @everyone,
+// lets Quack post files, and lets staff roles (staffPermissions) read it,
+// so they can open saved copies. Granting any other role would fail
+// ValidateStaffChannel and stop evidence copies.
+func evidenceChannelPermissions(guildID, botID string, roles []*discordgo.Role) []*discordgo.PermissionOverwrite {
 	overwrites := []*discordgo.PermissionOverwrite{
 		{ID: guildID, Type: discordgo.PermissionOverwriteTypeRole, Deny: discordgo.PermissionViewChannel},
 		{
@@ -213,25 +264,14 @@ func (b *Bot) EnsureEvidenceChannel(ctx context.Context, guildID, currentChannel
 				discordgo.PermissionAttachFiles | discordgo.PermissionReadMessageHistory,
 		},
 	}
-	if currentChannelID != "" {
-		channel, err := b.Session.Channel(currentChannelID, rest(ctx)...)
-		if err != nil && statusCode(err) != http.StatusNotFound {
-			return "", classify("evidence_channel_lookup", err, false)
+	for _, role := range roles {
+		if role == nil || role.ID == guildID || role.Permissions&staffPermissions == 0 {
+			continue
 		}
-		if err == nil && channel.GuildID == guildID {
-			edit := &discordgo.ChannelEdit{Name: evidenceChannelName, Topic: evidenceChannelTopic, PermissionOverwrites: overwrites}
-			if _, err := b.Session.ChannelEditComplex(channel.ID, edit, rest(ctx)...); err != nil {
-				return "", classify("evidence_channel_repair", err, false)
-			}
-			return channel.ID, nil
-		}
+		overwrites = append(overwrites, &discordgo.PermissionOverwrite{
+			ID: role.ID, Type: discordgo.PermissionOverwriteTypeRole,
+			Allow: discordgo.PermissionViewChannel | discordgo.PermissionReadMessageHistory,
+		})
 	}
-	created, err := b.Session.GuildChannelCreateComplex(guildID, discordgo.GuildChannelCreateData{
-		Name: evidenceChannelName, Type: discordgo.ChannelTypeGuildText,
-		Topic: evidenceChannelTopic, PermissionOverwrites: overwrites,
-	}, rest(ctx)...)
-	if err != nil {
-		return "", classify("evidence_channel_create", err, false)
-	}
-	return created.ID, nil
+	return overwrites
 }

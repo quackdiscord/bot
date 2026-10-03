@@ -60,7 +60,7 @@ belong there, not in handlers.
 3. Wire everything together: the worker, the module registry,
    `quack.Services`, the three modules, the background loops (appeal
    notifications every 5s, audit mirror every 5s, ticket transcript sweep every
-   hour), gateway intents for enabled modules, guild lifecycle handlers, module
+   hour, case receipt refresh every 2s), gateway intents for enabled modules, guild lifecycle handlers, module
    gateway handlers, the interaction router, and the HTTP server.
 4. Sync slash commands (`discord.SyncCommands`). Command definitions are
    fingerprinted in Redis so unchanged commands are not rewritten. Sync also
@@ -120,13 +120,18 @@ Step by step:
    Handlers answer within Discord's three-second window and do slow work in a
    deferred task. Panics are recovered.
 2. **Handler** (`discord/case_create.go`). The handler resolves the moderator's
-   staff context once from live Discord state and passes it down. If the
-   template has context fields and no `context` option was given, it opens a
-   modal; templates with more than five fields span several modal pages, with
-   the draft kept in memory. Otherwise it defers and calls
-   `CaseService.Create` with source `discord` and the interaction ID as the
-   idempotency key. The "Create moderation case" message command takes the same
-   path with the message as evidence.
+   staff context once from live Discord state and passes it down. It defers
+   and calls `CaseService.Create` with source `discord`, the interaction ID as
+   the idempotency key, and the optional `message_link` and `file` as
+   evidence. Optional context is added afterwards with Edit context. Only a
+   template with required context fields opens a modal first; templates with
+   more than five fields span several modal pages, with the draft kept in
+   memory. The "Add case" message action and the "Add case for member" user
+   action (`discord/case_create.go`) answer privately with a rule picker (25
+   rules a page, skipped when there is one), then post the receipt to the
+   channel with bot credentials and remove the picker. Sync deletes their old
+   names ("Create moderation case", "Create case for member") once the new
+   ones are registered.
 3. **Preflight** (`quack/case.go`, `quack/authz.go`, `quack/evidence.go`). This
    is the slow work, done before taking the lock. It loads the template,
    selects the level, re-checks Discord, validates context values, and captures
@@ -149,12 +154,15 @@ Step by step:
    Submission is only a latency shortcut: if the queue is full or stopped, the
    poller finds the case anyway.
 6. **Enforcement and notification**. See the action engine below.
-7. **Public result** (`discord/case_create.go`). The command defers publicly
-   (`discord.AsyncPublic`) and the result replaces that placeholder in place:
-   case number, target, rule, reason, action progress, moderator, and quoted
-   context, never evidence. It then polls the case for up to 30 seconds and
-   edits the message once the actions settle. An error deletes the placeholder
-   and goes to the moderator in an ephemeral followup.
+7. **Public receipt** (`discord/case_receipt.go`). The command defers
+   publicly (`discord.AsyncPublic`) and the receipt replaces that placeholder
+   in place: case number, target, rule, reason, action progress, moderator,
+   and quoted context, never evidence. Its buttons (Edit context, View
+   evidence, History, Void case) recheck the moderator's authority on every
+   click. The receipt is recorded as a case publication (see Case
+   publications), so it keeps up with enforcement, voids, and context edits
+   long after the interaction expires. An error deletes the placeholder and
+   goes to the moderator in an ephemeral followup.
 
 
 Dashboard case creation (`POST /guilds/{discordGuildID}/cases`) calls the same
@@ -226,7 +234,10 @@ calls `GuildService.BootstrapDiscordGuild`, which creates or reactivates the
 guild, its settings row, and the starter template (`quack/starter.go`): a
 notifying default level, a 24-hour timeout at three cases, and a ban that
 deletes 24 hours of messages at five. A one-time dashboard notice asks admins
-to review it. The handler then makes sure the managed evidence channel exists.
+to review it. The handler then makes sure the managed evidence channel exists:
+a missing one is created hidden from everyone but Quack and staff roles, and
+an existing one is left as administrators set it up. Saved copies are linked
+by their message in that channel, which outlives Discord's signed file URLs.
 Leaving a guild only marks it inactive; its history stays.
 
 ## Action engine
@@ -289,10 +300,12 @@ with the case when the selected level has `notify_user` set.
   footer, capped at 2000 characters. A messenger that implements
   `quack.CaseNotificationSender` gets a `CaseNotificationRequest` instead (rule
   name, outcomes with the confirmed timeout end, appeal URL) and renders the
-  DM itself.
-- If the case is appealable and an `https` dashboard origin is configured (the
-  first `https` entry in `api.cors_origins`), the DM carries an "Open appeal"
-  link to `<dashboard>/guilds/<guild>/cases/<case>/appeal`.
+  DM itself. The Discord bot does (`discord/notify.go`): an appealable case's
+  DM carries an "Appeal decision" button (`appeal:submit:v1:<case ID>`).
+- A messenger without that interface sends the plain wording, and if the
+  case is appealable and an `https` dashboard origin is configured (the first
+  `https` entry in `api.cors_origins`), an "Open appeal" link to
+  `<dashboard>/guilds/<guild>/cases/<case>/appeal`.
 
 ### Polling
 
@@ -376,8 +389,10 @@ rest. The database is the source of truth; the queue only saves latency.
   Entries about a case, one of its executions, or its appeal carry the case
   number, target, rule name, the selected level and outcome (on
   `case.create`), whether a reversal found the punishment already over, and
-  the execution staff can still retry. Each
-  outcome (delivered, skipped, failed) is itself an audit entry, which is how
+  the execution staff can still retry. The Discord entry
+  (`discord/views_audit.go`) is one line with those details in subtext
+  beneath it, and a retryable failure gets a "Retry action" button that runs
+  the same checks as `/case retry`. Each outcome (delivered, skipped, failed) is itself an audit entry, which is how
   the mirror knows an entry is done. Failures retry after a minute. If the
   channel is gone, the mirror clears the setting and stops trying it.
 - The audit mirror is separate from the general logging module.
@@ -390,12 +405,15 @@ to date with bot credentials, so they outlive the interaction token. Every
 transaction that changes what a receipt shows (claiming or completing an
 execution, retrying, reversing, voiding, updating context or evidence) sets
 `refresh_requested`, clears `last_digest`, and bumps `revision`
-(`store.requestPublicationRefresh`). A refresh loop asks for due
-publications (`Due`), renders each from its stored presentation and
+(`store.requestPublicationRefresh`). A refresh loop
+(`discord.PublicationRefresher`, run by the worker every two seconds) asks
+for due publications (`Due`), renders each from its stored presentation and
 `CaseReceipt`, skips the edit when the digest is unchanged, and reports back
 (`Complete`), or retires the publication when the message or case is gone
-(`Retire`). Completion is fenced on `revision`, so a change committed during a
-refresh is never lost.
+(`Retire`). A receipt still settling is checked again in two seconds, a
+failed refresh in thirty, and a settled one waits for the next change.
+Completion is fenced on `revision`, so a change committed during a refresh is
+never lost.
 
 ## HTTP API
 
@@ -518,9 +536,6 @@ These are verified against the code as of this writing:
   the "Open ticket" and "Staff queue" row, and the router handles those
   buttons, but no code path sends that message to a channel, and there is no
   HTTP route to open a ticket.
-- **The Discord adapter does not use every newer core port yet.** Nothing
-  runs the case publication refresh loop, and `internal/discord` does not
-  implement `CaseNotificationSender`, so case DMs use the plain wording.
 - **The Discord appeal form asks one question.** Guilds with a custom
   appeal form whose questions do not include `reason` must take appeals
   through the dashboard.

@@ -1,6 +1,7 @@
 package discord
 
 import (
+	"encoding/json"
 	"errors"
 	"log/slog"
 
@@ -16,6 +17,8 @@ func caseErrorMessage(err error) string {
 		return "You don’t have permission to do that. Ask a moderator with the required permission."
 	case errors.Is(err, quack.ErrCaseTemplateNotAvailable):
 		return "That rule is no longer available. Choose another from the suggestions."
+	case errors.Is(err, quack.ErrCaseNotFound):
+		return "That case couldn’t be found. Check its number and try again."
 	case errors.Is(err, quack.ErrCaseValidation):
 		return "Something is missing or doesn’t look right. Check the case number and command options."
 	case errors.Is(err, quack.ErrBotNotInGuild):
@@ -49,6 +52,15 @@ func caseCreateErrorMessage(err error) string {
 func caseAuthorizationErrorMessage(denial *quack.AuthorizationError) string {
 	const prefix = "No case was created. "
 	switch denial.Reason {
+	case "permission_required", "bot_permission_required":
+		permission := deniedPermission(denial)
+		if permission == "" {
+			break
+		}
+		if denial.Reason == "bot_permission_required" {
+			return prefix + "Quack needs " + permission + " permission for the selected outcome. Ask a server administrator to update Quack's permissions, then try again."
+		}
+		return prefix + "You need " + permission + " for this outcome. Ask a staff member with that permission to handle it."
 	case "self_target":
 		return prefix + "You cannot create a case against yourself. Select another member, or ask another authorized staff member to review your case."
 	case "actor_hierarchy":
@@ -67,4 +79,23 @@ func caseAuthorizationErrorMessage(denial *quack.AuthorizationError) string {
 		return prefix + "I’m not set up in this server yet. Ask a server administrator to restore Quack before trying again."
 	}
 	return prefix + "Quack could not confirm authority for this case. Ask a server administrator to review your permissions and the target, then try again."
+}
+
+// deniedPermission names the Discord permission the selected outcome needs,
+// read from the denial's selected action, or "" when it is unknown.
+func deniedPermission(denial *quack.AuthorizationError) string {
+	var metadata struct {
+		SelectedAction quack.ActionType `json:"selected_action"`
+	}
+	_ = json.Unmarshal([]byte(denial.MetadataJSON), &metadata)
+	switch metadata.SelectedAction {
+	case quack.ActionTimeoutUser, quack.ActionRemoveTimeout:
+		return "Moderate Members"
+	case quack.ActionKickUser:
+		return "Kick Members"
+	case quack.ActionBanUser, quack.ActionUnbanUser:
+		return "Ban Members"
+	default:
+		return ""
+	}
 }

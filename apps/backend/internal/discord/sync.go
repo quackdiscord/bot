@@ -191,9 +191,21 @@ func (s syncer) sync(ctx context.Context, local []*discordgo.ApplicationCommand)
 
 	var stale []*discordgo.ApplicationCommand
 	for _, command := range remote {
-		if command != nil && !localNames[command.Name] {
-			stale = append(stale, command)
+		if command == nil || localNames[command.Name] {
+			continue
 		}
+		// A renamed command's old registration goes even without pruning,
+		// now that its replacement synced.
+		if replacement, renamed := renamedCommands[command.Name]; renamed && localNames[replacement] {
+			if err := s.client.delete(ctx, s.appID, s.guild, command.ID); err != nil {
+				return fmt.Errorf("retire renamed discord application command %s: %w", command.Name, err)
+			}
+			slog.Info("Retired renamed Discord application command",
+				"scope", scope, "command", command.Name, "replacement", replacement, "remote_command_id", command.ID)
+			RemoveCommandMentions(s.appID, command.Name)
+			continue
+		}
+		stale = append(stale, command)
 	}
 	if len(stale) == 0 {
 		return nil

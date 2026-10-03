@@ -13,7 +13,8 @@ import (
 
 const (
 	caseCommandName        = "case"
-	messageCaseCommandName = "Create moderation case"
+	messageCaseCommandName = "Add case"
+	userCaseCommandName    = "Add case for member"
 
 	// choiceLimit is the most choices Discord accepts in an autocomplete
 	// answer or a select menu.
@@ -28,13 +29,22 @@ var errNotInGuild = errors.New("case commands must be used in a server")
 // can modify them without affecting anyone else's copy.
 func commands() []*discordgo.ApplicationCommand {
 	return []*discordgo.ApplicationCommand{
-		caseCommand(), messageCaseCommand(),
+		caseCommand(), messageCaseCommand(), userCaseCommand(),
 		templateCommand(), appealsCommand(), helpCommand(),
 	}
 }
 
-// caseCommand defines /case: add creates a case from a template, and the
-// other subcommands browse cases and recover failed actions.
+// renamedCommands maps the old names of renamed commands to their current
+// names. Sync deletes the old registration once the new one is in place,
+// even when pruning is off, so moderators never see both.
+var renamedCommands = map[string]string{
+	"Create moderation case": messageCaseCommandName,
+	"Create case for member": userCaseCommandName,
+}
+
+// caseCommand defines /case: add creates a case from a template, evidence
+// adds to one, and the other subcommands browse cases and recover failed
+// actions.
 func caseCommand() *discordgo.ApplicationCommand {
 	text := func(name, description string, required bool) *discordgo.ApplicationCommandOption {
 		return &discordgo.ApplicationCommandOption{
@@ -42,6 +52,13 @@ func caseCommand() *discordgo.ApplicationCommand {
 			Name:        name,
 			Description: description,
 			Required:    required,
+		}
+	}
+	file := func(description string) *discordgo.ApplicationCommandOption {
+		return &discordgo.ApplicationCommandOption{
+			Type:        discordgo.ApplicationCommandOptionAttachment,
+			Name:        "file",
+			Description: description,
 		}
 	}
 	user := func(description string) *discordgo.ApplicationCommandOption {
@@ -82,10 +99,15 @@ func caseCommand() *discordgo.ApplicationCommand {
 			subcommand("add", "Create a moderation case from a template.",
 				template,
 				user("User to moderate."),
-				text("context", "Visible context values as a JSON object.", false),
 				text("message_link", "Discord message link to capture as evidence.", false),
+				file("Screenshot or file to save as evidence."),
 			),
-			subcommand("view", "View authorized case detail.", text("case", "Case number or ID.", true)),
+			subcommand("evidence", "Add evidence to an existing case.",
+				text("case", "Case number or ID", true),
+				file("Screenshot or file to save."),
+				text("message_link", "Discord message to preserve.", false),
+			),
+			subcommand("view", "View case details.", text("case", "Case number or ID.", true)),
 			subcommand("list", "List recent guild cases."),
 			subcommand("user", "View a member's case history.", user("Member to review.")),
 			subcommand("failures", "Review failed Discord actions."),
@@ -96,7 +118,7 @@ func caseCommand() *discordgo.ApplicationCommand {
 				text("reason", "Required correction reason.", true),
 				confirm(),
 			),
-			subcommand("reverse", "Remove a timeout or unban.",
+			subcommand("reverse", "Remove a timeout or ban.",
 				text("case", "Case ID.", true),
 				text("execution", "Original execution ID.", true),
 				reversal,
@@ -106,13 +128,22 @@ func caseCommand() *discordgo.ApplicationCommand {
 	})
 }
 
-// messageCaseCommand defines the "Create moderation case" message action,
-// which starts a case against a message's author with the message as
-// evidence.
+// messageCaseCommand defines the "Add case" message action, which starts a
+// case against a message's author with the message as evidence.
 func messageCaseCommand() *discordgo.ApplicationCommand {
 	return moderatorCommand(&discordgo.ApplicationCommand{
 		Type: discordgo.MessageApplicationCommand,
 		Name: messageCaseCommandName,
+	})
+}
+
+// userCaseCommand defines the "Add case for member" user action, which
+// starts a case against the selected member without evidence; staff can add
+// context and evidence afterwards.
+func userCaseCommand() *discordgo.ApplicationCommand {
+	return moderatorCommand(&discordgo.ApplicationCommand{
+		Type: discordgo.UserApplicationCommand,
+		Name: userCaseCommandName,
 	})
 }
 
@@ -133,17 +164,28 @@ func moderatorCommand(command *discordgo.ApplicationCommand) *discordgo.Applicat
 	return command
 }
 
-// cases handles the /case command, the message action, and the case
-// buttons and modals. Every handler resolves the acting staff member once
-// and passes that context down, including into its deferred task.
+// cases handles the /case command, the "Add case" context menus, and the
+// case buttons and modals. Every handler resolves the acting staff member
+// once and passes that context down, including into its deferred task.
 type cases struct {
 	services *quack.Services
 	drafts   *draftStore
+	// poster publishes standalone channel messages with bot credentials,
+	// for results of context-menu flows whose interaction is private.
+	poster channelPoster
+	// dashboardURL is the dashboard origin staff views link to, or "" to
+	// leave the links out.
+	dashboardURL string
+}
+
+// channelPoster sends a message to a channel as the bot. *Bot implements it.
+type channelPoster interface {
+	Send(ctx context.Context, channelID string, message Message) (*discordgo.Message, error)
 }
 
 // newCases returns the case handlers with an empty draft store.
-func newCases(services *quack.Services) *cases {
-	return &cases{services: services, drafts: newDraftStore()}
+func newCases(services *quack.Services, poster channelPoster, dashboardURL string) *cases {
+	return &cases{services: services, drafts: newDraftStore(), poster: poster, dashboardURL: dashboardURL}
 }
 
 // register installs the case commands, components, and modals on r. The
@@ -152,6 +194,7 @@ func newCases(services *quack.Services) *cases {
 func (c *cases) register(r *Router) {
 	r.commands[caseCommandName] = c.command
 	r.commands[messageCaseCommandName] = c.messageCommand
+	r.commands[userCaseCommandName] = c.userCommand
 	components := map[string]Handler{
 		"list_prev":        c.pageCases(-1, false),
 		"list_next":        c.pageCases(1, false),
@@ -159,12 +202,22 @@ func (c *cases) register(r *Router) {
 		"user_next":        c.pageCases(1, true),
 		"failures_prev":    c.pageFailures(-1),
 		"failures_next":    c.pageFailures(1),
-		"retry":            c.actionControl("retry"),
-		"dismiss":          c.actionControl("dismiss"),
+		"retry":            c.actionControl(retryControl),
+		"dismiss":          c.actionControl(dismissControl),
 		"void":             c.voidButton,
 		"reverse":          c.reverseButton,
+		"template_page":    c.templatePage,
 		"message_template": c.messageTemplate,
+		"user_template":    c.userTemplate,
 		"context_next":     c.contextNext,
+		"edit_context":     c.editContextButton,
+		"view":             c.viewButton,
+		"detail_prev":      c.pageDetail(-1),
+		"detail_next":      c.pageDetail(1),
+		"evidence":         c.evidenceButton,
+		"evidence_prev":    c.pageEvidence(-1),
+		"evidence_next":    c.pageEvidence(1),
+		"user_detail":      c.historyButton,
 	}
 	for action, handler := range components {
 		r.HandleComponent("case", action, handler)
@@ -172,6 +225,7 @@ func (c *cases) register(r *Router) {
 	r.HandleModal("case", "void_submit", c.voidModal)
 	r.HandleModal("case", "reverse_submit", c.reverseModal)
 	r.HandleModal("case", "context_submit", c.contextModal)
+	r.HandleModal("case", "edit_context_submit", c.editContextModal)
 }
 
 // command handles /case and its template autocomplete.

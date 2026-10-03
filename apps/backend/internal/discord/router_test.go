@@ -355,21 +355,22 @@ func TestNewRouterInstallsCoreRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	router := NewRouter(bot, quack.New(quack.Deps{}), &memoryDeduper{})
-	for _, name := range []string{caseCommandName, messageCaseCommandName} {
+	for _, name := range []string{caseCommandName, messageCaseCommandName, userCaseCommandName} {
 		if router.commands[name] == nil {
 			t.Errorf("command %q not routed", name)
 		}
 	}
 	components := []string{
 		"list_prev", "list_next", "user_prev", "user_next", "failures_prev", "failures_next",
-		"retry", "dismiss", "void", "reverse", "message_template", "context_next",
+		"retry", "dismiss", "void", "reverse", "message_template", "user_template", "template_page", "context_next",
+		"edit_context", "view", "detail_prev", "detail_next", "evidence", "evidence_prev", "evidence_next", "user_detail",
 	}
 	for _, action := range components {
 		if _, ok := lookup(router.components, MustCustomID(CustomID{Namespace: "case", Action: action, Version: "v1", Payload: "p"})); !ok {
 			t.Errorf("component case:%s not routed", action)
 		}
 	}
-	for _, action := range []string{"void_submit", "reverse_submit", "context_submit"} {
+	for _, action := range []string{"void_submit", "reverse_submit", "context_submit", "edit_context_submit"} {
 		if _, ok := lookup(router.modals, MustCustomID(CustomID{Namespace: "case", Action: action, Version: "v1", Payload: "p"})); !ok {
 			t.Errorf("modal case:%s not routed", action)
 		}

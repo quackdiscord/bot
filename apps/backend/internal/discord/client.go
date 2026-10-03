@@ -232,6 +232,22 @@ func (b *Bot) Send(ctx context.Context, channelID string, message Message) (*dis
 	return b.Session.ChannelMessageSendComplex(channelID, params, rest(ctx)...)
 }
 
+// Edit replaces a message the bot posted with message, resolved like Send.
+// It needs no interaction token, so it works on messages of any age.
+func (b *Bot) Edit(ctx context.Context, channelID, messageID string, message Message) (*discordgo.Message, error) {
+	edit := EditMessage(message).ForApplication(b.applicationID(ctx)).webhookEdit()
+	return b.Session.ChannelMessageEditComplex(&discordgo.MessageEdit{
+		ID:              messageID,
+		Channel:         channelID,
+		Content:         edit.Content,
+		Embeds:          edit.Embeds,
+		Components:      edit.Components,
+		Files:           edit.Files,
+		Attachments:     edit.Attachments,
+		AllowedMentions: edit.AllowedMentions,
+	}, rest(ctx)...)
+}
+
 // applicationID is the ID icons and command mentions resolve against: the
 // bot user's ID, which Discord gives the application too. It is "" when
 // Discord cannot say, and messages then read without icons.

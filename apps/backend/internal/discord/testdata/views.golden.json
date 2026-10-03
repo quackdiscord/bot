@@ -20,16 +20,37 @@
     "Ephemeral": false,
     "AllowedMentions": null
   },
-  "audit_action_retry": {
-    "Content": "{{quack:error}} \u003c@moderator\u003e recorded a failed Discord action.\n-# ban\\_permission\\_denied\n-# \u003ct:1700000000:R\u003e",
+  "audit_action_failed": {
+    "Content": "{{quack:error}} Ban action failed.\n-# Case #42 · \u003c@member\u003e · Spam\n-# ban\\_permission\\_denied\n-# By Quack\n-# \u003ct:1700000000:R\u003e",
+    "Embeds": null,
+    "Components": [
+      {
+        "components": [
+          {
+            "label": "Retry action",
+            "style": 2,
+            "disabled": false,
+            "custom_id": "case:retry:v1:execution",
+            "type": 2
+          }
+        ],
+        "type": 1
+      }
+    ],
+    "Files": null,
+    "Ephemeral": false,
+    "AllowedMentions": null
+  },
+  "audit_case_create": {
+    "Content": "{{quack:case_add}} \u003c@moderator\u003e added a case.\n-# Case #42 · \u003c@member\u003e · Spam\n-# Level: Third case\n-# Outcome: Timeout (24h)\n-# \u003ct:1700000000:R\u003e",
     "Embeds": null,
     "Components": null,
     "Files": null,
     "Ephemeral": false,
     "AllowedMentions": null
   },
-  "audit_case_create": {
-    "Content": "{{quack:case_add}} \u003c@moderator\u003e added a case.\n-# \u003ct:1700000000:R\u003e",
+  "audit_reversal_noop": {
+    "Content": "{{quack:success}} The punishment had already ended.\n-# By Quack\n-# \u003ct:1700000000:R\u003e",
     "Embeds": null,
     "Components": null,
     "Files": null,
@@ -44,41 +65,33 @@
     "Ephemeral": false,
     "AllowedMentions": null
   },
-  "case_created": {
-    "Content": "{{quack:pending}} Case #7 · \u003c@target\u003e · **spam**\n\nTimeout queued.\nMember banned.\n-# Case #7",
+  "case_detail": {
+    "Content": "Case #7 · \u003c@target\u003e.\n\n\u003e Official \\*\\*reason\\*\\*\n\nModerator: \u003c@moderator\u003e\n\nMember banned.\npermission denied The member was sent a DM.\n\n\u003e Details — Visible context\n\n[View message](https://discord.com/channels/1/2/3)\n[a.png](https://cdn/a.png) · Copy status unavailable\nMessage deleted or missing\n\n-# \u003ct:1700000000:R\u003e · Case created\n-# Case #7 · Timeout · Created \u003ct:1700000000:R\u003e",
     "Embeds": null,
     "Components": [
       {
         "components": [
           {
-            "label": "Void case",
-            "style": 4,
+            "label": "Edit context",
+            "style": 2,
             "disabled": false,
-            "custom_id": "case:void:v1:case-1",
+            "custom_id": "case:edit_context:v1:case-1",
             "type": 2
-          }
-        ],
-        "type": 1
-      }
-    ],
-    "Files": null,
-    "Ephemeral": false,
-    "AllowedMentions": null
-  },
-  "case_created_nil": {
-    "Content": "{{quack:case_add}} Case added.",
-    "Embeds": null,
-    "Components": null,
-    "Files": null,
-    "Ephemeral": false,
-    "AllowedMentions": null
-  },
-  "case_detail": {
-    "Content": "{{quack:case}} Case #7 · \u003c@target\u003e.\n\n\u003e Official \\*\\*reason\\*\\*\n\nModerator: \u003c@moderator\u003e\n\nMember banned.\npermission denied The member was sent a DM.\n\n\u003e Details — Visible context\n\n[View message](https://discord.com/channels/1/2/3)\n[a.png](https://cdn/a.png) · Copy status unavailable\nMessage deleted or missing\n\n-# \u003ct:1700000000:R\u003e · Case created\n-# Case #7 · Timeout · Created \u003ct:1700000000:R\u003e",
-    "Embeds": null,
-    "Components": [
-      {
-        "components": [
+          },
+          {
+            "label": "View evidence",
+            "style": 2,
+            "disabled": false,
+            "custom_id": "case:evidence:v1:case-1",
+            "type": 2
+          },
+          {
+            "label": "History",
+            "style": 2,
+            "disabled": false,
+            "custom_id": "case:user_detail:v1:target",
+            "type": 2
+          },
           {
             "label": "Void case",
             "style": 4,
@@ -106,12 +119,101 @@
     "Ephemeral": false,
     "AllowedMentions": null
   },
+  "case_detail_long_page": {
+    "Content": "\u003e Context — long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long context long \n\n-# Case #8 · Page 2/3",
+    "Embeds": null,
+    "Components": [
+      {
+        "components": [
+          {
+            "label": "Edit context",
+            "style": 2,
+            "disabled": false,
+            "custom_id": "case:edit_context:v1:case-2",
+            "type": 2
+          },
+          {
+            "label": "View evidence",
+            "style": 2,
+            "disabled": false,
+            "custom_id": "case:evidence:v1:case-2",
+            "type": 2
+          },
+          {
+            "label": "History",
+            "style": 2,
+            "disabled": false,
+            "custom_id": "case:user_detail:v1:",
+            "type": 2
+          },
+          {
+            "label": "Void case",
+            "style": 4,
+            "disabled": false,
+            "custom_id": "case:void:v1:case-2",
+            "type": 2
+          }
+        ],
+        "type": 1
+      },
+      {
+        "components": [
+          {
+            "label": "Prev",
+            "style": 2,
+            "disabled": false,
+            "custom_id": "case:detail_prev:v1:2|case-2",
+            "type": 2
+          },
+          {
+            "label": "Next",
+            "style": 1,
+            "disabled": false,
+            "custom_id": "case:detail_next:v1:2|case-2",
+            "type": 2
+          }
+        ],
+        "type": 1
+      }
+    ],
+    "Files": null,
+    "Ephemeral": false,
+    "AllowedMentions": null
+  },
   "case_detail_nil": {
     "Content": "{{quack:error}} That case couldn’t be found. Check its number and try again.",
     "Embeds": null,
     "Components": null,
     "Files": null,
     "Ephemeral": true,
+    "AllowedMentions": null
+  },
+  "case_evidence": {
+    "Content": "{{quack:evidence}} Evidence for case #7\n\n\u003e Context — Moderator note\n\n[View message](https://discord.com/channels/1/2/3)\n[a.png](https://cdn/a.png) · Copy status unavailable\n\nAdd a screenshot with `/case evidence case:7 file:` or use its `message_link` option.\n-# Evidence 2 of 3",
+    "Embeds": null,
+    "Components": [
+      {
+        "components": [
+          {
+            "label": "Previous",
+            "style": 2,
+            "disabled": false,
+            "custom_id": "case:evidence_prev:v1:2:1|case-1",
+            "type": 2
+          },
+          {
+            "label": "Next",
+            "style": 2,
+            "disabled": false,
+            "custom_id": "case:evidence_next:v1:2:1|case-1",
+            "type": 2
+          }
+        ],
+        "type": 1
+      }
+    ],
+    "Files": null,
+    "Ephemeral": false,
     "AllowedMentions": null
   },
   "case_list_empty": {
@@ -143,7 +245,7 @@
     "AllowedMentions": null
   },
   "case_list_user": {
-    "Content": "{{quack:history}} Here’s the case history for \u003c@member\u003e.\n\n**#9**  \u003c@member\u003e · Warn · **Voided**\n\n**#8**  \u003c@other\u003e · Case recorded\n-# \u003ct:1700000000:R\u003e\n-# Page 2/3 · 21 total",
+    "Content": "{{quack:history}} Here’s the case history for \u003c@member\u003e.\n\n**#9**  \u003c@member\u003e · Spam · **Voided**\n\n**#8**  \u003c@other\u003e · Case recorded\n-# \u003ct:1700000000:R\u003e\n-# Page 2/3 · 21 total",
     "Embeds": null,
     "Components": [
       {
@@ -170,8 +272,9 @@
     "Ephemeral": false,
     "AllowedMentions": null
   },
+  "case_notification_dm": "{{quack:timeout}} You’ve been timed out in **The Pond** for **Spam**.\n\n\u003e Keep chat readable.\n\nYou can chat again \u003ct:1700086400:R\u003e — \u003ct:1700086400:f\u003e.\n\nUse the Appeal decision button below to ask the moderators to review this case.\n-# Case #7 · \u003ct:1700000000:R\u003e",
   "case_profile": {
-    "Content": "{{quack:history}} Here’s the case history for \u003c@member\u003e.\n\n**#9**  \u003c@member\u003e · Warn · **Voided**\n\n**#8**  \u003c@other\u003e · Case recorded\n-# \u003ct:1700000000:R\u003e\n-# Page 1/3 · 21 total\n-# 21 total · 20 active · 1 voided",
+    "Content": "{{quack:history}} Here’s the case history for \u003c@member\u003e.\n\n**#9**  \u003c@member\u003e · Spam · **Voided**\n\n**#8**  \u003c@other\u003e · Case recorded\n-# \u003ct:1700000000:R\u003e\n-# Page 1/3 · 21 total\n-# 21 total · 20 active · 1 voided",
     "Embeds": null,
     "Components": [
       {
@@ -188,6 +291,98 @@
             "style": 1,
             "disabled": false,
             "custom_id": "case:user_next:v1:1|member",
+            "type": 2
+          }
+        ],
+        "type": 1
+      }
+    ],
+    "Files": null,
+    "Ephemeral": false,
+    "AllowedMentions": null
+  },
+  "case_receipt": {
+    "Content": "{{quack:pending}} Case #7 · \u003c@target\u003e · **Spam**\n\n\u003e Keep chat readable.\n\nTimed out until \u003ct:1700086400:f\u003e (\u003ct:1700086400:R\u003e).\nBan queued.\nModerator: \u003c@moderator\u003e\n\n\u003e Context — Posted six links\nSome evidence couldn’t be saved. Staff can check **View evidence**.\n-# Case #7 · \u003ct:1700000000:R\u003e",
+    "Embeds": null,
+    "Components": [
+      {
+        "components": [
+          {
+            "label": "Edit context",
+            "style": 2,
+            "disabled": false,
+            "custom_id": "case:edit_context:v1:case-1",
+            "type": 2
+          },
+          {
+            "label": "View evidence",
+            "style": 2,
+            "disabled": false,
+            "custom_id": "case:evidence:v1:case-1",
+            "type": 2
+          },
+          {
+            "label": "History",
+            "style": 2,
+            "disabled": false,
+            "custom_id": "case:user_detail:v1:target",
+            "type": 2
+          },
+          {
+            "label": "Void case",
+            "style": 4,
+            "disabled": false,
+            "custom_id": "case:void:v1:case-1",
+            "type": 2
+          }
+        ],
+        "type": 1
+      }
+    ],
+    "Files": null,
+    "Ephemeral": false,
+    "AllowedMentions": null
+  },
+  "case_receipt_nil": {
+    "Content": "{{quack:case_add}} Case added.",
+    "Embeds": null,
+    "Components": null,
+    "Files": null,
+    "Ephemeral": false,
+    "AllowedMentions": null
+  },
+  "case_receipt_voided": {
+    "Content": "{{quack:warn}} **Voided** · Case #7 · \u003c@target\u003e · **Spam**\n\n\u003e Keep chat readable.\n\nWarning recorded.\nModerator: \u003c@moderator\u003e\n\n\u003e Context — Posted six links\nSome evidence couldn’t be saved. Staff can check **View evidence**.\n-# Case #7 · \u003ct:1700000000:R\u003e",
+    "Embeds": null,
+    "Components": [
+      {
+        "components": [
+          {
+            "label": "Edit context",
+            "style": 2,
+            "disabled": false,
+            "custom_id": "case:edit_context:v1:case-1",
+            "type": 2
+          },
+          {
+            "label": "View evidence",
+            "style": 2,
+            "disabled": false,
+            "custom_id": "case:evidence:v1:case-1",
+            "type": 2
+          },
+          {
+            "label": "History",
+            "style": 2,
+            "disabled": false,
+            "custom_id": "case:user_detail:v1:target",
+            "type": 2
+          },
+          {
+            "label": "Void case",
+            "style": 4,
+            "disabled": true,
+            "custom_id": "case:void:v1:case-1",
             "type": 2
           }
         ],
@@ -300,6 +495,36 @@
     ],
     "Files": null,
     "Ephemeral": false,
+    "AllowedMentions": null
+  },
+  "template_picker": {
+    "Content": "{{quack:case}} Which rule did they break?",
+    "Embeds": null,
+    "Components": [
+      {
+        "components": [
+          {
+            "custom_id": "case:user_template:v1:member",
+            "placeholder": "Select a rule",
+            "min_values": 1,
+            "max_values": 1,
+            "options": [
+              {
+                "label": "Spam - Repeated messages",
+                "value": "t1",
+                "description": "",
+                "default": false
+              }
+            ],
+            "disabled": false,
+            "type": 3
+          }
+        ],
+        "type": 1
+      }
+    ],
+    "Files": null,
+    "Ephemeral": true,
     "AllowedMentions": null
   }
 }

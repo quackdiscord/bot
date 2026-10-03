@@ -4,12 +4,15 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
 // auditMirrorMessage summarizes one audit entry for the staff mirror
-// channel as a sentence with its details in subtext beneath it. Internal
-// IDs stay in the audit log, not the copy.
+// channel in one line, with the case it concerns and when it happened in
+// subtext directly beneath it. Internal IDs stay in the audit log and
+// controls, not the copy. A failed action staff can still retry gets a
+// "Retry action" button, which rechecks permissions like /case retry.
 func auditMirrorMessage(message quack.AuditMirrorMessage) Message {
 	actor := "Quack"
 	if message.ActorDiscordUserID != "" && message.ActorDiscordUserID != "quack-system" {
@@ -21,19 +24,55 @@ func auditMirrorMessage(message quack.AuditMirrorMessage) Message {
 	if verb == "" {
 		verb = "recorded **" + PlainText(action) + "**"
 	}
+	succeeded := message.Result == quack.AuditResultSuccess
 	body := fmt.Sprintf("%s %s.", actor, verb)
+	if !succeeded {
+		body = fmt.Sprintf("%s couldn’t %s.", actor, PlainText(action))
+	}
+	if message.ActionType != "" {
+		label := PlainText(message.ActionType.Label())
+		switch message.Action {
+		case "case_action.succeeded":
+			body = label + " action completed."
+		case "case_action.failed":
+			body = label + " action failed."
+		case "case_action.skipped":
+			body = label + " action skipped."
+		}
+	}
+	if message.ReversalNoop && message.Action == "case_action.succeeded" {
+		body = "The punishment had already ended."
+	}
+	context := ""
+	if message.CaseID != "" {
+		context = fmt.Sprintf("Case #%d", message.CaseNumber)
+		if message.TargetDiscordUserID != "" {
+			context += " · <@" + message.TargetDiscordUserID + ">"
+		}
+		if message.RuleName != "" {
+			context += " · " + PlainText(message.RuleName)
+		}
+	}
+	if message.Action == string(quack.AuditActionCaseCreate) && message.SelectedOutcome != "" {
+		if message.SelectedLevelName != "" {
+			context += "\nLevel: " + PlainText(message.SelectedLevelName)
+		}
+		context += "\nOutcome: " + PlainText(message.SelectedOutcome)
+	}
 	icon := phrase.icon
 	if icon == "" {
 		icon = "shield"
 	}
-	// Failure events such as case_action.failed already read as failures.
-	if message.Result != quack.AuditResultSuccess && icon != "error" {
-		body = fmt.Sprintf("%s couldn’t %s.", actor, PlainText(action))
+	if !succeeded {
 		icon = "error"
 	}
 	// Every detail sits directly under the event in subtext; the general
 	// conversation layout would leave a gap.
-	details := []string{PlainText(message.FailureReason), RelativeTime(message.OccurredAt)}
+	details := []string{context, PlainText(message.FailureReason)}
+	if strings.HasPrefix(message.Action, "case_action.") {
+		details = append(details, "By "+actor)
+	}
+	details = append(details, RelativeTime(message.OccurredAt))
 	for _, detail := range details {
 		for line := range strings.SplitSeq(detail, "\n") {
 			if strings.TrimSpace(line) != "" {
@@ -41,7 +80,13 @@ func auditMirrorMessage(message quack.AuditMirrorMessage) Message {
 			}
 		}
 	}
-	return Signal(icon, body, false)
+	notice := Signal(icon, body, false)
+	if message.RetryExecutionID != "" && message.Result == quack.AuditResultFailure {
+		if id, err := EncodeCustomID(CustomID{Namespace: "case", Action: "retry", Version: "v1", Payload: message.RetryExecutionID}); err == nil {
+			notice.Components = []discordgo.MessageComponent{Row(Button(id, "Retry action", discordgo.SecondaryButton, false))}
+		}
+	}
+	return notice
 }
 
 // auditPhrase is how the mirror words an audit action, and its icon.
