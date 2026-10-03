@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
-	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/quack"
@@ -86,7 +84,7 @@ func (b *Bot) SendAuditMirror(ctx context.Context, message quack.AuditMirrorMess
 	if err := b.ValidateStaffChannel(ctx, message.DiscordGuildID, message.ChannelDiscordID); err != nil {
 		return fmt.Errorf("%w: private destination validation failed", quack.ErrAuditMirrorChannelUnavailable)
 	}
-	_, err := b.send(ctx, message.ChannelDiscordID, &discordgo.MessageSend{Embed: auditMirrorEmbed(message)})
+	_, err := b.Send(ctx, message.ChannelDiscordID, auditMirrorMessage(message))
 	switch {
 	case err == nil:
 		return nil
@@ -94,46 +92,5 @@ func (b *Bot) SendAuditMirror(ctx context.Context, message quack.AuditMirrorMess
 		return fmt.Errorf("%w: Discord rejected configured channel", quack.ErrAuditMirrorChannelUnavailable)
 	default:
 		return errors.New("discord audit mirror delivery failed")
-	}
-}
-
-// auditMirrorEmbed renders one audit entry, colored by its result. The
-// footer carries the audit and trace IDs so staff can find the full record.
-func auditMirrorEmbed(message quack.AuditMirrorMessage) *discordgo.MessageEmbed {
-	fields := []*discordgo.MessageEmbedField{
-		{Name: "Result", Value: string(message.Result), Inline: true},
-		{Name: "Resource", Value: fmt.Sprintf("%s · `%s`", message.ResourceType, message.ResourceID), Inline: true},
-	}
-	if message.ActorDiscordUserID != "" {
-		fields = append(fields, &discordgo.MessageEmbedField{
-			Name:   "Actor",
-			Value:  "<@" + message.ActorDiscordUserID + ">",
-			Inline: true,
-		})
-	}
-	if message.FailureReason != "" {
-		fields = append(fields, &discordgo.MessageEmbedField{
-			Name:  "Failure",
-			Value: Truncate(strings.TrimSpace(message.FailureReason), 256),
-		})
-	}
-	trace := strings.TrimSpace(message.CorrelationID)
-	if trace == "" {
-		trace = strings.TrimSpace(message.RequestID)
-	}
-	color := colorError
-	switch message.Result {
-	case quack.AuditResultSuccess:
-		color = colorSuccess
-	case quack.AuditResultDenied:
-		color = colorWarning
-	}
-	return &discordgo.MessageEmbed{
-		Title:       Truncate(strings.TrimSpace(message.Action), 256),
-		Description: "Quack moderation audit event",
-		Fields:      fields,
-		Color:       color,
-		Timestamp:   message.OccurredAt.UTC().Format(time.RFC3339),
-		Footer:      &discordgo.MessageEmbedFooter{Text: "Audit " + message.AuditEntryID + " · Trace " + trace},
 	}
 }

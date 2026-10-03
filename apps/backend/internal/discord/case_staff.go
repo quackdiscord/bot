@@ -2,7 +2,6 @@ package discord
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"strings"
 
@@ -14,8 +13,8 @@ import (
 const casePageSize = 10
 
 // staffCommand handles the /case subcommands other than add: browsing cases
-// and recovering failed actions. Errors stay private; results are posted to
-// the channel.
+// and recovering failed actions. Results replace the public placeholder;
+// errors go only to the moderator.
 func (c *cases) staffCommand(i *discordgo.InteractionCreate, data discordgo.ApplicationCommandInteractionData) Result {
 	var selected *discordgo.ApplicationCommandInteractionDataOption
 	for _, option := range data.Options {
@@ -27,7 +26,7 @@ func (c *cases) staffCommand(i *discordgo.InteractionCreate, data discordgo.Appl
 	if selected == nil {
 		return Immediate(Error("Choose a case operation."))
 	}
-	return Async(DeferEphemeral(), func(ctx context.Context, responder Responder) error {
+	return AsyncPublic(func(ctx context.Context, responder Responder) error {
 		staff, err := c.staff(ctx, i)
 		if err != nil {
 			_, err := responder.EditOriginal(ErrorEdit(caseErrorMessage(err)))
@@ -68,11 +67,11 @@ func (c *cases) runStaffCommand(
 		return caseListMessage(list, 1, ""), nil
 	case "user":
 		targetID := option("user")
-		list, err := c.userHistory(ctx, staff, targetID, quack.CaseListInput{Limit: strconv.Itoa(casePageSize)})
+		profile, err := c.services.Cases.UserHistory(ctx, staff, targetID, quack.CaseListInput{Limit: strconv.Itoa(casePageSize)})
 		if err != nil {
 			return Message{}, err
 		}
-		return caseListMessage(list, 1, targetID), nil
+		return caseProfileMessage(profile, 1, targetID), nil
 	case "failures":
 		failed, err := c.services.Actions.ListFailures(ctx, staff, casePageSize, 0)
 		if err != nil {
@@ -83,22 +82,21 @@ func (c *cases) runStaffCommand(
 		if _, err := c.services.Actions.Retry(ctx, staff, option("execution")); err != nil {
 			return Message{}, err
 		}
-		const text = "**Action retry queued**\n" +
-			"The same configured action will be attempted after current permission and hierarchy checks."
-		return Content(text, false), nil
+		return Signal("retry", "Retry queued. Quack will check its permissions before trying again.", false), nil
 	case "dismiss":
 		if _, err := c.services.Actions.Dismiss(ctx, staff, option("execution")); err != nil {
 			return Message{}, err
 		}
-		return Content("**Action failure dismissed**\nAttempt history remains visible on the case.", false), nil
+		return Signal("review", "Failure dismissed. The attempt history is still on the case.", false), nil
 	case "void":
 		if !confirmed() {
 			return Message{}, quack.ErrCaseValidation
 		}
-		if _, err := c.services.Cases.Void(ctx, staff, option("case"), option("reason")); err != nil {
+		voided, err := c.services.Cases.Void(ctx, staff, option("case"), option("reason"))
+		if err != nil {
 			return Message{}, err
 		}
-		return Content("**Case voided**\nThe correction remains visible in history.", false), nil
+		return caseVoidedMessage(voided), nil
 	case "reverse":
 		if !confirmed() {
 			return Message{}, quack.ErrCaseValidation
@@ -107,26 +105,10 @@ func (c *cases) runStaffCommand(
 		if _, err := c.services.Actions.Reverse(ctx, staff, option("case"), option("execution"), action); err != nil {
 			return Message{}, err
 		}
-		return Content("**Reversal queued**\nThe original action and reversal remain visible in history.", false), nil
+		return Signal("retry", "Reversal queued. The original action stays in the case history.", false), nil
 	default:
 		return Message{}, quack.ErrCaseValidation
 	}
-}
-
-// userHistory returns one page of a member's cases as a case list.
-func (c *cases) userHistory(
-	ctx context.Context, staff *quack.GuildStaffContext, targetID string, input quack.CaseListInput,
-) (*quack.CaseListResponse, error) {
-	profile, err := c.services.Cases.UserHistory(ctx, staff, targetID, input)
-	if err != nil || profile == nil {
-		return nil, err
-	}
-	return &quack.CaseListResponse{
-		Cases:  profile.Cases,
-		Total:  profile.Total,
-		Limit:  profile.Limit,
-		Offset: profile.Offset,
-	}, nil
 }
 
 // pageCases handles the Prev and Next buttons of a case list. The payload is
@@ -153,16 +135,21 @@ func (c *cases) pageCases(delta int, user bool) Handler {
 				Limit:  strconv.Itoa(casePageSize),
 				Offset: strconv.Itoa((page - 1) * casePageSize),
 			}
-			var list *quack.CaseListResponse
+			var message Message
 			if user {
-				list, err = c.userHistory(ctx, staff, targetID, input)
+				profile, err := c.services.Cases.UserHistory(ctx, staff, targetID, input)
+				if err != nil {
+					return err
+				}
+				message = caseProfileMessage(profile, page, targetID)
 			} else {
-				list, err = c.services.Cases.List(ctx, staff, input)
+				list, err := c.services.Cases.List(ctx, staff, input)
+				if err != nil {
+					return err
+				}
+				message = caseListMessage(list, page, targetID)
 			}
-			if err != nil {
-				return err
-			}
-			_, err = responder.EditOriginal(EditMessage(caseListMessage(list, page, targetID)))
+			_, err = responder.EditOriginal(EditMessage(message))
 			return err
 		})
 	}
@@ -232,14 +219,14 @@ func (c *cases) voidButton(_ context.Context, i *discordgo.InteractionCreate) Re
 	}
 	customID := MustCustomID(CustomID{Namespace: "case", Action: "void_submit", Version: "v1", Payload: id.Payload})
 	reason := discordgo.TextInput{
-		CustomID: "reason", Label: "Required correction reason", Style: discordgo.TextInputParagraph,
+		CustomID: "reason", Label: "Why are you voiding this case?", Style: discordgo.TextInputParagraph,
 		Required: true, MinLength: 3, MaxLength: 500,
 	}
 	return Immediate(Modal("Void case", customID, []discordgo.MessageComponent{Row(reason)}))
 }
 
 // voidModal voids the case once the moderator has given a reason, and posts
-// the correction publicly.
+// the correction publicly. Errors go only to the moderator.
 func (c *cases) voidModal(_ context.Context, i *discordgo.InteractionCreate) Result {
 	data := i.ModalSubmitData()
 	id, err := DecodeCustomID(data.CustomID)
@@ -247,7 +234,7 @@ func (c *cases) voidModal(_ context.Context, i *discordgo.InteractionCreate) Res
 		return Immediate(Error("That case control is invalid."))
 	}
 	reason := ModalValue(data, "reason")
-	return Async(DeferEphemeral(), func(ctx context.Context, responder Responder) error {
+	return AsyncPublic(func(ctx context.Context, responder Responder) error {
 		staff, err := c.staff(ctx, i)
 		if err != nil {
 			return err
@@ -257,8 +244,7 @@ func (c *cases) voidModal(_ context.Context, i *discordgo.InteractionCreate) Res
 			_, err := responder.EditOriginal(ErrorEdit(caseErrorMessage(err)))
 			return err
 		}
-		text := fmt.Sprintf("**Case voided**\nCase #%d remains in history and no longer contributes to escalation.", voided.CaseNumber)
-		_, err = Publish(responder, Content(text, false))
+		_, err = Publish(responder, caseVoidedMessage(voided))
 		return err
 	})
 }
@@ -287,7 +273,7 @@ func (c *cases) reverseModal(_ context.Context, i *discordgo.InteractionCreate) 
 	if err != nil || len(parts) != 3 || ModalValue(data, "confirm") != "REVERSE" {
 		return Immediate(Error("Reversal confirmation did not match."))
 	}
-	return Async(DeferEphemeral(), func(ctx context.Context, responder Responder) error {
+	return AsyncPublic(func(ctx context.Context, responder Responder) error {
 		staff, err := c.staff(ctx, i)
 		if err != nil {
 			return err
@@ -296,7 +282,7 @@ func (c *cases) reverseModal(_ context.Context, i *discordgo.InteractionCreate) 
 			_, err := responder.EditOriginal(ErrorEdit(caseErrorMessage(err)))
 			return err
 		}
-		_, err = Publish(responder, Content("**Reversal queued**\nThe original action remains visible in case history.", false))
+		_, err = Publish(responder, Conversation("retry", "The reversal is queued.", "", "The original action stays in the case history.", "", false))
 		return err
 	})
 }

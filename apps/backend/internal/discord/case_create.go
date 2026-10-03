@@ -19,18 +19,18 @@ import (
 // task.
 func (c *cases) add(ctx context.Context, i *discordgo.InteractionCreate, add *discordgo.ApplicationCommandInteractionDataOption) Result {
 	if i.GuildID == "" {
-		return Immediate(Error(caseErrorMessage(errNotInGuild)))
+		return Immediate(Error(caseCreateErrorMessage(errNotInGuild)))
 	}
 	templateOption, userOption := add.GetOption("template"), add.GetOption("user")
 	if templateOption == nil || userOption == nil {
-		return Immediate(Error(caseErrorMessage(quack.ErrCaseValidation)))
+		return Immediate(Error(caseCreateErrorMessage(quack.ErrCaseValidation)))
 	}
 	staff, err := c.staff(ctx, i)
 	if err == nil {
 		err = c.services.Guilds.Authorize(ctx, staff, quack.PermissionActionCaseCreate, quack.AuditSourceDiscord)
 	}
 	if err != nil {
-		return Immediate(Error(caseErrorMessage(err)))
+		return Immediate(Error(caseCreateErrorMessage(err)))
 	}
 
 	contextOption, linkOption := add.GetOption("context"), add.GetOption("message_link")
@@ -44,7 +44,7 @@ func (c *cases) add(ctx context.Context, i *discordgo.InteractionCreate, add *di
 	if strings.TrimSpace(optionString(contextOption)) == "" {
 		templateID, template, err = c.template(ctx, staff, templateValue)
 		if err != nil {
-			return Immediate(Error(caseErrorMessage(err)))
+			return Immediate(Error(caseCreateErrorMessage(err)))
 		}
 		if template != nil && len(template.ContextFields) > 0 {
 			modal, err := c.startContext(i, template, optionString(userOption), link, i.ChannelID, "", nil)
@@ -56,7 +56,7 @@ func (c *cases) add(ctx context.Context, i *discordgo.InteractionCreate, add *di
 		resolved = true
 	}
 
-	return Async(DeferEphemeral(), func(ctx context.Context, responder Responder) error {
+	return AsyncPublic(func(ctx context.Context, responder Responder) error {
 		if !resolved {
 			templateID, template, err = c.template(ctx, staff, templateValue)
 		}
@@ -74,7 +74,7 @@ func (c *cases) add(ctx context.Context, i *discordgo.InteractionCreate, add *di
 			})
 		}
 		if err != nil {
-			_, err := responder.EditOriginal(ErrorEdit(caseErrorMessage(err)))
+			_, err := responder.EditOriginal(ErrorEdit(caseCreateErrorMessage(err)))
 			return err
 		}
 		return c.publish(ctx, responder, created, template)
@@ -98,7 +98,7 @@ func (c *cases) messageCommand(ctx context.Context, i *discordgo.InteractionCrea
 	}
 	staff, err := c.staff(ctx, i)
 	if err != nil {
-		return Immediate(Error(caseErrorMessage(err)))
+		return Immediate(Error(caseCreateErrorMessage(err)))
 	}
 	templates, err := c.services.Templates.ListActive(ctx, staff)
 	if err != nil || len(templates) == 0 {
@@ -123,10 +123,10 @@ func (c *cases) messageCommand(ctx context.Context, i *discordgo.InteractionCrea
 		EvidenceLinks:           []string{link},
 		IdempotencyKey:          i.ID,
 	}
-	return Async(DeferEphemeral(), func(ctx context.Context, responder Responder) error {
+	return AsyncPublic(func(ctx context.Context, responder Responder) error {
 		created, err := c.services.Cases.Create(ctx, staff, input)
 		if err != nil {
-			_, err := responder.EditOriginal(ErrorEdit(caseErrorMessage(err)))
+			_, err := responder.EditOriginal(ErrorEdit(caseCreateErrorMessage(err)))
 			return err
 		}
 		return c.publish(ctx, responder, created, &template)
@@ -172,7 +172,7 @@ func (c *cases) messageTemplate(ctx context.Context, i *discordgo.InteractionCre
 	targetID, channelID, messageID := parts[0], parts[1], parts[2]
 	staff, err := c.staff(ctx, i)
 	if err != nil {
-		return Immediate(Error(caseErrorMessage(err)))
+		return Immediate(Error(caseCreateErrorMessage(err)))
 	}
 	_, template, err := c.template(ctx, staff, data.Values[0])
 	if err != nil || template == nil {
@@ -197,33 +197,31 @@ func (c *cases) messageTemplate(ctx context.Context, i *discordgo.InteractionCre
 		EvidenceLinks:           []string{link},
 		IdempotencyKey:          i.ID,
 	}
-	return Async(DeferEphemeral(), func(ctx context.Context, responder Responder) error {
+	return AsyncPublic(func(ctx context.Context, responder Responder) error {
 		created, err := c.services.Cases.Create(ctx, staff, input)
 		if err != nil {
-			_, err := responder.EditOriginal(ErrorEdit(caseErrorMessage(err)))
+			_, err := responder.EditOriginal(ErrorEdit(caseCreateErrorMessage(err)))
 			return err
 		}
 		return c.publish(ctx, responder, created, template)
 	})
 }
 
-// publish posts the public case result and keeps it updated until the
-// case's actions finish.
+// publish replaces the public placeholder with the case result and keeps
+// it updated until the case's actions finish.
 func (c *cases) publish(ctx context.Context, responder Responder, created *quack.CaseResponse, template *quack.TemplateResponse) error {
-	message, err := Publish(responder, caseCreatedMessage(created, template))
-	if err == nil && message != nil {
-		c.followResult(ctx, responder, created, message.ID, template)
+	if _, err := Publish(responder, caseCreatedMessage(created, template)); err != nil {
+		return err
 	}
-	return err
+	c.followResult(ctx, responder, created, template)
+	return nil
 }
 
 // followResult polls the case's actions for up to 30 seconds and edits the
 // public result once they all reach a final state. It works on a copy so the
 // caller's case is never mutated.
-func (c *cases) followResult(
-	ctx context.Context, responder Responder, created *quack.CaseResponse, messageID string, template *quack.TemplateResponse,
-) {
-	if created.ID == "" || messageID == "" || len(created.Actions) == 0 {
+func (c *cases) followResult(ctx context.Context, responder Responder, created *quack.CaseResponse, template *quack.TemplateResponse) {
+	if created.ID == "" || len(created.Actions) == 0 {
 		return
 	}
 	snapshot := *created
@@ -256,7 +254,7 @@ func (c *cases) followResult(
 				}
 			}
 			if done {
-				if _, err := responder.EditFollowup(messageID, EditMessage(caseCreatedMessage(&snapshot, template))); err != nil {
+				if _, err := responder.EditOriginal(EditMessage(caseCreatedMessage(&snapshot, template))); err != nil {
 					slog.WarnContext(ctx, "Could not update public case result", "case_id", snapshot.ID, "error_type", "discord_response")
 				}
 				return

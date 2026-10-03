@@ -44,6 +44,7 @@ type fakeClient struct {
 	responses  []*discordgo.InteractionResponse
 	edits      []*discordgo.WebhookEdit
 	followups  []*discordgo.WebhookParams
+	deletes    int
 	respondErr error
 	done       chan struct{}
 }
@@ -87,6 +88,9 @@ func (f *fakeClient) FollowupMessageEdit(
 }
 
 func (f *fakeClient) InteractionResponseDelete(*discordgo.Interaction, ...discordgo.RequestOption) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deletes++
 	return nil
 }
 
@@ -189,11 +193,14 @@ func TestRouterTaskErrors(t *testing.T) {
 		ack           *discordgo.InteractionResponse
 		wantEdits     int
 		wantFollowups int
+		wantDeletes   int
 	}{
 		// A private defer is replaced by the standard error.
-		{"deferred reply", DeferEphemeral(), 1, 0},
+		{"deferred reply", DeferEphemeral(), 1, 0, 0},
 		// A shared component message is left alone; only the clicker hears.
-		{"deferred update", DeferUpdate(), 0, 1},
+		{"deferred update", DeferUpdate(), 0, 1, 0},
+		// An untouched public placeholder is removed; the error is private.
+		{"deferred public", DeferPublic(), 0, 1, 1},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -204,22 +211,55 @@ func TestRouterTaskErrors(t *testing.T) {
 			})
 			router.handle(nil, componentInteraction("interaction-1", "case:list_next:v1:1"))
 			client.wait(t)
-			if len(client.edits) != test.wantEdits || len(client.followups) != test.wantFollowups {
-				t.Fatalf("edits=%d followups=%d", len(client.edits), len(client.followups))
+			if len(client.edits) != test.wantEdits || len(client.followups) != test.wantFollowups || client.deletes != test.wantDeletes {
+				t.Fatalf("edits=%d followups=%d deletes=%d", len(client.edits), len(client.followups), client.deletes)
 			}
-			var embeds []*discordgo.MessageEmbed
+			var content string
 			if test.wantEdits == 1 {
-				embeds = *client.edits[0].Embeds
+				content = *client.edits[0].Content
 			} else {
-				embeds = client.followups[0].Embeds
+				content = client.followups[0].Content
 				if client.followups[0].Flags&discordgo.MessageFlagsEphemeral == 0 {
-					t.Fatal("component failure was not private")
+					t.Fatal("failure was not private")
 				}
 			}
-			if len(embeds) != 1 || embeds[0].Description != "Quack could not finish that interaction." {
-				t.Fatalf("expected standard error, got %+v", embeds)
+			if content != "I couldn’t finish that. Try again in a moment." {
+				t.Fatalf("expected standard error, got %q", content)
 			}
 		})
+	}
+}
+
+// TestRouterResolvesForApplicationAndDMs resolves icons for the
+// interaction's application and drops ephemeral flags in DMs, where
+// Discord rejects them.
+func TestRouterResolvesForApplicationAndDMs(t *testing.T) {
+	client := &fakeClient{done: make(chan struct{}, 1)}
+	router := testRouter(client)
+	router.commands["ping"] = func(context.Context, *discordgo.InteractionCreate) Result {
+		return Immediate(Error("Nope"))
+	}
+	router.commands["slow"] = func(context.Context, *discordgo.InteractionCreate) Result {
+		return Async(DeferEphemeral(), func(_ context.Context, responder Responder) error {
+			_, err := responder.Followup(Signal("success", "Done.", true))
+			return err
+		})
+	}
+	guild := commandInteraction("interaction-1", "ping")
+	guild.AppID = "819019613371236432"
+	router.handle(nil, guild)
+	dm := commandInteraction("interaction-2", "slow")
+	dm.GuildID = ""
+	router.handle(nil, dm)
+	client.wait(t)
+	if got := client.responses[0].Data.Content; !strings.HasPrefix(got, "<:quack_error:") || client.responses[0].Data.Flags&discordgo.MessageFlagsEphemeral == 0 {
+		t.Fatalf("guild response = %q flags %d", got, client.responses[0].Data.Flags)
+	}
+	if client.responses[1].Data.Flags&discordgo.MessageFlagsEphemeral != 0 || client.followups[0].Flags&discordgo.MessageFlagsEphemeral != 0 {
+		t.Fatal("DM response kept the ephemeral flag")
+	}
+	if client.followups[0].Content != "Done." {
+		t.Fatalf("unknown application kept an icon placeholder: %q", client.followups[0].Content)
 	}
 }
 
@@ -241,7 +281,7 @@ func TestRouterRoutesComponentsAndModals(t *testing.T) {
 	if client.responses[0].Type != discordgo.InteractionResponseUpdateMessage || client.responses[1].Data.Content != "saved" {
 		t.Fatalf("unexpected routed responses: %+v", client.responses)
 	}
-	if embeds := client.responses[2].Data.Embeds; len(embeds) != 1 || embeds[0].Description != "That component is not available." {
+	if content := client.responses[2].Data.Content; content != "That component is not available." {
 		t.Fatalf("unknown component was not refused: %+v", client.responses[2])
 	}
 }

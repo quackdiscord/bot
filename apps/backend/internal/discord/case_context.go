@@ -94,7 +94,7 @@ func (c *cases) contextModal(ctx context.Context, i *discordgo.InteractionCreate
 			ordered = append(ordered, quack.CaseContextValueInput{Key: field.Key, Value: value})
 		}
 	}
-	return Async(DeferEphemeral(), func(ctx context.Context, responder Responder) error {
+	return AsyncPublic(func(ctx context.Context, responder Responder) error {
 		staff, err := c.staff(ctx, i)
 		if err != nil {
 			return err
@@ -114,7 +114,7 @@ func (c *cases) contextModal(ctx context.Context, i *discordgo.InteractionCreate
 			IdempotencyKey:          draft.Token,
 		})
 		if err != nil {
-			_, err := responder.EditOriginal(ErrorEdit(caseErrorMessage(err)))
+			_, err := responder.EditOriginal(ErrorEdit(caseCreateErrorMessage(err)))
 			return err
 		}
 		return c.publish(ctx, responder, created, template)

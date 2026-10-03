@@ -162,7 +162,7 @@ func (b *Bot) SendDM(ctx context.Context, userID, message string) (map[string]an
 	if err != nil {
 		return nil, classify("send_dm_channel", err, false)
 	}
-	sent, err := b.send(ctx, channel.ID, &discordgo.MessageSend{Content: message})
+	sent, err := b.Send(ctx, channel.ID, Signal("message", message, false))
 	if err != nil {
 		return nil, classify("send_dm_message", err, false)
 	}
@@ -187,7 +187,7 @@ func (b *Bot) SendPreparedDM(ctx context.Context, channelID, message string) (ma
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	sent, err := b.send(ctx, channelID, &discordgo.MessageSend{Content: message})
+	sent, err := b.Send(ctx, channelID, Signal("message", message, false))
 	if err != nil {
 		return nil, classify("dm_send", err, true)
 	}
@@ -214,17 +214,30 @@ func (b *Bot) SendCaseNotification(
 	if err != nil {
 		return nil, err
 	}
-	sent, err := b.send(ctx, channelID, &discordgo.MessageSend{Content: message, Components: entry.Components})
+	notice := Signal("message", message, false)
+	notice.Components = entry.Components
+	sent, err := b.Send(ctx, channelID, notice)
 	if err != nil {
 		return nil, classify("dm_send", err, true)
 	}
 	return sentResult(channelID, sent), nil
 }
 
-// send posts a message with every mention suppressed.
-func (b *Bot) send(ctx context.Context, channelID string, message *discordgo.MessageSend) (*discordgo.Message, error) {
-	message.AllowedMentions = &discordgo.MessageAllowedMentions{}
-	return b.Session.ChannelMessageSendComplex(channelID, message, rest(ctx)...)
+// Send posts message to a channel or DM, resolved for the bot's own
+// application, with mentions suppressed unless the message allows them.
+// Like every REST call here it is attempted once; the caller owns retries.
+func (b *Bot) Send(ctx context.Context, channelID string, message Message) (*discordgo.Message, error) {
+	message.Ephemeral = false
+	params := message.ForApplication(b.applicationID(ctx)).sendParams()
+	return b.Session.ChannelMessageSendComplex(channelID, params, rest(ctx)...)
+}
+
+// applicationID is the ID icons and command mentions resolve against: the
+// bot user's ID, which Discord gives the application too. It is "" when
+// Discord cannot say, and messages then read without icons.
+func (b *Bot) applicationID(ctx context.Context) string {
+	id, _ := b.botID(ctx)
+	return id
 }
 
 // sentResult is the result Quack records for a delivered DM.

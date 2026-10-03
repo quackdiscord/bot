@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"runtime/debug"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -237,7 +238,7 @@ func (r *Router) handle(_ *discordgo.Session, interaction *discordgo.Interaction
 		customID := interaction.MessageComponentData().CustomID
 		handler, ok := lookup(r.components, customID)
 		if !ok {
-			_ = r.client.InteractionRespond(interaction.Interaction, Error("That component is not available."))
+			_ = r.respond(interaction, Error("That component is not available."))
 			return
 		}
 		r.run(interaction, "component:"+customID, handler)
@@ -245,7 +246,7 @@ func (r *Router) handle(_ *discordgo.Session, interaction *discordgo.Interaction
 		customID := interaction.ModalSubmitData().CustomID
 		handler, ok := lookup(r.modals, customID)
 		if !ok {
-			_ = r.client.InteractionRespond(interaction.Interaction, Error("That modal is not available."))
+			_ = r.respond(interaction, Error("That modal is not available."))
 			return
 		}
 		r.run(interaction, "modal:"+customID, handler)
@@ -264,7 +265,7 @@ func (r *Router) run(interaction *discordgo.InteractionCreate, name string, hand
 	if result.Response == nil {
 		return
 	}
-	if err := r.client.InteractionRespond(interaction.Interaction, result.Response); err != nil {
+	if err := r.respond(interaction, result.Response); err != nil {
 		attrs := append(errorAttrs(err),
 			"interaction", name,
 			"interaction_type", int(interaction.Type),
@@ -278,8 +279,22 @@ func (r *Router) run(interaction *discordgo.InteractionCreate, name string, hand
 		return
 	}
 	if result.Task != nil {
-		go r.runTask(ctx, interaction, name, result.Task, result.Response.Type)
+		go r.runTask(ctx, interaction, name, result.Task, result.Response)
 	}
+}
+
+// respond sends the first response, resolved for the interaction's
+// application. Discord rejects ephemeral messages in DMs, so there the flag
+// is dropped.
+func (r *Router) respond(interaction *discordgo.InteractionCreate, response *discordgo.InteractionResponse) error {
+	response = PrepareResponse(response, interaction.AppID)
+	if interaction.GuildID == "" && response.Data != nil {
+		public, data := *response, *response.Data
+		data.Flags &^= discordgo.MessageFlagsEphemeral
+		public.Data = &data
+		response = &public
+	}
+	return r.client.InteractionRespond(interaction.Interaction, response)
 }
 
 // call runs handler, turning a panic into a private error reply.
@@ -296,23 +311,23 @@ func (r *Router) call(ctx context.Context, interaction *discordgo.InteractionCre
 // runTask runs a deferred task and reports a failure or panic to the user.
 func (r *Router) runTask(
 	ctx context.Context, interaction *discordgo.InteractionCreate, name string,
-	task Task, responseType discordgo.InteractionResponseType,
+	task Task, response *discordgo.InteractionResponse,
 ) {
-	responder := responder{client: r.client, interaction: interaction.Interaction}
+	tracked := &trackingResponder{responder: responder{client: r.client, interaction: interaction.Interaction}}
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			logPanic(ctx, "Discord interaction task panicked", name, recovered)
-			responder.fail(responseType)
+			tracked.fail(response, nil)
 		}
 	}()
-	if err := task(ctx, responder); err != nil {
+	if err := task(ctx, tracked); err != nil {
 		slog.Error("Discord interaction task failed",
 			"error_type", fmt.Sprintf("%T", err),
 			"interaction", name,
 			"request_id", quack.RequestIDFromContext(ctx),
 			"correlation_id", quack.CorrelationIDFromContext(ctx),
 		)
-		responder.fail(responseType)
+		tracked.fail(response, err)
 	}
 }
 
@@ -354,7 +369,8 @@ func errorAttrs(err error) []any {
 	return attrs
 }
 
-// responder implements Responder for one interaction.
+// responder implements Responder for one interaction, resolving every
+// message for the interaction's application.
 type responder struct {
 	client      interactionClient
 	interaction *discordgo.Interaction
@@ -362,18 +378,22 @@ type responder struct {
 
 // EditOriginal edits the interaction's first response.
 func (r responder) EditOriginal(edit Edit) (*discordgo.Message, error) {
-	return r.client.InteractionResponseEdit(r.interaction, edit.webhookEdit())
+	return r.client.InteractionResponseEdit(r.interaction, edit.ForApplication(r.interaction.AppID).webhookEdit())
 }
 
 // Followup posts another message through the interaction's webhook,
-// waiting for Discord to return it.
+// waiting for Discord to return it. In DMs it is always public, because
+// Discord rejects ephemeral followups there.
 func (r responder) Followup(message Message) (*discordgo.Message, error) {
-	return r.client.FollowupMessageCreate(r.interaction, true, message.webhookParams())
+	if r.interaction.GuildID == "" {
+		message.Ephemeral = false
+	}
+	return r.client.FollowupMessageCreate(r.interaction, true, message.ForApplication(r.interaction.AppID).webhookParams())
 }
 
 // EditFollowup edits a message posted by Followup.
 func (r responder) EditFollowup(messageID string, edit Edit) (*discordgo.Message, error) {
-	return r.client.FollowupMessageEdit(r.interaction, messageID, edit.webhookEdit())
+	return r.client.FollowupMessageEdit(r.interaction, messageID, edit.ForApplication(r.interaction.AppID).webhookEdit())
 }
 
 // DeleteOriginal deletes the interaction's first response.
@@ -381,13 +401,40 @@ func (r responder) DeleteOriginal() error {
 	return r.client.InteractionResponseDelete(r.interaction)
 }
 
-// fail tells the user a task failed. A deferred component update gets a
-// private followup so the shared message everyone sees stays intact.
-func (r responder) fail(responseType discordgo.InteractionResponseType) {
-	const message = "Quack could not finish that interaction."
-	if responseType == discordgo.InteractionResponseDeferredMessageUpdate {
-		_, _ = r.Followup(embedMessage(errorEmbed(message), true))
+// trackingResponder remembers whether the task already replaced the first
+// response, so a later failure never erases a committed public result.
+type trackingResponder struct {
+	responder
+	published atomic.Bool
+}
+
+// EditOriginal edits the first response and records that it succeeded.
+func (r *trackingResponder) EditOriginal(edit Edit) (*discordgo.Message, error) {
+	message, err := r.responder.EditOriginal(edit)
+	if err == nil {
+		r.published.Store(true)
+	}
+	return message, err
+}
+
+// fail tells the user a task failed. A shared message, from a component
+// update or a public defer, is left alone and the error goes privately to
+// the invoking user; an untouched public placeholder is deleted first so
+// the channel is not left "thinking". A private defer is simply replaced.
+func (r *trackingResponder) fail(response *discordgo.InteractionResponse, err error) {
+	message := "I couldn’t finish that. Try again in a moment."
+	if errors.Is(err, quack.ErrCasePermissionDenied) || errors.Is(err, quack.ErrAuthorizationDenied) {
+		message = "You do not have permission to use this control."
+	}
+	deferredUpdate := response.Type == discordgo.InteractionResponseDeferredMessageUpdate
+	deferredPublic := response.Type == discordgo.InteractionResponseDeferredChannelMessageWithSource &&
+		(response.Data == nil || response.Data.Flags&discordgo.MessageFlagsEphemeral == 0)
+	if !deferredUpdate && !deferredPublic {
+		_, _ = r.responder.EditOriginal(ErrorEdit(message))
 		return
 	}
-	_, _ = r.EditOriginal(ErrorEdit(message))
+	if deferredPublic && !r.published.Load() {
+		_ = r.DeleteOriginal()
+	}
+	_, _ = r.Followup(Signal("error", message, true))
 }

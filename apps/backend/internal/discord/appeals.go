@@ -59,7 +59,7 @@ func (n *AppealNotifier) SendAppealMemberNotification(ctx context.Context, disco
 	if err != nil {
 		return "", notificationError("appeal_dm_channel", err)
 	}
-	message, err := n.bot.send(ctx, channel.ID, &discordgo.MessageSend{Content: body})
+	message, err := n.bot.Send(ctx, channel.ID, Signal("appeal", body, false))
 	if err != nil {
 		return "", notificationError("appeal_dm", err)
 	}
@@ -86,7 +86,7 @@ func (n *AppealNotifier) SendAppealStaffNotification(ctx context.Context, guildI
 	if strings.TrimSpace(channelID) == "" {
 		return "", errors.New("appeal staff channel is unavailable")
 	}
-	message, err := n.bot.send(ctx, channelID, &discordgo.MessageSend{Content: body})
+	message, err := n.bot.Send(ctx, channelID, Signal("appeal", body, false))
 	if err != nil {
 		return "", notificationError("appeal_staff_notification", err)
 	}
@@ -117,21 +117,21 @@ func (c appealChannels) staffChannel(ctx context.Context, guildID string) (strin
 func appealReversal(services *quack.Services) Handler {
 	return func(_ context.Context, i *discordgo.InteractionCreate) Result {
 		if i.GuildID == "" || i.Member == nil || i.Member.User == nil {
-			return Immediate(Error("This reversal control is unavailable."))
+			return Immediate(Error("Open this appeal in the server’s review queue to remove the punishment."))
 		}
 		id, err := DecodeCustomID(i.MessageComponentData().CustomID)
 		if err != nil {
-			return Immediate(Error("This reversal control is invalid."))
+			return Immediate(Error("That punishment button is broken. Open the case to try again."))
 		}
 		parts := strings.Split(id.Payload, ",")
 		if len(parts) != 3 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
-			return Immediate(Error("This reversal control is invalid."))
+			return Immediate(Error("That punishment button is broken. Open the case to try again."))
 		}
 		appealID, executionID, actionType := parts[0], parts[1], quack.ActionType(parts[2])
 		if actionType != quack.ActionRemoveTimeout && actionType != quack.ActionUnbanUser {
-			return Immediate(Error("This reversal type is invalid."))
+			return Immediate(Error("Only bans and timeouts can be removed here."))
 		}
-		return Async(DeferEphemeral(), func(ctx context.Context, responder Responder) error {
+		return AsyncPublic(func(ctx context.Context, responder Responder) error {
 			userID, name := interactionMember(i)
 			staff, err := services.Guilds.ResolveDiscordStaffContext(ctx, quack.DiscordStaffContextInput{
 				DiscordGuildID: i.GuildID,
@@ -139,21 +139,20 @@ func appealReversal(services *quack.Services) Handler {
 				DisplayName:    name,
 			})
 			if err != nil {
-				_, _ = responder.EditOriginal(ErrorEdit("Live Discord authorization failed."))
+				_, _ = responder.EditOriginal(ErrorEdit("I couldn’t check your Discord permissions. Try again in a moment."))
 				return nil
 			}
 			appeal, err := services.Appeals.GetStaff(ctx, staff, appealID)
 			if err != nil || appeal.Status != quack.AppealStatusAccepted {
-				_, _ = responder.EditOriginal(ErrorEdit("This appeal is not eligible for reversal."))
+				_, _ = responder.EditOriginal(ErrorEdit("Accept the appeal before removing its punishment."))
 				return nil
 			}
 			_, err = services.Actions.ReverseForAppeal(ctx, staff, appeal.CaseID, executionID, actionType, &appeal.ID)
 			if err != nil {
-				_, _ = responder.EditOriginal(ErrorEdit("The reversal could not be authorized or queued."))
+				_, _ = responder.EditOriginal(ErrorEdit("I couldn’t queue the punishment removal. Check your moderation permissions and try again."))
 				return nil
 			}
-			const text = "**Reversal Queued**\nThe confirmed reversal passed live permission and hierarchy checks."
-			_, err = Publish(responder, Content(text, false))
+			_, err = Publish(responder, Signal("retry", "Punishment removal queued. Check the case for the result.", false))
 			return err
 		})
 	}

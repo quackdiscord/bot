@@ -49,15 +49,9 @@
     "type": 4,
     "data": {
       "tts": false,
-      "content": "",
+      "content": "{{quack:error}} Field 6 is required",
       "components": null,
-      "embeds": [
-        {
-          "title": "Error",
-          "description": "Field 6 is required",
-          "color": 15548997
-        }
-      ],
+      "embeds": null,
       "allowed_mentions": {
         "parse": null,
         "replied_user": false
@@ -251,7 +245,7 @@
           "components": [
             {
               "custom_id": "reason",
-              "label": "Required correction reason",
+              "label": "Why are you voiding this case?",
               "style": 2,
               "required": true,
               "min_length": 3,

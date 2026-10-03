@@ -15,7 +15,8 @@ All packages live under `apps/backend/internal` unless noted.
 | `config` | Loads settings from code defaults, an optional TOML file, and `QUACK_*` env vars, and validates them. |
 | `quack` | The moderation domain: templates, escalation, cases, actions, notifications, appeals, audit, statistics, and the ports it needs. |
 | `store` | GORM/MySQL and Redis implementation of the `quack` storage ports, the schema, and migrations. |
-| `discord` | Discord adapter: REST client behind the `quack` Discord ports, interaction router, `/case`, embeds, command sync, guild lifecycle. |
+| `discord` | Discord adapter: REST client behind the `quack` Discord ports, interaction router, message and response model, `/case`, views, command sync and command mentions, guild lifecycle. |
+| `discordtext` | Transport-free prose helpers for Discord copy: `{{quack:key}}` icon placeholders and the generated per-application emoji catalog, Markdown escaping, quoting, and the conversation layout. |
 | `api` | The dashboard's `net/http` API: middleware, sessions, OAuth, and handlers over `quack.Services`. |
 | `worker` | The in-process action queue, the database poller behind it, and periodic background loops. |
 | `modules` | What the optional modules share: per-guild toggles and settings, the module actor, guild ID mapping, audit adapter, and a bounded work pool. |
@@ -62,7 +63,9 @@ belong there, not in handlers.
    hour), gateway intents for enabled modules, guild lifecycle handlers, module
    gateway handlers, the interaction router, and the HTTP server.
 4. Sync slash commands (`discord.SyncCommands`). Command definitions are
-   fingerprinted in Redis so unchanged commands are not rewritten.
+   fingerprinted in Redis so unchanged commands are not rewritten. Sync also
+   records each command's ID so copy like `/case view` renders as a clickable
+   command mention.
 5. Start the worker and the logging and honeypot pools.
 6. Open the Discord gateway.
 7. Serve HTTP until the context is cancelled (SIGINT or SIGTERM).
@@ -145,15 +148,34 @@ Step by step:
    Submission is only a latency shortcut: if the queue is full or stopped, the
    poller finds the case anyway.
 6. **Enforcement and notification**. See the action engine below.
-7. **Public result** (`discord/case_create.go`). The handler posts the public
-   result in the invoking channel (case number, target, template, level, action
-   status), then polls the case for up to 30 seconds and edits the message once
-   the actions settle. Errors stay ephemeral.
+7. **Public result** (`discord/case_create.go`). The command defers publicly
+   (`discord.AsyncPublic`) and the result replaces that placeholder in place:
+   case number, target, rule, reason, action progress, moderator, and quoted
+   context, never evidence. It then polls the case for up to 30 seconds and
+   edits the message once the actions settle. An error deletes the placeholder
+   and goes to the moderator in an ephemeral followup.
+
 
 Dashboard case creation (`POST /guilds/{discordGuildID}/cases`) calls the same
 `CaseService.Create` with source `dashboard` and the request's
 `Idempotency-Key`. Honeypot cases use `CaseService.CreateSystemHoneypot`, which
 skips the staff checks but keeps every target and bot check.
+
+### Messages
+
+Every Discord message is plain text in one layout, `discordtext.Conversation`:
+an icon and a lead sentence, an optional quote, details, and a `-#` subtext
+line. Views write `{{quack:key}}` icon placeholders and command references
+such as `/case view`; the router, the interaction responder, and `Bot.Send`
+resolve both for the sending application just before Discord sees them
+(`Message.ForApplication`). The emoji IDs come from
+`discordtext/icons_generated.go`, generated from
+`assets/icons/quack/manifest.json` by `assets/icons/quack/generate-catalog.mjs`
+(`go generate ./internal/discordtext`). An application without uploads gets
+the same text without icons. Content too long for one message keeps its
+leading paragraphs and attaches the rest as `message.txt`. Mentions are
+suppressed unless a message allows them, link previews are hidden, and
+ephemeral flags are dropped in DMs, where Discord rejects them.
 
 ## Escalation
 

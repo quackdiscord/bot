@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/quack"
@@ -25,7 +26,8 @@ func TestMessagesMatchGolden(t *testing.T) {
 	}
 	detail := &quack.CaseDetailResponse{
 		CaseResponse: quack.CaseResponse{
-			ID: "case-1", CaseNumber: 7, TargetDiscordUserID: "target", Reason: "Official reason",
+			ID: "case-1", CaseNumber: 7, TargetDiscordUserID: "target", Reason: "Official **reason**",
+			ModeratorDiscordUserID: "moderator", CreatedAt: time.Unix(1700000000, 0),
 			Validity: quack.CaseValidityValid, Source: quack.CaseSourceDiscord, SelectedLevel: level("Timeout", 0),
 			ContextValues: []quack.CaseContextValueResponse{{Key: "details", Label: "Details", Value: "Visible context"}},
 		},
@@ -46,11 +48,12 @@ func TestMessagesMatchGolden(t *testing.T) {
 			},
 			{CaptureOutcome: "deleted"},
 		},
-		Events: []quack.CaseEventResponse{{EventType: quack.CaseEventCreated, Body: "Case created"}},
+		Events:       []quack.CaseEventResponse{{EventType: quack.CaseEventCreated, Body: "Case created", CreatedAt: time.Unix(1700000000, 0)}},
+		Notification: &quack.CaseNotificationResponse{Status: "sent"},
 	}
 	list := &quack.CaseListResponse{Total: 21, Cases: []quack.CaseResponse{
 		{CaseNumber: 9, TargetDiscordUserID: "member", Validity: quack.CaseValidityVoided, SelectedLevel: level("Warn", 0)},
-		{CaseNumber: 8, TargetDiscordUserID: "other", Validity: quack.CaseValidityValid},
+		{CaseNumber: 8, TargetDiscordUserID: "other", Validity: quack.CaseValidityValid, CreatedAt: time.Unix(1700000000, 0)},
 	}}
 	failed := &quack.FailedCaseActionResult{Total: 12, Executions: []quack.CaseActionExecution{
 		{ID: "exec-1", CaseID: "case-1", ActionType: quack.ActionKickUser, LastErrorCode: "kick_permission_or_hierarchy_denied"},
@@ -65,26 +68,35 @@ func TestMessagesMatchGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	noTimestamps := func(m Message) Message {
-		for _, e := range m.Embeds {
-			e.Timestamp = ""
-		}
-		return m
+	profile := &quack.CaseProfileResponse{CaseListResponse: *list, Summary: quack.CaseProfileSummary{
+		Total: 21, ByValidity: map[string]int64{"valid": 20, "voided": 1},
+	}}
+	voided := &quack.CaseResponse{CaseNumber: 7, Actions: []quack.CaseActionResponse{
+		{ActionType: quack.ActionUnbanUser, Status: quack.ActionExecutionPending},
+	}}
+	audit := func(action string, result quack.AuditResult, failure string) Message {
+		return auditMirrorMessage(quack.AuditMirrorMessage{
+			ActorDiscordUserID: "moderator", Action: action, Result: result, FailureReason: failure,
+			OccurredAt: time.Unix(1700000000, 0),
+		})
 	}
-	errorResponse := Error("Nope")
-	errorResponse.Data.Embeds[0].Timestamp = ""
 	out := map[string]any{
-		"case_created":     caseCreatedMessage(created, &quack.TemplateResponse{Slug: "spam"}),
-		"case_created_nil": caseCreatedMessage(nil, nil),
-		"case_detail":      noTimestamps(caseDetailMessage(detail)),
-		"case_detail_nil":  noTimestamps(caseDetailMessage(nil)),
-		"case_list_user":   caseListMessage(list, 2, "member"),
-		"case_list_empty":  caseListMessage(nil, 0, ""),
-		"failures":         failedActionMessage(failed, 1),
-		"failures_empty":   failedActionMessage(nil, 1),
-		"appeal_staff":     appealStaffMessage(appeal),
-		"appeal_entry":     entry,
-		"error_response":   errorResponse,
+		"case_created":       caseCreatedMessage(created, &quack.TemplateResponse{Slug: "spam"}),
+		"case_created_nil":   caseCreatedMessage(nil, nil),
+		"case_voided":        caseVoidedMessage(voided),
+		"case_detail":        caseDetailMessage(detail),
+		"case_detail_nil":    caseDetailMessage(nil),
+		"case_list_user":     caseListMessage(list, 2, "member"),
+		"case_list_empty":    caseListMessage(nil, 0, ""),
+		"case_profile":       caseProfileMessage(profile, 1, "member"),
+		"failures":           failedActionMessage(failed, 1),
+		"failures_empty":     failedActionMessage(nil, 1),
+		"appeal_staff":       appealStaffMessage(appeal),
+		"appeal_entry":       entry,
+		"audit_case_create":  audit("case.create", quack.AuditResultSuccess, ""),
+		"audit_action_retry": audit("case_action.failed", quack.AuditResultFailure, "ban_permission_denied"),
+		"audit_unknown":      audit("evidence.capture", quack.AuditResultSuccess, ""),
+		"error_response":     Error("Nope"),
 	}
 	body, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
@@ -115,12 +127,15 @@ func TestCaseDetailOffersReverseOrRecovery(t *testing.T) {
 		detail := &quack.CaseDetailResponse{CaseResponse: quack.CaseResponse{ID: "case-1"}, Actions: []quack.CaseActionDetailResponse{
 			{CaseActionResponse: quack.CaseActionResponse{ID: "action-1", ActionType: quack.ActionTimeoutUser, Status: status}},
 		}}
-		row := caseDetailMessage(detail).Components[0].(discordgo.ActionsRow)
-		if len(row.Components) != len(want) {
-			t.Fatalf("%s: got %d controls, want %d", status, len(row.Components), len(want))
+		var buttons []discordgo.MessageComponent
+		for _, row := range caseDetailMessage(detail).Components {
+			buttons = append(buttons, row.(discordgo.ActionsRow).Components...)
+		}
+		if len(buttons) != len(want) {
+			t.Fatalf("%s: got %d controls, want %d", status, len(buttons), len(want))
 		}
 		for i, prefix := range want {
-			if id := row.Components[i].(discordgo.Button).CustomID; !strings.HasPrefix(id, prefix) {
+			if id := buttons[i].(discordgo.Button).CustomID; !strings.HasPrefix(id, prefix) {
 				t.Errorf("%s: control %d is %q, want prefix %q", status, i, id, prefix)
 			}
 		}

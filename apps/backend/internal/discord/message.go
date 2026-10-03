@@ -2,39 +2,32 @@ package discord
 
 import (
 	"fmt"
-	"log/slog"
+	"regexp"
 	"strings"
 	"time"
+	"unicode/utf16"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/internal/discordtext"
+	"github.com/quackdiscord/bot/internal/quack"
 )
 
-// Discord's message limits, enforced before sending so a long value is cut
-// instead of rejected.
+// Discord's limits, enforced before sending so a long value is cut or
+// attached instead of rejected.
 const (
-	embedTitleLimit       = 256
-	embedDescriptionLimit = 4096
-	embedFieldNameLimit   = 256
-	embedFieldValueLimit  = 1024
-	embedFieldLimit       = 25
-	embedFooterLimit      = 2048
-	customIDLimit         = 100
+	contentLimit  = 2000
+	customIDLimit = 100
+
+	// contentBudget is what ForApplication keeps inline when a message is
+	// too long, leaving room for the note that the rest is attached.
+	contentBudget = 1750
 )
 
-// Embed colors, taken from Discord's own palette.
-const (
-	colorMain    = 0x5865F2
-	colorSuccess = 0x57F287
-	colorWarning = 0xFEE75C
-	colorError   = 0xED4245
-)
-
-// blankField stands in for an empty embed field name or value, which Discord
-// rejects. A zero-width space renders as nothing.
-const blankField = "\u200b"
-
-// Message is a message Quack sends, either as an interaction response or as
-// a followup. Mentions are suppressed unless AllowedMentions says otherwise.
+// Message is a message Quack sends: an interaction response, a followup, a
+// channel post, or a DM. Content may hold discordtext icon placeholders and
+// command references such as "/case view"; both are resolved for the
+// sending application just before the message leaves. Mentions are
+// suppressed unless AllowedMentions says otherwise.
 type Message struct {
 	Content         string
 	Embeds          []*discordgo.MessageEmbed
@@ -44,9 +37,12 @@ type Message struct {
 	AllowedMentions *discordgo.MessageAllowedMentions
 }
 
-// Edit changes an interaction response that was already sent. Nil fields
-// are left as they are.
+// Edit changes a message Quack already sent. Nil fields are left as they
+// are.
 type Edit struct {
+	// PrivateError marks an error edit. Under AsyncPublic it is delivered
+	// privately to the invoking user instead of replacing the public reply.
+	PrivateError    bool
 	Content         *string
 	Embeds          *[]*discordgo.MessageEmbed
 	Components      *[]discordgo.MessageComponent
@@ -54,86 +50,44 @@ type Edit struct {
 	AllowedMentions *discordgo.MessageAllowedMentions
 }
 
-// embedBuilder builds an embed while enforcing Discord's limits.
-type embedBuilder struct {
-	embed *discordgo.MessageEmbed
-}
-
 // Content returns a text-only message.
 func Content(content string, ephemeral bool) Message {
 	return Message{Content: content, Ephemeral: ephemeral}
 }
 
-// EditMessage returns an edit that replaces a response with m entirely.
-func EditMessage(m Message) Edit {
-	return Edit{
-		Content:         &m.Content,
-		Embeds:          &m.Embeds,
-		Components:      &m.Components,
-		Files:           m.Files,
-		AllowedMentions: m.AllowedMentions,
-	}
+// Conversation returns a message in Quack's standard layout; see
+// discordtext.Conversation. Callers escape member-controlled values with
+// PlainText.
+func Conversation(icon, lead, quote, detail, meta string, ephemeral bool) Message {
+	return Content(discordtext.Conversation(icon, lead, quote, detail, meta), ephemeral)
 }
 
-// Ephemeral answers with a message only the invoking user can see.
-func Ephemeral(m Message) *discordgo.InteractionResponse {
-	m.Ephemeral = true
-	return &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: m.responseData(),
-	}
+// Signal returns a short message behind the icon for key, adding the icon
+// only if body does not already start with one.
+func Signal(icon, body string, ephemeral bool) Message {
+	return Content(discordtext.WithIcon(icon, body), ephemeral)
 }
 
-// DeferEphemeral acknowledges with a private "thinking" state that the task
-// later edits.
-func DeferEphemeral() *discordgo.InteractionResponse {
-	return &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsEphemeral},
+// Quote block-quotes already-escaped text.
+func Quote(body string) string { return discordtext.Quote(body) }
+
+// PlainText escapes member-controlled text before it goes into Quack's
+// Markdown.
+func PlainText(value string) string { return discordtext.Plain(value) }
+
+// RelativeTime renders value as Discord's live, localized "3 days ago"
+// timestamp, or "" for the zero time.
+func RelativeTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
 	}
+	return fmt.Sprintf("<t:%d:R>", value.Unix())
 }
 
-// DeferUpdate acknowledges a component without changing its message yet.
-func DeferUpdate() *discordgo.InteractionResponse {
-	return &discordgo.InteractionResponse{Type: discordgo.InteractionResponseDeferredMessageUpdate}
-}
-
-// Modal opens a form whose submission is routed by customID.
-func Modal(title, customID string, components []discordgo.MessageComponent) *discordgo.InteractionResponse {
-	return &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseModal,
-		Data: &discordgo.InteractionResponseData{Title: title, CustomID: customID, Components: components},
-	}
-}
-
-// Error answers privately with Quack's standard error embed.
-func Error(content string) *discordgo.InteractionResponse {
-	return Ephemeral(embedMessage(errorEmbed(content), true))
-}
-
-// ErrorEdit replaces a deferred response with Quack's standard error embed.
-func ErrorEdit(content string) Edit {
-	return EditMessage(embedMessage(errorEmbed(content), false))
-}
-
-// Publish posts message publicly after a private deferred acknowledgement.
-// Discord treats the first followup to a deferred response as an edit of it,
-// which would keep the result private, so Publish first completes the
-// acknowledgement, then posts the result, then deletes the acknowledgement.
-// A failure before the result exists leaves the acknowledgement in place.
-func Publish(responder Responder, message Message) (*discordgo.Message, error) {
-	if _, err := responder.EditOriginal(EditMessage(Content("Posting result…", true))); err != nil {
-		return nil, err
-	}
-	message.Ephemeral = false
-	published, err := responder.Followup(message)
-	if err != nil {
-		return nil, err
-	}
-	if err := responder.DeleteOriginal(); err != nil {
-		slog.Warn("Could not remove private interaction acknowledgement", "error_type", "discord_response")
-	}
-	return published, nil
+// ActionSentence describes an action's progress in a sentence; see
+// discordtext.ActionSentence.
+func ActionSentence(action quack.ActionType, status quack.ActionExecutionStatus) string {
+	return discordtext.ActionSentence(action, status)
 }
 
 // Truncate cuts value to limit runes without splitting a character.
@@ -148,47 +102,84 @@ func Truncate(value string, limit int) string {
 	return string(runes[:limit])
 }
 
-// Button returns an interactive button routed by customID.
-func Button(customID, label string, style discordgo.ButtonStyle, disabled bool) discordgo.Button {
-	return discordgo.Button{CustomID: customID, Label: Truncate(label, 80), Style: style, Disabled: disabled}
+// EditMessage returns an edit that replaces a message with m entirely:
+// content, embeds, and components are all set, so old ones are cleared.
+func EditMessage(m Message) Edit {
+	content := m.Content
+	embeds := append([]*discordgo.MessageEmbed{}, m.Embeds...)
+	components := append([]discordgo.MessageComponent{}, m.Components...)
+	return Edit{
+		Content:         &content,
+		Embeds:          &embeds,
+		Components:      &components,
+		Files:           m.Files,
+		AllowedMentions: m.AllowedMentions,
+	}
 }
 
-// Row puts up to five components in one action row; extras are dropped.
-func Row(components ...discordgo.MessageComponent) discordgo.ActionsRow {
-	if len(components) > 5 {
-		components = components[:5]
+// ForApplication resolves icons and command mentions for applicationID.
+// Content that would still exceed Discord's limit keeps its leading whole
+// paragraphs inline and attaches the full text as message.txt, so a long
+// staff record is never cut off. m itself is not changed.
+func (m Message) ForApplication(applicationID string) Message {
+	m.Content = ResolveCommandMentions(discordtext.Resolve(m.Content, applicationID), applicationID)
+	if utf16Len(m.Content) <= contentLimit {
+		return m
 	}
-	return discordgo.ActionsRow{Components: components}
+	full := m.Content
+	// Whole paragraphs only, so a link, quote, or emoji is never cut.
+	var kept []string
+	for _, paragraph := range strings.Split(full, "\n\n") {
+		if utf16Len(strings.Join(append(kept, paragraph), "\n\n")) > contentBudget {
+			break
+		}
+		kept = append(kept, paragraph)
+	}
+	m.Content = strings.Join(kept, "\n\n")
+	if m.Content == "" {
+		m.Content = "The full message is attached."
+	} else {
+		m.Content += "\n\n-# Full details are attached."
+	}
+	m.Files = append(append([]*discordgo.File(nil), m.Files...), &discordgo.File{
+		Name:        "message.txt",
+		ContentType: "text/plain; charset=utf-8",
+		Reader:      strings.NewReader(full),
+	})
+	return m
 }
 
-// ModalValue returns the value of the text input named customID in a modal
-// submission. discordgo decodes rows as pointers, but tests and older
-// payloads use values, so both are accepted.
-func ModalValue(data discordgo.ModalSubmitInteractionData, customID string) string {
-	for _, component := range data.Components {
-		var row *discordgo.ActionsRow
-		switch value := component.(type) {
-		case *discordgo.ActionsRow:
-			row = value
-		case discordgo.ActionsRow:
-			row = &value
-		default:
-			continue
-		}
-		for _, child := range row.Components {
-			switch input := child.(type) {
-			case *discordgo.TextInput:
-				if input.CustomID == customID {
-					return input.Value
-				}
-			case discordgo.TextInput:
-				if input.CustomID == customID {
-					return input.Value
-				}
-			}
-		}
+// ForApplication resolves an edit's content like Message.ForApplication,
+// without changing which fields it replaces.
+func (e Edit) ForApplication(applicationID string) Edit {
+	if e.Content == nil {
+		return e
 	}
-	return ""
+	m := Message{Content: *e.Content, Files: e.Files}.ForApplication(applicationID)
+	e.Content, e.Files = &m.Content, m.Files
+	return e
+}
+
+// PrepareResponse resolves a message response for applicationID. Modals,
+// autocomplete answers, and deferred acknowledgements pass through as they
+// are. response itself is not changed.
+func PrepareResponse(response *discordgo.InteractionResponse, applicationID string) *discordgo.InteractionResponse {
+	if response == nil || response.Data == nil {
+		return response
+	}
+	if response.Type != discordgo.InteractionResponseChannelMessageWithSource &&
+		response.Type != discordgo.InteractionResponseUpdateMessage {
+		return response
+	}
+	result, data := *response, *response.Data
+	m := Message{Content: data.Content, Files: data.Files}.ForApplication(applicationID)
+	data.Content, data.Files = m.Content, m.Files
+	if len(data.Embeds) == 0 {
+		data.Flags |= discordgo.MessageFlagsSuppressEmbeds
+	}
+	data.AllowedMentions = noMentions(data.AllowedMentions)
+	result.Data = &data
+	return &result
 }
 
 // responseData converts m into an interaction response body.
@@ -197,6 +188,7 @@ func (m Message) responseData() *discordgo.InteractionResponseData {
 		Content:         m.Content,
 		Embeds:          m.Embeds,
 		Components:      m.Components,
+		Files:           m.Files,
 		AllowedMentions: noMentions(m.AllowedMentions),
 	}
 	if m.Ephemeral {
@@ -207,89 +199,57 @@ func (m Message) responseData() *discordgo.InteractionResponseData {
 
 // webhookParams converts m into a followup message body.
 func (m Message) webhookParams() *discordgo.WebhookParams {
-	params := &discordgo.WebhookParams{
+	return &discordgo.WebhookParams{
 		Content:         m.Content,
 		Embeds:          m.Embeds,
 		Components:      m.Components,
 		Files:           m.Files,
 		AllowedMentions: noMentions(m.AllowedMentions),
+		Flags:           m.flags(),
 	}
-	if m.Ephemeral {
-		params.Flags = discordgo.MessageFlagsEphemeral
-	}
-	return params
 }
 
-// webhookEdit converts e into a webhook message edit.
+// sendParams converts m into a channel or DM message body.
+func (m Message) sendParams() *discordgo.MessageSend {
+	return &discordgo.MessageSend{
+		Content:         m.Content,
+		Embeds:          m.Embeds,
+		Components:      m.Components,
+		Files:           m.Files,
+		AllowedMentions: noMentions(m.AllowedMentions),
+		Flags:           m.flags(),
+	}
+}
+
+// flags hides link previews, which would bury Quack's text under member
+// links, and marks ephemeral messages. A message with its own embeds keeps
+// them visible.
+func (m Message) flags() discordgo.MessageFlags {
+	var flags discordgo.MessageFlags
+	if len(m.Embeds) == 0 {
+		flags |= discordgo.MessageFlagsSuppressEmbeds
+	}
+	if m.Ephemeral {
+		flags |= discordgo.MessageFlagsEphemeral
+	}
+	return flags
+}
+
+// webhookEdit converts e into a webhook message edit. An edit that rewrites
+// the content also drops old attachments, which Discord would otherwise
+// keep.
 func (e Edit) webhookEdit() *discordgo.WebhookEdit {
-	return &discordgo.WebhookEdit{
+	edit := &discordgo.WebhookEdit{
 		Content:         e.Content,
 		Embeds:          e.Embeds,
 		Components:      e.Components,
 		Files:           e.Files,
 		AllowedMentions: noMentions(e.AllowedMentions),
 	}
-}
-
-// newEmbed starts an embed with a trimmed, truncated title and description.
-func newEmbed(title, description string, color int) *embedBuilder {
-	return &embedBuilder{embed: &discordgo.MessageEmbed{
-		Title:       Truncate(strings.TrimSpace(title), embedTitleLimit),
-		Description: Truncate(description, embedDescriptionLimit),
-		Color:       color,
-	}}
-}
-
-// field appends a field, dropping it past Discord's field limit and filling
-// blank names or values with blankField.
-func (b *embedBuilder) field(name string, value any, inline bool) *embedBuilder {
-	if len(b.embed.Fields) >= embedFieldLimit {
-		return b
+	if e.Content != nil {
+		edit.Attachments = &[]*discordgo.MessageAttachment{}
 	}
-	name = strings.TrimSpace(name)
-	if name == "" {
-		name = blankField
-	}
-	text := fmt.Sprint(value)
-	if strings.TrimSpace(text) == "" {
-		text = blankField
-	}
-	b.embed.Fields = append(b.embed.Fields, &discordgo.MessageEmbedField{
-		Name:   Truncate(name, embedFieldNameLimit),
-		Value:  Truncate(text, embedFieldValueLimit),
-		Inline: inline,
-	})
-	return b
-}
-
-// footer sets the footer text.
-func (b *embedBuilder) footer(text string) *embedBuilder {
-	b.embed.Footer = &discordgo.MessageEmbedFooter{Text: Truncate(text, embedFooterLimit)}
-	return b
-}
-
-// stamp sets the timestamp to now.
-func (b *embedBuilder) stamp() *embedBuilder {
-	b.embed.Timestamp = time.Now().UTC().Format(time.RFC3339)
-	return b
-}
-
-// build returns the finished embed.
-func (b *embedBuilder) build() *discordgo.MessageEmbed { return b.embed }
-
-// embedMessage wraps a single embed in a message.
-func embedMessage(embed *discordgo.MessageEmbed, ephemeral bool) Message {
-	return Message{Embeds: []*discordgo.MessageEmbed{embed}, Ephemeral: ephemeral}
-}
-
-// errorEmbed is Quack's standard error embed.
-func errorEmbed(description string) *discordgo.MessageEmbed {
-	return newEmbed("Error", description, colorError).stamp().build()
-}
-
-// warningEmbed is Quack's standard warning embed.
-func warningEmbed(title, description string) *discordgo.MessageEmbed {
-	return newEmbed(title, description, colorWarning).stamp().build()
+	return edit
 }
 
 // noMentions returns allowed, or an empty allow list that suppresses every
@@ -301,32 +261,63 @@ func noMentions(allowed *discordgo.MessageAllowedMentions) *discordgo.MessageAll
 	return allowed
 }
 
-// autocomplete answers an autocomplete request with choices.
-func autocomplete(choices []*discordgo.ApplicationCommandOptionChoice) *discordgo.InteractionResponse {
-	return &discordgo.InteractionResponse{
-		Type: discordgo.InteractionApplicationCommandAutocompleteResult,
-		Data: &discordgo.InteractionResponseData{Choices: choices},
-	}
+// utf16Len measures text the way Discord counts its limits.
+func utf16Len(text string) int {
+	return len(utf16.Encode([]rune(text)))
 }
 
-// linkButton returns a button that opens url.
-func linkButton(url, label string) discordgo.Button {
-	return discordgo.Button{URL: url, Label: Truncate(label, 80), Style: discordgo.LinkButton}
-}
+// pageLink matches the single-line Markdown links Quack's views write.
+var pageLink = regexp.MustCompile(`\[[^\n]*?\]\([^\n]*?\)`)
 
-// pagination returns Prev and Next buttons routed to namespace:prefix_prev
-// and namespace:prefix_next, disabled at either end.
-func pagination(namespace, prefix, payload string, page, totalPages int) ([]discordgo.MessageComponent, error) {
-	prevID, err := EncodeCustomID(CustomID{Namespace: namespace, Action: prefix + "_prev", Version: "v1", Payload: payload})
-	if err != nil {
-		return nil, err
+// TextPages splits text into pages of at most limit UTF-16 units without
+// losing anything: joined, the pages equal text. It breaks after a newline
+// if it can, then after a space, and moves a Markdown link that would
+// straddle a break to the next page. Callers resolve icons first and leave
+// room for their own heading and controls when choosing limit.
+func TextPages(text string, limit int) []string {
+	if limit < 2 {
+		panic("discord: text page limit must fit a Unicode character")
 	}
-	nextID, err := EncodeCustomID(CustomID{Namespace: namespace, Action: prefix + "_next", Version: "v1", Payload: payload})
-	if err != nil {
-		return nil, err
+	if text == "" {
+		return []string{""}
 	}
-	return []discordgo.MessageComponent{Row(
-		Button(prevID, "Prev", discordgo.SecondaryButton, page <= 1),
-		Button(nextID, "Next", discordgo.PrimaryButton, page >= totalPages),
-	)}, nil
+	var pages []string
+	for text != "" {
+		units, end := 0, len(text)
+		for index, char := range text {
+			width := 1
+			if char > 0xffff {
+				width = 2
+			}
+			if units+width > limit {
+				end = index
+				break
+			}
+			units += width
+		}
+		if end < len(text) {
+			if split := strings.LastIndexByte(text[:end], '\n'); split >= 0 {
+				end = split + 1
+			} else if split := strings.LastIndexByte(text[:end], ' '); split >= 0 {
+				end = split + 1
+			}
+			// A single link longer than the whole budget still has to split.
+			for _, link := range pageLink.FindAllStringIndex(text, -1) {
+				if link[0] >= end {
+					break
+				}
+				if link[1] > end {
+					if link[0] > 0 {
+						end = link[0]
+					} else if utf16Len(text[:link[1]]) <= limit {
+						end = link[1]
+					}
+					break
+				}
+			}
+		}
+		pages = append(pages, text[:end])
+		text = text[end:]
+	}
+	return pages
 }

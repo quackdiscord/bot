@@ -1,131 +1,107 @@
 package discord
 
 import (
-	"errors"
+	"io"
 	"strings"
 	"testing"
+	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/bwmarrin/discordgo"
 )
 
-func TestResponseVisibility(t *testing.T) {
-	if r := Ephemeral(Content("private", false)); r.Data.Flags&discordgo.MessageFlagsEphemeral == 0 {
-		t.Error("Ephemeral response is not private")
+// TestTextTransportsPreserveLongContentAndControls covers the text limit,
+// Unicode, mention suppression, and attachment replacement.
+func TestTextTransportsPreserveLongContentAndControls(t *testing.T) {
+	body := Conversation("case", "Case for <@123>.", strings.Repeat("🦆", 1100), "Next steps.", "Case #12", true)
+	body.Components = []discordgo.MessageComponent{Row(Button("case:void:v1:case", "Void case", discordgo.SecondaryButton, false))}
+	prepared := body.ForApplication("819019613371236432")
+	if utf16Len(prepared.Content) > contentLimit || !strings.Contains(prepared.Content, "<:quack_case:") ||
+		len(prepared.Files) != 1 || len(prepared.Components) != 1 {
+		t.Fatalf("invalid message: %+v", prepared)
 	}
-	r := DeferEphemeral()
-	if r.Type != discordgo.InteractionResponseDeferredChannelMessageWithSource || r.Data.Flags&discordgo.MessageFlagsEphemeral == 0 {
-		t.Errorf("DeferEphemeral = %+v", r)
+	full, err := io.ReadAll(prepared.Files[0].Reader)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if r := DeferUpdate(); r.Type != discordgo.InteractionResponseDeferredMessageUpdate {
-		t.Errorf("DeferUpdate = %+v", r)
+	if !strings.Contains(string(full), strings.Repeat("🦆", 1100)) || !strings.Contains(string(full), "Case #12") {
+		t.Fatal("long content lost")
 	}
-	if data := Content("x", false).responseData(); data.AllowedMentions == nil || len(data.AllowedMentions.Parse) != 0 {
-		t.Errorf("mentions are not suppressed by default: %+v", data.AllowedMentions)
+	data := prepared.responseData()
+	if len(data.Files) != 1 || data.Flags&discordgo.MessageFlagsEphemeral == 0 ||
+		data.AllowedMentions == nil || len(data.AllowedMentions.Parse) != 0 {
+		t.Fatal("initial response lost attachments or privacy")
+	}
+	sent := body.ForApplication("968198214450831370").sendParams()
+	if len(sent.Files) != 1 || sent.AllowedMentions == nil || len(sent.AllowedMentions.Parse) != 0 ||
+		sent.Flags&discordgo.MessageFlagsSuppressEmbeds == 0 {
+		t.Fatal("channel send lost safe text presentation")
+	}
+	edit := EditMessage(Signal("success", "Done.", true)).ForApplication("819019613371236432").webhookEdit()
+	if edit.Embeds == nil || len(*edit.Embeds) != 0 || edit.Attachments == nil || len(*edit.Attachments) != 0 {
+		t.Fatal("short edit did not clear previous embeds and files")
 	}
 }
 
-func TestErrorResponsesUseEmbeds(t *testing.T) {
-	response := Error("Nope")
-	if response.Data.Content != "" || len(response.Data.Embeds) != 1 || response.Data.Embeds[0].Color != colorError {
-		t.Fatalf("expected private error embed, got %+v", response.Data)
-	}
-	edit := ErrorEdit("Nope").webhookEdit()
-	if *edit.Content != "" || len(*edit.Embeds) != 1 {
-		t.Fatalf("expected embed error edit, got %+v", edit)
+// TestOwnEmbedsStayVisible keeps link-preview suppression from hiding an
+// embed Quack sent on purpose.
+func TestOwnEmbedsStayVisible(t *testing.T) {
+	m := Message{Embeds: []*discordgo.MessageEmbed{{Title: "Card"}}}
+	if m.sendParams().Flags&discordgo.MessageFlagsSuppressEmbeds != 0 || m.webhookParams().Flags&discordgo.MessageFlagsSuppressEmbeds != 0 {
+		t.Fatal("message embeds were suppressed")
 	}
 }
 
-func TestEmbedTruncatesByRunes(t *testing.T) {
-	long := func(n int) string { return strings.Repeat("é", n+10) }
-	embed := newEmbed(long(embedTitleLimit), long(embedDescriptionLimit), colorMain).
-		field(long(embedFieldNameLimit), long(embedFieldValueLimit), false).
-		field("", "", true).
-		footer(long(embedFooterLimit)).
-		build()
-	checks := map[string][2]int{
-		"title":       {len([]rune(embed.Title)), embedTitleLimit},
-		"description": {len([]rune(embed.Description)), embedDescriptionLimit},
-		"field name":  {len([]rune(embed.Fields[0].Name)), embedFieldNameLimit},
-		"field value": {len([]rune(embed.Fields[0].Value)), embedFieldValueLimit},
-		"footer":      {len([]rune(embed.Footer.Text)), embedFooterLimit},
+// TestTextLimitHandlesAnUnbrokenParagraph never cuts an emoji in half.
+func TestTextLimitHandlesAnUnbrokenParagraph(t *testing.T) {
+	m := Content(strings.Repeat("🦆", 1001), false).ForApplication("unknown")
+	if len(m.Files) != 1 || m.Content != "The full message is attached." {
+		t.Fatal(m.Content)
 	}
-	for name, got := range checks {
-		if got[0] != got[1] {
-			t.Errorf("%s has %d runes, want %d", name, got[0], got[1])
+	m = Content(strings.Repeat("🦆", 1000), false).ForApplication("unknown")
+	if len(m.Files) != 0 {
+		t.Fatal("a message at the limit was attached anyway")
+	}
+}
+
+// TestPrepareResponseLeavesFormsUntouched keeps message rendering away from
+// modals, autocomplete choices, and deferred acknowledgements.
+func TestPrepareResponseLeavesFormsUntouched(t *testing.T) {
+	modal := Modal("Tell us more", "case:context:v1:1", nil)
+	if PrepareResponse(modal, "819019613371236432") != modal {
+		t.Fatal("modal was replaced")
+	}
+	response := Error("Try again.")
+	prepared := PrepareResponse(response, "819019613371236432")
+	if !strings.Contains(prepared.Data.Content, "<:quack_error:") || prepared.Data.Flags&discordgo.MessageFlagsEphemeral == 0 ||
+		!strings.Contains(response.Data.Content, "{{quack:") {
+		t.Fatal("response resolution mutated the source or lost visibility")
+	}
+}
+
+// TestTextPagesPreservesLongUnicodeRecords checks Discord's UTF-16 budget
+// without losing whitespace, splitting characters, or dropping text.
+func TestTextPagesPreservesLongUnicodeRecords(t *testing.T) {
+	for _, source := range []string{"", strings.Repeat("🦆", 3000), strings.Repeat("message with spaces\n", 300), strings.Repeat("x", 5000)} {
+		pages := TextPages(source, 1600)
+		if strings.Join(pages, "") != source {
+			t.Fatal("pagination changed the record")
+		}
+		for _, page := range pages {
+			if !utf8.ValidString(page) || len(utf16.Encode([]rune(page))) > 1600 {
+				t.Fatal("page exceeds the budget or contains invalid Unicode")
+			}
 		}
 	}
-	if embed.Fields[1].Name != "\u200b" || embed.Fields[1].Value != "\u200b" {
-		t.Errorf("blank field not filled: %+v", embed.Fields[1])
-	}
 }
 
-// deferredResponder models Discord treating the first followup to a
-// deferred response as an edit of that response.
-type deferredResponder struct {
-	Responder
-	completed                     bool
-	originalDeleted               bool
-	published                     *discordgo.Message
-	editErr, followErr, deleteErr error
-}
-
-func (r *deferredResponder) EditOriginal(Edit) (*discordgo.Message, error) {
-	if r.editErr != nil {
-		return nil, r.editErr
-	}
-	r.completed = true
-	return &discordgo.Message{ID: "original"}, nil
-}
-
-func (r *deferredResponder) Followup(message Message) (*discordgo.Message, error) {
-	if r.followErr != nil {
-		return nil, r.followErr
-	}
-	r.published = &discordgo.Message{ID: "result", Flags: message.webhookParams().Flags}
-	if !r.completed {
-		r.published.ID = "original"
-		r.published.Flags = discordgo.MessageFlagsEphemeral
-	}
-	return r.published, nil
-}
-
-func (r *deferredResponder) DeleteOriginal() error {
-	if r.deleteErr != nil {
-		return r.deleteErr
-	}
-	r.originalDeleted = true
-	if r.published != nil && r.published.ID == "original" {
-		r.published = nil
-	}
-	return nil
-}
-
-func TestPublishSurvivesPrivateAcknowledgementCleanup(t *testing.T) {
-	failure := errors.New("transport failed")
-	for _, stage := range []string{"success", "edit", "followup", "cleanup"} {
-		t.Run(stage, func(t *testing.T) {
-			r := &deferredResponder{}
-			switch stage {
-			case "edit":
-				r.editErr = failure
-			case "followup":
-				r.followErr = failure
-			case "cleanup":
-				r.deleteErr = failure
-			}
-			result, err := Publish(r, Content("Case created", true))
-			if stage == "edit" || stage == "followup" {
-				if !errors.Is(err, failure) || r.originalDeleted || r.published != nil {
-					t.Fatalf("lost acknowledgement on failure: %+v, %v", r, err)
-				}
-				return
-			}
-			if err != nil || result == nil || r.published == nil || result.ID == "original" || result.Flags&discordgo.MessageFlagsEphemeral != 0 {
-				t.Fatalf("result did not persist publicly: %+v, %v", r, err)
-			}
-			if stage == "success" && !r.originalDeleted {
-				t.Fatal("private acknowledgement not cleaned up")
-			}
-		})
+// TestTextPagesKeepsEvidenceLinksClickable moves a link with spaces in its
+// label to the next page instead of splitting it.
+func TestTextPagesKeepsEvidenceLinksClickable(t *testing.T) {
+	link := "[Screenshot of the message](https://example.com/evidence.png)"
+	source := strings.Repeat("x", 1580) + "\n" + link
+	pages := TextPages(source, 1600)
+	if len(pages) != 2 || pages[1] != link || strings.Join(pages, "") != source {
+		t.Fatalf("evidence link was split: %q", pages)
 	}
 }

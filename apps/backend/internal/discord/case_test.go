@@ -166,8 +166,8 @@ func TestCaseAddCreatesCaseAndResolvesStaffOnce(t *testing.T) {
 	ctx := context.Background()
 	result := h.cases.Command(ctx, caseAdd(h.spamID, "target-1", uint64(discordgo.PermissionModerateMembers)))
 	if result.Response == nil || result.Response.Type != discordgo.InteractionResponseDeferredChannelMessageWithSource ||
-		result.Response.Data.Flags&discordgo.MessageFlagsEphemeral == 0 || result.Task == nil {
-		t.Fatalf("expected private deferred acknowledgement, got %+v", result)
+		result.Response.Data != nil || result.Task == nil {
+		t.Fatalf("expected public deferred acknowledgement, got %+v", result)
 	}
 	if calls := h.directory.calls.Load(); calls != 1 {
 		t.Fatalf("staff context resolved %d times before the task, want 1", calls)
@@ -181,12 +181,12 @@ func TestCaseAddCreatesCaseAndResolvesStaffOnce(t *testing.T) {
 	if calls := h.directory.calls.Load(); calls != 2 {
 		t.Fatalf("Discord asked %d times for one /case add, want 2", calls)
 	}
-	if !responder.deleted || len(responder.followup.Embeds) != 0 || responder.followup.Ephemeral || responder.editCount != 1 {
-		t.Fatalf("expected public text after completing private acknowledgement: %+v", responder)
+	if responder.deleted || responder.editCount != 1 || len(*responder.edit.Embeds) != 0 {
+		t.Fatalf("expected the public placeholder to become the result: %+v", responder)
 	}
-	for _, want := range []string{"**Case #1 created**", "<@target-1>", "Spam", "Default", "No Discord action configured"} {
-		if !strings.Contains(responder.followup.Content, want) {
-			t.Fatalf("missing %q in %q", want, responder.followup.Content)
+	for _, want := range []string{"{{quack:warn}} Case #1 · <@target-1> · **Spam**", "Warning recorded.", "-# Case #1"} {
+		if !strings.Contains(*responder.edit.Content, want) {
+			t.Fatalf("missing %q in %q", want, *responder.edit.Content)
 		}
 	}
 	guild, err := h.store.GetGuildByDiscordID(ctx, "guild-1")
@@ -221,9 +221,9 @@ func TestMessageTemplateExplainsCreateFailure(t *testing.T) {
 	if err := result.Task(context.Background(), responder); err != nil {
 		t.Fatalf("task returned %v, want the failure shown to the moderator", err)
 	}
-	if responder.edit.Embeds == nil || len(*responder.edit.Embeds) != 1 ||
-		!strings.Contains((*responder.edit.Embeds)[0].Description, "do not have permission to create that case") {
-		t.Fatalf("edit = %+v, want the case error message", responder.edit.Embeds)
+	if !responder.deleted || !responder.followup.Ephemeral || responder.editCount != 0 ||
+		!strings.Contains(responder.followup.Content, "No case was created.") {
+		t.Fatalf("want the case error privately, got %+v", responder)
 	}
 }
 
@@ -239,7 +239,7 @@ func TestCaseAddUsesLivePermissionsNotInteractionBits(t *testing.T) {
 		h := newCaseHarness(t, 0)
 		result := h.cases.Command(context.Background(), caseAdd(h.spamID, "target-1", ^uint64(0)))
 		response := result.Response
-		if result.Task != nil || len(response.Data.Embeds) != 1 || !strings.Contains(response.Data.Embeds[0].Description, "do not have permission") ||
+		if result.Task != nil || !strings.Contains(response.Data.Content, "No case was created.") ||
 			response.Data.Flags&discordgo.MessageFlagsEphemeral == 0 {
 			t.Fatalf("expected immediate private denial, got %+v", result)
 		}
@@ -310,25 +310,25 @@ func TestCaseAddContextModalKeepsPublicSummaryLimited(t *testing.T) {
 		discordgo.ActionsRow{Components: []discordgo.MessageComponent{discordgo.TextInput{CustomID: "context_details", Value: "Repeated abusive replies"}}},
 	}}
 	modal := h.cases.ContextModal(context.Background(), submit)
-	if modal.Task == nil || modal.Response.Data.Flags&discordgo.MessageFlagsEphemeral == 0 {
-		t.Fatalf("expected private acknowledgement, got %+v", modal)
+	if modal.Task == nil || modal.Response.Data != nil {
+		t.Fatalf("expected public acknowledgement, got %+v", modal)
 	}
 	responder := &fakeResponder{}
 	if err := modal.Task(context.Background(), responder); err != nil {
 		t.Fatal(err)
 	}
-	if !responder.deleted || responder.followup.Ephemeral || responder.editCount != 1 {
+	if responder.deleted || responder.editCount != 1 {
 		t.Fatalf("expected public result, got %+v", responder)
 	}
-	for _, want := range []string{"<@target-2>", "Abuse", "Default"} {
-		if !strings.Contains(responder.followup.Content, want) {
-			t.Fatalf("missing %q: %+v", want, responder.followup)
+	// The result quotes the staff context, as the owner's layout does, but
+	// never evidence.
+	for _, want := range []string{"<@target-2>", "**Abuse**", "Moderator: <@mod-1>", "> What happened? — Repeated abusive replies"} {
+		if !strings.Contains(*responder.edit.Content, want) {
+			t.Fatalf("missing %q: %q", want, *responder.edit.Content)
 		}
 	}
-	for _, hidden := range []string{"Moderator", "Visible context", "Evidence", "Repeated abusive replies"} {
-		if strings.Contains(responder.followup.Content, hidden) {
-			t.Fatalf("public result leaked %s", hidden)
-		}
+	if strings.Contains(*responder.edit.Content, "View message") {
+		t.Fatal("public result leaked evidence")
 	}
 }
 
@@ -388,9 +388,7 @@ func TestCaseInteractionsMatchGolden(t *testing.T) {
 
 	empty := interaction(discordgo.InteractionModalSubmit, 0, nil)
 	empty.Data = discordgo.ModalSubmitInteractionData{CustomID: first.Response.Data.CustomID}
-	missing := c.ContextModal(ctx, empty).Response
-	missing.Data.Embeds[0].Timestamp = ""
-	out["context_missing_required"] = missing
+	out["context_missing_required"] = c.ContextModal(ctx, empty).Response
 
 	message := &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{
 		ID: "message-command", Type: discordgo.InteractionApplicationCommand, GuildID: "guild-1", ChannelID: "channel-1",
@@ -424,7 +422,7 @@ func TestCaseInteractionsMatchGolden(t *testing.T) {
 	if created.Task == nil {
 		t.Fatalf("completed form did not create a case: %+v", created.Response)
 	}
-	if err := created.Task(ctx, responder); err != nil || !responder.deleted {
+	if err := created.Task(ctx, responder); err != nil || responder.editCount != 1 {
 		t.Fatalf("completed form did not publish: responder=%+v err=%v", responder, err)
 	}
 }

@@ -221,21 +221,21 @@ func (c *cases) autocomplete(ctx context.Context, i *discordgo.InteractionCreate
 		err = c.services.Guilds.Authorize(ctx, staff, quack.PermissionActionCaseCreate, quack.AuditSourceDiscord)
 	}
 	if err != nil {
-		return autocomplete(nil)
+		return Autocomplete(nil)
 	}
 	add := i.ApplicationCommandData().GetOption("add")
 	if add == nil {
-		return autocomplete(nil)
+		return Autocomplete(nil)
 	}
 	option := add.GetOption("template")
 	if option == nil {
-		return autocomplete(nil)
+		return Autocomplete(nil)
 	}
 	query := strings.ToLower(strings.TrimSpace(optionString(option)))
 	templates, err := c.services.Templates.ListActive(ctx, staff)
 	if err != nil {
 		slog.Error("failed to list templates for case autocomplete", "error", err)
-		return autocomplete(nil)
+		return Autocomplete(nil)
 	}
 	choices := make([]*discordgo.ApplicationCommandOptionChoice, 0, choiceLimit)
 	for _, template := range templates {
@@ -251,7 +251,7 @@ func (c *cases) autocomplete(ctx context.Context, i *discordgo.InteractionCreate
 			break
 		}
 	}
-	return autocomplete(choices)
+	return Autocomplete(choices)
 }
 
 // templateLabel is "Name - Description", cut to Discord's 100-character
@@ -285,22 +285,4 @@ func optionString(option *discordgo.ApplicationCommandInteractionDataOption) str
 		return value
 	}
 	return strings.TrimSpace(fmt.Sprint(option.Value))
-}
-
-// caseErrorMessage maps expected failures to short private replies and logs
-// anything unexpected.
-func caseErrorMessage(err error) string {
-	switch {
-	case errors.Is(err, quack.ErrCasePermissionDenied), errors.Is(err, quack.ErrAuthorizationDenied):
-		return "You do not have permission to create that case."
-	case errors.Is(err, quack.ErrCaseTemplateNotAvailable):
-		return "That case template is not available."
-	case errors.Is(err, quack.ErrCaseValidation):
-		return "That case request is invalid."
-	case errors.Is(err, quack.ErrBotNotInGuild):
-		return "Quack is not active in this server."
-	default:
-		slog.Error("case command failed", "error", err)
-		return "Quack could not create that case."
-	}
 }

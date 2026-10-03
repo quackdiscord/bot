@@ -140,34 +140,48 @@ func TestSyncer(t *testing.T) {
 	localHash, _, _ := fingerprint(caseCommand())
 	extra := &discordgo.ApplicationCommand{ID: "remote-extra", Name: "extra", Description: "Extra"}
 	tests := []struct {
-		name        string
-		remote      []*discordgo.ApplicationCommand
-		cache       memoryCommandCache
-		prune       bool
-		wantCreated int
-		wantEdited  int
-		wantDeleted []string
-		wantCacheID string
+		name         string
+		remote       []*discordgo.ApplicationCommand
+		cache        memoryCommandCache
+		prune        bool
+		wantCreated  int
+		wantEdited   int
+		wantDeleted  []string
+		wantCacheID  string
+		wantMentions string
 	}{
-		{name: "creates missing", wantCreated: 1, wantCacheID: "created-case"},
+		{name: "creates missing", wantCreated: 1, wantCacheID: "created-case", wantMentions: "</case view:created-case> /extra"},
 		{
-			name:   "skips unchanged cached",
-			remote: []*discordgo.ApplicationCommand{remoteCase(nil)},
-			cache:  memoryCommandCache{"global|case": {DiscordCommandID: "remote-case", Hash: localHash}},
+			name:         "skips unchanged cached",
+			remote:       []*discordgo.ApplicationCommand{remoteCase(nil)},
+			cache:        memoryCommandCache{"global|case": {DiscordCommandID: "remote-case", Hash: localHash}},
+			wantMentions: "</case view:remote-case> /extra",
 		},
 		{
-			name:        "refreshes stale cache for identical remote",
-			remote:      []*discordgo.ApplicationCommand{remoteCase(nil)},
-			wantCacheID: "remote-case",
+			name:         "refreshes stale cache for identical remote",
+			remote:       []*discordgo.ApplicationCommand{remoteCase(nil)},
+			wantCacheID:  "remote-case",
+			wantMentions: "</case view:remote-case> /extra",
 		},
 		{
-			name:        "edits changed",
-			remote:      []*discordgo.ApplicationCommand{remoteCase(func(c *discordgo.ApplicationCommand) { c.Description = "Old" })},
-			wantEdited:  1,
-			wantCacheID: "remote-case",
+			name:         "edits changed",
+			remote:       []*discordgo.ApplicationCommand{remoteCase(func(c *discordgo.ApplicationCommand) { c.Description = "Old" })},
+			wantEdited:   1,
+			wantCacheID:  "remote-case",
+			wantMentions: "</case view:remote-case> /extra",
 		},
-		{name: "keeps remote-only without prune", remote: []*discordgo.ApplicationCommand{remoteCase(nil), extra}},
-		{name: "prunes remote-only", remote: []*discordgo.ApplicationCommand{remoteCase(nil), extra}, prune: true, wantDeleted: []string{"remote-extra"}},
+		{
+			name:         "keeps remote-only without prune",
+			remote:       []*discordgo.ApplicationCommand{remoteCase(nil), extra},
+			wantMentions: "</case view:remote-case> </extra:remote-extra>",
+		},
+		{
+			name:         "prunes remote-only",
+			remote:       []*discordgo.ApplicationCommand{remoteCase(nil), extra},
+			prune:        true,
+			wantDeleted:  []string{"remote-extra"},
+			wantMentions: "</case view:remote-case> /extra",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -176,7 +190,8 @@ func TestSyncer(t *testing.T) {
 			if cache == nil {
 				cache = memoryCommandCache{}
 			}
-			s := syncer{client: client, cache: cache, appID: "app-1", prune: test.prune}
+			appID := "sync-" + test.name
+			s := syncer{client: client, cache: cache, appID: appID, prune: test.prune}
 			if err := s.sync(context.Background(), []*discordgo.ApplicationCommand{caseCommand()}); err != nil {
 				t.Fatal(err)
 			}
@@ -190,6 +205,11 @@ func TestSyncer(t *testing.T) {
 			}
 			if test.wantCacheID != "" && cache["global|case"].DiscordCommandID != test.wantCacheID {
 				t.Fatalf("cache = %+v, want command %s", cache["global|case"], test.wantCacheID)
+			}
+			// Synced IDs make command references clickable; a pruned
+			// command's reference goes back to plain text.
+			if got := ResolveCommandMentions("/case view /extra", appID); got != test.wantMentions {
+				t.Fatalf("mentions = %q, want %q", got, test.wantMentions)
 			}
 		})
 	}

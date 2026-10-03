@@ -29,7 +29,8 @@ type SyncOptions struct {
 // SyncCommands makes Discord's registered commands match Quack's. A command
 // is only written when its definition changed, which keeps restarts clear of
 // Discord's command rate limits. Fingerprints of what was last written are
-// cached in Redis.
+// cached in Redis. Along the way it records each command's ID, so messages
+// can render references like /case view as clickable command mentions.
 func SyncCommands(ctx context.Context, bot *Bot, cache redis.UniversalClient, opts SyncOptions) error {
 	appID := strings.TrimSpace(opts.AppID)
 	if appID == "" {
@@ -153,6 +154,7 @@ func (s syncer) sync(ctx context.Context, local []*discordgo.ApplicationCommand)
 	if err != nil {
 		return fmt.Errorf("list discord application commands: %w", err)
 	}
+	SetCommandMentions(s.appID, remote)
 	scope := s.scope()
 	slog.Info("Syncing Discord application commands",
 		"scope", scope, "app_id", s.appID, "local_command_count", len(local),
@@ -199,6 +201,7 @@ func (s syncer) sync(ctx context.Context, local []*discordgo.ApplicationCommand)
 		if err := s.client.delete(ctx, s.appID, s.guild, command.ID); err != nil {
 			return fmt.Errorf("delete remote-only discord application command %s: %w", command.Name, err)
 		}
+		RemoveCommandMentions(s.appID, command.Name)
 	}
 	return nil
 }
@@ -227,7 +230,7 @@ func (s syncer) syncOne(ctx context.Context, command, remote *discordgo.Applicat
 		if err != nil {
 			return fmt.Errorf("create discord application command %s: %w", name, err)
 		}
-		s.remember(ctx, name, created, localHash)
+		s.remember(ctx, name, command, created, localHash)
 		return nil
 	}
 
@@ -239,11 +242,12 @@ func (s syncer) syncOne(ctx context.Context, command, remote *discordgo.Applicat
 	case remoteHash == localHash && cachedID == remote.ID && cachedHash == localHash:
 		slog.Info("Discord application command is unchanged; skipping",
 			"command", name, "scope", scope, "remote_command_id", remote.ID, "local_hash", localHash)
+		RegisterCommandMentions(s.appID, command, remote.ID)
 		return nil
 	case remoteHash == localHash:
 		slog.Info("Discord application command matches remote definition; refreshing cache only",
 			"command", name, "scope", scope, "remote_command_id", remote.ID, "local_hash", localHash, "cached_hash", cachedHash)
-		s.remember(ctx, name, remote, localHash)
+		s.remember(ctx, name, command, remote, localHash)
 		return nil
 	}
 	slog.Info("Discord application command definition hash changed; updating",
@@ -254,17 +258,19 @@ func (s syncer) syncOne(ctx context.Context, command, remote *discordgo.Applicat
 	if err != nil {
 		return fmt.Errorf("update discord application command %s: %w", name, err)
 	}
-	s.remember(ctx, name, updated, localHash)
+	s.remember(ctx, name, command, updated, localHash)
 	return nil
 }
 
-// remember caches the written command's ID and hash. A cache failure only
-// costs an extra comparison on the next start.
-func (s syncer) remember(ctx context.Context, name string, command *discordgo.ApplicationCommand, hash string) {
+// remember records the ID Discord returned for the local definition, both
+// for command mentions and, with the hash, in the cache. A cache failure
+// only costs an extra comparison on the next start.
+func (s syncer) remember(ctx context.Context, name string, local, written *discordgo.ApplicationCommand, hash string) {
 	id := ""
-	if command != nil {
-		id = command.ID
+	if written != nil {
+		id = written.ID
 	}
+	RegisterCommandMentions(s.appID, local, id)
 	if err := s.cache.set(ctx, s.scope(), name, cachedCommand{DiscordCommandID: id, Hash: hash}); err != nil {
 		slog.Warn("Command cache write failed", "error", err, "command", name)
 	}

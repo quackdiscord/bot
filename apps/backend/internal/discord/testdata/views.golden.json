@@ -1,12 +1,12 @@
 {
   "appeal_entry": {
-    "Content": "This case is eligible for appeal.",
+    "Content": "{{quack:appeal}} You can ask staff to review this decision.",
     "Embeds": null,
     "Components": [
       {
         "components": [
           {
-            "label": "Open appeal",
+            "label": "Appeal decision",
             "style": 5,
             "disabled": false,
             "url": "https://dash.example/base/guilds/guild/cases/case%25201/appeal",
@@ -21,37 +21,8 @@
     "AllowedMentions": null
   },
   "appeal_staff": {
-    "Content": "",
-    "Embeds": [
-      {
-        "title": "Appeal Review",
-        "color": 5793266,
-        "footer": {
-          "text": "Appeal ID: appeal"
-        },
-        "fields": [
-          {
-            "name": "Case",
-            "value": "case",
-            "inline": true
-          },
-          {
-            "name": "Member",
-            "value": "\u003c@target\u003e",
-            "inline": true
-          },
-          {
-            "name": "Status",
-            "value": "accepted",
-            "inline": true
-          },
-          {
-            "name": "submitted",
-            "value": "member \u003c@target\u003e: please"
-          }
-        ]
-      }
-    ],
+    "Content": "{{quack:appeal}} Appeal accepted · \u003c@target\u003e",
+    "Embeds": null,
     "Components": [
       {
         "components": [
@@ -70,69 +41,33 @@
     "Ephemeral": false,
     "AllowedMentions": null
   },
+  "audit_action_retry": {
+    "Content": "{{quack:error}} \u003c@moderator\u003e recorded a failed Discord action.\n-# ban\\_permission\\_denied\n-# \u003ct:1700000000:R\u003e",
+    "Embeds": null,
+    "Components": null,
+    "Files": null,
+    "Ephemeral": false,
+    "AllowedMentions": null
+  },
+  "audit_case_create": {
+    "Content": "{{quack:case_add}} \u003c@moderator\u003e added a case.\n-# \u003ct:1700000000:R\u003e",
+    "Embeds": null,
+    "Components": null,
+    "Files": null,
+    "Ephemeral": false,
+    "AllowedMentions": null
+  },
+  "audit_unknown": {
+    "Content": "{{quack:shield}} \u003c@moderator\u003e recorded **evidence capture**.\n-# \u003ct:1700000000:R\u003e",
+    "Embeds": null,
+    "Components": null,
+    "Files": null,
+    "Ephemeral": false,
+    "AllowedMentions": null
+  },
   "case_created": {
-    "Content": "**Case #7 created** · \u003c@target\u003e\n**Template:** spam\n**Level:** Level 2\n**Action:** Timeout · Queued, Ban · Completed",
+    "Content": "{{quack:pending}} Case #7 · \u003c@target\u003e · **spam**\n\nTimeout queued.\nMember banned.\n-# Case #7",
     "Embeds": null,
-    "Components": null,
-    "Files": null,
-    "Ephemeral": false,
-    "AllowedMentions": null
-  },
-  "case_created_nil": {
-    "Content": "Created case.",
-    "Embeds": null,
-    "Components": null,
-    "Files": null,
-    "Ephemeral": false,
-    "AllowedMentions": null
-  },
-  "case_detail": {
-    "Content": "",
-    "Embeds": [
-      {
-        "title": "Case #7",
-        "description": "Official reason",
-        "color": 5793266,
-        "fields": [
-          {
-            "name": "Target",
-            "value": "\u003c@target\u003e",
-            "inline": true
-          },
-          {
-            "name": "Validity",
-            "value": "valid",
-            "inline": true
-          },
-          {
-            "name": "Source",
-            "value": "discord",
-            "inline": true
-          },
-          {
-            "name": "Selected outcome",
-            "value": "Timeout",
-            "inline": true
-          },
-          {
-            "name": "Enforcement",
-            "value": "Ban · Completed · 2 attempt(s) · permission denied"
-          },
-          {
-            "name": "Visible context",
-            "value": "**Details:** Visible context"
-          },
-          {
-            "name": "Evidence",
-            "value": "https://discord.com/channels/1/2/3\n[a.png](https://cdn/a.png) · copied\ndeleted"
-          },
-          {
-            "name": "History",
-            "value": "case_created · Case created"
-          }
-        ]
-      }
-    ],
     "Components": [
       {
         "components": [
@@ -142,7 +77,41 @@
             "disabled": false,
             "custom_id": "case:void:v1:case-1",
             "type": 2
-          },
+          }
+        ],
+        "type": 1
+      }
+    ],
+    "Files": null,
+    "Ephemeral": false,
+    "AllowedMentions": null
+  },
+  "case_created_nil": {
+    "Content": "{{quack:case_add}} Case added.",
+    "Embeds": null,
+    "Components": null,
+    "Files": null,
+    "Ephemeral": false,
+    "AllowedMentions": null
+  },
+  "case_detail": {
+    "Content": "{{quack:case}} Case #7 · \u003c@target\u003e.\n\n\u003e Official \\*\\*reason\\*\\*\n\nModerator: \u003c@moderator\u003e\n\nMember banned.\npermission denied The member was sent a DM.\n\n\u003e Details — Visible context\n\n[View message](https://discord.com/channels/1/2/3)\n[a.png](https://cdn/a.png) · Copy status unavailable\nMessage deleted or missing\n\n-# \u003ct:1700000000:R\u003e · Case created\n-# Case #7 · Timeout · Created \u003ct:1700000000:R\u003e",
+    "Embeds": null,
+    "Components": [
+      {
+        "components": [
+          {
+            "label": "Void case",
+            "style": 4,
+            "disabled": false,
+            "custom_id": "case:void:v1:case-1",
+            "type": 2
+          }
+        ],
+        "type": 1
+      },
+      {
+        "components": [
           {
             "label": "Reverse action",
             "style": 2,
@@ -159,31 +128,16 @@
     "AllowedMentions": null
   },
   "case_detail_nil": {
-    "Content": "",
-    "Embeds": [
-      {
-        "title": "Case",
-        "description": "Case not found.",
-        "color": 16705372
-      }
-    ],
+    "Content": "{{quack:error}} That case couldn’t be found. Check its number and try again.",
+    "Embeds": null,
     "Components": null,
     "Files": null,
     "Ephemeral": true,
     "AllowedMentions": null
   },
   "case_list_empty": {
-    "Content": "",
-    "Embeds": [
-      {
-        "title": "Recent Cases",
-        "description": "No cases found.",
-        "color": 5793266,
-        "footer": {
-          "text": "Page 1/1 · 0 total"
-        }
-      }
-    ],
+    "Content": "{{quack:history}} No cases yet.\n-# Page 1/1 · 0 total",
+    "Embeds": null,
     "Components": [
       {
         "components": [
@@ -210,17 +164,8 @@
     "AllowedMentions": null
   },
   "case_list_user": {
-    "Content": "",
-    "Embeds": [
-      {
-        "title": "Case History for \u003c@member\u003e",
-        "description": "**#9** · \u003c@member\u003e · voided · Warn\n**#8** · \u003c@other\u003e · valid",
-        "color": 5793266,
-        "footer": {
-          "text": "Page 2/3 · 21 total"
-        }
-      }
-    ],
+    "Content": "{{quack:history}} Here’s the case history for \u003c@member\u003e.\n\n**#9**  \u003c@member\u003e · Warn · **Voided**\n\n**#8**  \u003c@other\u003e · Case recorded\n-# \u003ct:1700000000:R\u003e\n-# Page 2/3 · 21 total",
+    "Embeds": null,
     "Components": [
       {
         "components": [
@@ -246,19 +191,49 @@
     "Ephemeral": false,
     "AllowedMentions": null
   },
+  "case_profile": {
+    "Content": "{{quack:history}} Here’s the case history for \u003c@member\u003e.\n\n**#9**  \u003c@member\u003e · Warn · **Voided**\n\n**#8**  \u003c@other\u003e · Case recorded\n-# \u003ct:1700000000:R\u003e\n-# Page 1/3 · 21 total\n-# 21 total · 20 active · 1 voided",
+    "Embeds": null,
+    "Components": [
+      {
+        "components": [
+          {
+            "label": "Prev",
+            "style": 2,
+            "disabled": true,
+            "custom_id": "case:user_prev:v1:1|member",
+            "type": 2
+          },
+          {
+            "label": "Next",
+            "style": 1,
+            "disabled": false,
+            "custom_id": "case:user_next:v1:1|member",
+            "type": 2
+          }
+        ],
+        "type": 1
+      }
+    ],
+    "Files": null,
+    "Ephemeral": false,
+    "AllowedMentions": null
+  },
+  "case_voided": {
+    "Content": "{{quack:case_void}} Case #7 was voided.\n\nIt stays in history and no longer counts toward escalation.\nUnban queued.",
+    "Embeds": null,
+    "Components": null,
+    "Files": null,
+    "Ephemeral": false,
+    "AllowedMentions": null
+  },
   "error_response": {
     "type": 4,
     "data": {
       "tts": false,
-      "content": "",
+      "content": "{{quack:error}} Nope",
       "components": null,
-      "embeds": [
-        {
-          "title": "Error",
-          "description": "Nope",
-          "color": 15548997
-        }
-      ],
+      "embeds": null,
       "allowed_mentions": {
         "parse": null,
         "replied_user": false
@@ -267,23 +242,14 @@
     }
   },
   "failures": {
-    "Content": "",
-    "Embeds": [
-      {
-        "title": "Failed Actions",
-        "description": "`exec-1` · Kick · kick permission or hierarchy denied\n`exec-2` · Ban · Discord action failed",
-        "color": 15548997,
-        "footer": {
-          "text": "Page 1/2 · 12 active"
-        }
-      }
-    ],
+    "Content": "{{quack:error}} These actions need a hand.\n\n`exec-1` · Kick · kick permission or hierarchy denied\n\n`exec-2` · Ban · Discord action failed\n-# Page 1/2 · 12 active",
+    "Embeds": null,
     "Components": [
       {
         "components": [
           {
             "label": "Retry first",
-            "style": 1,
+            "style": 2,
             "disabled": false,
             "custom_id": "case:retry:v1:exec-1",
             "type": 2
@@ -330,17 +296,8 @@
     "AllowedMentions": null
   },
   "failures_empty": {
-    "Content": "",
-    "Embeds": [
-      {
-        "title": "Failed Actions",
-        "description": "No action failures need review.",
-        "color": 15548997,
-        "footer": {
-          "text": "Page 1/1 · 0 active"
-        }
-      }
-    ],
+    "Content": "{{quack:success}} No action failures need review.\n-# Page 1/1 · 0 active",
+    "Embeds": null,
     "Components": [
       {
         "components": [

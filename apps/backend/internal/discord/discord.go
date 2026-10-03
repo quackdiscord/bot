@@ -1,6 +1,13 @@
 // Package discord connects Quack to Discord: the REST client behind the quack
 // ports, the interaction router, the /case command, and the messages it sends.
 //
+// Messages are text in the discordtext conversation layout. Views write icon
+// placeholders and command references like /case view; the router, the
+// interaction responder, and Bot.Send resolve both for the sending
+// application just before sending. Slash commands that post a result use
+// AsyncPublic: success replaces the public placeholder in place, and an
+// ErrorEdit goes privately to the invoking user instead.
+//
 // Authorization always comes from fresh REST reads; the gateway cache is only
 // used for display and readiness. REST calls carry the caller's context and
 // never retry on their own, because Quack's workers own retry policy.
