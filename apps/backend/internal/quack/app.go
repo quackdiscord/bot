@@ -59,7 +59,7 @@ func NewWithConfigDependencies(cfg config.Config, store Repository, discord Disc
 
 // dashboardBaseURL selects the first secure configured dashboard origin.
 func dashboardBaseURL(cfg config.Config) string {
-	for _, origin := range cfg.API.CORSAllowedOrigins {
+	for _, origin := range cfg.API.CORSOrigins {
 		if value := strings.TrimSpace(origin); strings.HasPrefix(value, "https://") {
 			return strings.TrimRight(value, "/")
 		}

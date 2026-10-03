@@ -65,7 +65,7 @@ func TestMetricsRequireTokenAndExposeOnlyAggregateNames(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 	cfg := config.Default()
-	cfg.Observability.MetricsToken = "metrics-secret"
+	cfg.API.MetricsToken = "metrics-secret"
 	services := quack.NewWithConfigDependencies(cfg, store, nil, nil, readyScheduler{})
 	router := gin.New()
 	SetupRoutes(router, services)

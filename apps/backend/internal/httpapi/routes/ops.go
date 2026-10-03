@@ -28,7 +28,7 @@ const opsKeyHeader = "X-Quack-Ops-Key"
 // @Router /ops/status [get]
 func globalOpsStatus(c *gin.Context, services *quack.Services) {
 	if !validOpsKey(c, services) {
-		if strings.TrimSpace(services.Config.API.OpsStatusToken) == "" {
+		if strings.TrimSpace(services.Config.API.OpsToken) == "" {
 			apierror.Write(c, http.StatusNotFound, apierror.CodeNotFound, "ops status is disabled")
 			return
 		}
@@ -138,7 +138,7 @@ func validOpsKey(c *gin.Context, services *quack.Services) bool {
 	if services == nil {
 		return false
 	}
-	configured := strings.TrimSpace(services.Config.API.OpsStatusToken)
+	configured := strings.TrimSpace(services.Config.API.OpsToken)
 	if configured == "" {
 		return false
 	}

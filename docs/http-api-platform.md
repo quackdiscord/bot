@@ -41,7 +41,7 @@ permissions policy, and no-store headers.
 
 Forwarded client IP headers are ignored by default, so they cannot be rotated to
 bypass OAuth limits. Deployments behind a proxy must list only that proxy's IP
-or CIDR in `API_TRUSTED_PROXIES`; malformed entries fail startup.
+or CIDR in `api.trusted_proxies`; malformed entries fail startup.
 
 Every failure response has this shape:
 

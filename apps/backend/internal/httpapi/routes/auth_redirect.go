@@ -57,13 +57,13 @@ func safeRedirectURL(raw string) (*url.URL, bool) {
 // validates discord oauth configuration
 func validateDiscordOAuthConfig(cfg config.Config) error {
 	if strings.TrimSpace(cfg.Discord.AppID) == "" {
-		return fmt.Errorf("discord oauth is not configured missing DISCORD_APP_ID")
+		return fmt.Errorf("discord oauth is not configured: missing discord.app_id")
 	}
 	if strings.TrimSpace(cfg.Discord.ClientSecret) == "" {
-		return fmt.Errorf("discord oauth is not configured missing DISCORD_CLIENT_SECRET")
+		return fmt.Errorf("discord oauth is not configured: missing discord.client_secret")
 	}
 	if strings.TrimSpace(cfg.Discord.OAuthRedirectURI) == "" {
-		return fmt.Errorf("discord oauth is not configured missing DISCORD_OAUTH_REDIRECT_URI")
+		return fmt.Errorf("discord oauth is not configured: missing discord.oauth_redirect_uri")
 	}
 	return nil
 }

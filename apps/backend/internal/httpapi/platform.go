@@ -43,9 +43,9 @@ func (p *PlatformRegistrar) Register(r *gin.Engine) error {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recovery)
 	r.Use(middleware.SecurityHeaders)
-	r.Use(middleware.CORS(p.cfg.API.CORSAllowedOrigins))
+	r.Use(middleware.CORS(p.cfg.API.CORSOrigins))
 	r.Use(middleware.BodyLimit(p.cfg.API.MaxBodyBytes))
-	r.Use(middleware.CSRF(p.cfg.Auth, p.cfg.API.CORSAllowedOrigins))
+	r.Use(middleware.CSRF(p.cfg.Auth, p.cfg.API.CORSOrigins))
 	if p.primitives != nil {
 		r.Use(httpplatform.EndpointPolicy(*p.primitives, p.cfg))
 	}

@@ -121,7 +121,7 @@ func TestOpsStatusRouteRequiresKey(t *testing.T) {
 	}
 	router := gin.New()
 	services := quack.New(store)
-	services.Config.API.OpsStatusToken = "secret"
+	services.Config.API.OpsToken = "secret"
 	SetupRoutes(router, services)
 
 	denied := httptest.NewRequest(http.MethodGet, "/ops/status", nil)
@@ -216,7 +216,7 @@ func TestGuildOpsStatusAllowsAdminOrOpsKey(t *testing.T) {
 	}
 	keyRouter := gin.New()
 	services := quack.New(store)
-	services.Config.API.OpsStatusToken = "secret"
+	services.Config.API.OpsToken = "secret"
 	SetupRoutes(keyRouter, services)
 	keyRequest := httptest.NewRequest(http.MethodGet, "/guilds/guild-1/ops/status", nil)
 	keyRequest.Header.Set("X-Quack-Ops-Key", "secret")

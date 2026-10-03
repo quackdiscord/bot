@@ -26,16 +26,17 @@ errors; a migration mismatch/dirty ledger; and repeated per-guild degradation.
 
 ## Required configuration
 
-Startup validates configuration before connecting to dependencies. Production
-and staging require `DATABASE_DSN`, `REDIS_URL`, `DISCORD_TOKEN`,
-`DISCORD_APP_ID`, `DISCORD_CLIENT_SECRET`, an exact HTTPS
-`DISCORD_OAUTH_REDIRECT_URI`, `identify guilds` OAuth scopes,
-`API_CORS_ALLOWED_ORIGINS`, secure cookies, `OPS_STATUS_TOKEN`, and
-`METRICS_TOKEN`. Invalid numeric/boolean values fail rather than falling back.
+Startup validates configuration before connecting to dependencies and reports
+every problem at once. Production and staging require `database.dsn`,
+`redis.url`, `discord.token`, `discord.app_id`, `discord.client_secret`, an
+exact HTTPS `discord.oauth_redirect_uri`, `identify guilds` OAuth scopes,
+`api.cors_origins`, secure cookies, `api.ops_token`, and `api.metrics_token`.
+Malformed values and unknown keys fail rather than falling back. See
+`configuration.md` for the keys and their `QUACK_*` environment names.
 
 HTTP phase/body/shutdown bounds, each documented rate class, event queue size,
-session/state/idempotency TTLs, trusted proxies, command guild/pruning, and
-service name are environment configured. Managed evidence/audit channels,
+session/state/idempotency TTLs, trusted proxies, and command guild/pruning are
+process configuration. Managed evidence/audit channels,
 notification introduction/footer branding, retry count, and optional-module
 toggles are intentionally per-guild settings, not process-global flags.
 
@@ -84,8 +85,8 @@ case validity but does not erase action history.
 ### Failed migration and rollback
 
 Startup refuses a dirty, edited, reordered, or incomplete ledger. Preserve a
-database backup and the failing logs. Use `quack-migrate status`, reviewed
-forward repair, or the migration's declared reversible operation. Forward-only
+database backup and the failing logs. Inspect `quack_schema_migrations`, then use
+reviewed forward repair (`quack migrate up`), or the migration's declared reversible operation. Forward-only
 migrations require restoring the pre-deploy backup and the prior application
 version. Never delete ledger rows or run startup `AutoMigrate`.
 
@@ -111,7 +112,7 @@ before traffic is accepted.
 
 ## Graceful shutdown
 
-`SHUTDOWN_TIMEOUT_SECONDS` is a single upper bound for HTTP drain, action queue,
+`api.shutdown_timeout` is a single upper bound for HTTP drain, action queue,
 optional-module workers, appeal/audit delivery, Discord close, and dependency
 cleanup. On SIGTERM the listener stops accepting work, worker contexts are
 canceled, accepted bounded queues drain, and the process reports a timeout as
@@ -127,7 +128,7 @@ go test ./apps/backend/internal/config ./apps/backend/internal/httpapi/... ./app
 go test -race ./apps/backend/internal/httpapi/... ./apps/backend/internal/discordbot/interactions ./apps/backend/internal/workqueue ./apps/backend/internal/moduleintegration
 go test ./apps/backend/...
 go vet ./apps/backend/...
-go build ./apps/backend/cmd/quack ./apps/backend/cmd/quack-migrate
+go build ./apps/backend/cmd/quack
 git diff --check
 ```
 

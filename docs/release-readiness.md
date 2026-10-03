@@ -27,10 +27,10 @@ Operational status is guarded:
 
 - `GET /ops/status`
   - Requires `X-Quack-Ops-Key`.
-  - The key must match `OPS_STATUS_TOKEN`.
-  - If `OPS_STATUS_TOKEN` is unset, this endpoint returns disabled status.
+  - The key must match `api.ops_token` (`QUACK_API_OPS_TOKEN`).
+  - If `api.ops_token` is unset, this endpoint returns disabled status.
 - `GET /guilds/:discordGuildID/ops/status`
-  - Allows `X-Quack-Ops-Key` when `OPS_STATUS_TOKEN` is set.
+  - Allows `X-Quack-Ops-Key` when `api.ops_token` is set.
   - Also allows a normal Discord-authenticated session when the user is the
     Discord guild owner or has Discord `Administrator`.
   - Moderators with only `Moderate Members` are denied.
@@ -78,9 +78,9 @@ readable historical records but never contribute to v5 escalation.
 
 ## Release Checklist
 
-- Required env vars are set: database, Redis, Discord token/app ID, OAuth client
+- Required settings are present: database, Redis, Discord token/app ID, OAuth client
   secret, OAuth callback, and queue sizing.
-- `OPS_STATUS_TOKEN` is set only where Quack developer ops access is needed.
+- `api.ops_token` is set only where Quack developer ops access is needed.
 - `go test ./apps/backend/...` passes.
 - `/livez` reports process liveness and `/readyz` reports dependency readiness.
 - `/status` reports database, Redis, and Discord connectivity.

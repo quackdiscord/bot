@@ -19,22 +19,22 @@ const csrfHeader = "X-CSRF-Token"
 // ValidateSecurityConfig rejects production HTTP settings that would weaken browser boundaries.
 func ValidateSecurityConfig(cfg config.Config) error {
 	if cfg.API.MaxBodyBytes <= 0 {
-		return fmt.Errorf("API_MAX_BODY_BYTES must be positive")
+		return fmt.Errorf("api.max_body_bytes must be positive")
 	}
-	if cfg.API.ReadHeaderTimeoutSeconds <= 0 || cfg.API.ReadTimeoutSeconds <= 0 || cfg.API.WriteTimeoutSeconds <= 0 || cfg.API.IdleTimeoutSeconds <= 0 {
+	if cfg.API.ReadHeaderTimeout <= 0 || cfg.API.ReadTimeout <= 0 || cfg.API.WriteTimeout <= 0 || cfg.API.IdleTimeout <= 0 {
 		return fmt.Errorf("all API timeout settings must be positive")
 	}
-	policies := []config.RateLimitPolicyConfig{
-		cfg.RateLimits.OAuth, cfg.RateLimits.MemberRead, cfg.RateLimits.TemplateWrite,
-		cfg.RateLimits.CaseCreate, cfg.RateLimits.Retry, cfg.RateLimits.Evidence,
+	policies := []config.Limit{
+		cfg.Limits.OAuth, cfg.Limits.MemberRead, cfg.Limits.TemplateWrite,
+		cfg.Limits.CaseCreate, cfg.Limits.Retry, cfg.Limits.Evidence,
 	}
 	for _, policy := range policies {
-		if policy.Maximum <= 0 || policy.WindowSeconds <= 0 {
+		if policy.Max <= 0 || policy.Window <= 0 {
 			return fmt.Errorf("all rate-limit maximum and window settings must be positive")
 		}
 	}
-	if cfg.RateLimits.IdempotencyTTLHours <= 0 {
-		return fmt.Errorf("HTTP_IDEMPOTENCY_TTL_HOURS must be positive")
+	if cfg.API.IdempotencyTTL <= 0 {
+		return fmt.Errorf("api.idempotency_ttl must be positive")
 	}
 	if strings.TrimSpace(cfg.Auth.SessionCookieName) == "" || strings.TrimSpace(cfg.Auth.CSRFCookieName) == "" {
 		return fmt.Errorf("authentication cookie names must be configured")
@@ -42,18 +42,18 @@ func ValidateSecurityConfig(cfg config.Config) error {
 	if cfg.Auth.SessionCookieName == cfg.Auth.CSRFCookieName {
 		return fmt.Errorf("session and CSRF cookie names must differ")
 	}
-	if cfg.Auth.SessionTTLHours <= 0 || cfg.Auth.StateTTLMinutes <= 0 {
+	if cfg.Auth.SessionTTL <= 0 || cfg.Auth.StateTTL <= 0 {
 		return fmt.Errorf("authentication session and state TTL settings must be positive")
 	}
 	if cfg.Environment != "dev" {
-		if len(cfg.API.CORSAllowedOrigins) == 0 {
-			return fmt.Errorf("API_CORS_ALLOWED_ORIGINS is required outside development")
+		if len(cfg.API.CORSOrigins) == 0 {
+			return fmt.Errorf("api.cors_origins is required outside development")
 		}
 		if !cfg.Auth.CookieSecure {
-			return fmt.Errorf("AUTH_COOKIE_SECURE must be true outside development")
+			return fmt.Errorf("auth.cookie_secure must be true outside development")
 		}
 	}
-	for _, origin := range cfg.API.CORSAllowedOrigins {
+	for _, origin := range cfg.API.CORSOrigins {
 		parsed, err := url.Parse(origin)
 		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Path != "" {
 			return fmt.Errorf("invalid CORS origin %q", origin)
@@ -119,7 +119,7 @@ func BodyLimit(maxBytes int64) gin.HandlerFunc {
 }
 
 // CSRF protects cookie-authenticated writes with an exact-origin double-submit token check.
-func CSRF(auth config.AuthConfig, allowedOrigins []string) gin.HandlerFunc {
+func CSRF(auth config.Auth, allowedOrigins []string) gin.HandlerFunc {
 	allowed := append([]string(nil), allowedOrigins...)
 	return func(c *gin.Context) {
 		if !isMutatingMethod(c.Request.Method) || hasBearerCredential(c) {

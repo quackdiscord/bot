@@ -27,7 +27,7 @@ func TestAppealMemberRoutesReplayOriginalSubmission(t *testing.T) {
 	repository := newAppealRouteRepository()
 	appeals := quack.NewAppealService(repository)
 	cfg := config.Default()
-	cfg.RateLimits.MemberRead.Maximum = 20
+	cfg.Limits.MemberRead.Max = 20
 	services := &quack.Services{Config: cfg, Cases: quack.NewCaseService(nil)}
 	router := gin.New()
 	group := router.Group("/members/me")

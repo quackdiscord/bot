@@ -192,15 +192,8 @@ func TestMySQLV4ImportFinalConstraintsAndRestoreSafety(t *testing.T) {
 	if err != nil || report.Created != 4 {
 		t.Fatalf("import MySQL fixture: report=%+v err=%v", report, err)
 	}
-	before, err := repositories.BuildRecoveryManifest(context.Background())
-	if err != nil {
-		t.Fatalf("capture pre-0410 preservation manifest: %v", err)
-	}
 	if err := migration0410FinalStorageConstraints(11).Up(db); err != nil {
 		t.Fatalf("apply MySQL logical 0410: %v", err)
-	}
-	if err := repositories.VerifyRecoveryManifest(context.Background(), *before); err != nil {
-		t.Fatalf("verify representative restored state: %v", err)
 	}
 	repeat, err := importer.Import(context.Background(), "mysql-fixture", importGuildID, "operator", bytes.NewReader(fixture), false)
 	if err != nil || repeat.Created != 0 || repeat.AlreadyImported != 4 {

@@ -86,8 +86,8 @@ historical projections and never create action or notification work. Migration
 legacy template deletion state to archive state, installs one-default and
 one-action uniqueness plus final query/claim indexes, and inventories unsafe
 expired running actions for manual review without changing their history. Both
-are forward-only. Recovery, backup, restore, and coexistence are documented in
-`storage-recovery-v5.md` and `v4-historical-import.md`.
+are forward-only. Coexistence with v4 is documented in
+`v4-historical-import.md`.
 
 ## Forward procedure
 
@@ -95,8 +95,8 @@ are forward-only. Recovery, backup, restore, and coexistence are documented in
 2. Review the ordered migration definition, embedded source, `Up` operation,
    and, when safe, its idempotent `Down` operation in the pull request.
 3. Stop additional Quack processes or leave them waiting on the MySQL migration
-   lock. Run `go run ./apps/backend/cmd/quack-migrate up` with the production
-   `DATABASE_DSN`, or start one new Quack process and let startup run the same
+   lock. Run `quack migrate up` with the production
+   `QUACK_DATABASE_DSN`, or start one new Quack process and let startup run the same
    method.
 4. Verify the command succeeds and inspect `quack_schema_migrations`. Do not
    manually insert, delete, rename, or edit ledger rows.
@@ -115,13 +115,13 @@ already-applied additive work and safely resume on the next run.
    by hand.
 3. Inspect the database because MySQL DDL can survive a failed transaction.
 4. Fix the migration so its reviewed `Up` operation resumes from that state,
-   then rerun `go run ./apps/backend/cmd/quack-migrate up`.
+   then rerun `quack migrate up`.
 5. Restore the verified backup only when additive recovery cannot preserve the
    required records, and rehearse that restore before production use.
 
 ## Rollback procedure
 
-Run `go run ./apps/backend/cmd/quack-migrate down` only after reviewing the newest applied
+Run `quack migrate down` only after reviewing the newest applied
 migration and confirming its idempotent `Down` operation preserves v5 history.
 Before executing MySQL DDL, the runner durably marks the ledger row
 `rolling_back`. Normal `up` and application startup refuse that dirty state.

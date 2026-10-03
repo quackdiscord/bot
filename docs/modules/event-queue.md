@@ -27,8 +27,8 @@ This makes delayed retry behavior recover after process restarts.
 
 ## Lifecycle
 
-`apps/backend/internal/runtime` constructs the queue from `EVENT_QUEUE_SIZE` and
-`EVENT_QUEUE_WORKERS`, injects it into the application services, and starts it
+`apps/backend/internal/runtime` constructs the queue from `queue.size` and
+`queue.workers`, injects it into the application services, and starts it
 with the action processor and repository due-work source.
 
 Shutdown marks the queue inactive, cancels polling, closes the job channel

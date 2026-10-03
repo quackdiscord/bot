@@ -7,8 +7,8 @@ does not modify any listed release or deployment file.
 
 Add required jobs pinned to the repository's supported Go version:
 
-1. `gofmt`/`git diff --check`, `go vet ./apps/backend/...`, `go test ./apps/backend/...`, and build both
-   `./apps/backend/cmd/quack` and `./apps/backend/cmd/quack-migrate`.
+1. `gofmt`/`git diff --check`, `go vet ./apps/backend/...`, `go test ./apps/backend/...`, and build
+   `./apps/backend/cmd/quack`.
 2. `go test -race` for HTTP, Discord interactions, queues, core case/action,
    evidence, appeals, and module integration.
 3. MySQL and Redis service jobs for migrations, JSON/index/FK/lock/transaction
@@ -25,7 +25,7 @@ Add required jobs pinned to the repository's supported Go version:
 Pin the supported Go builder and minimal non-root runtime image; build both
 binaries; add read-only filesystem/tmpfs where compatible; declare CPU/memory
 limits; expose only the API port; add `/livez` liveness and `/readyz` readiness;
-set a termination grace period greater than `SHUTDOWN_TIMEOUT_SECONDS`; and do
+set a termination grace period greater than `api.shutdown_timeout`; and do
 not bake secrets into layers.
 
 Compose smoke should provision persistent MySQL and Redis, run migrations,

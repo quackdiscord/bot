@@ -57,8 +57,8 @@ func setupAuthRoutes(r *gin.Engine, services *quack.Services) {
 	auth := r.Group("/auth")
 	primitives := httpplatform.FromRepository(services.Store)
 	oauthLimit := httpplatform.RateLimit{
-		Maximum: services.Config.RateLimits.OAuth.Maximum,
-		Window:  time.Duration(services.Config.RateLimits.OAuth.WindowSeconds) * time.Second,
+		Maximum: services.Config.Limits.OAuth.Max,
+		Window:  services.Config.Limits.OAuth.Window,
 	}
 	{
 		auth.GET("/discord/login", primitives.RateLimits.Limit("oauth-login", oauthLimit, httpplatform.ClientIPSubject), func(c *gin.Context) { discordLogin(c, services) })
@@ -100,7 +100,7 @@ func discordLogin(c *gin.Context, services *quack.Services) {
 	}
 
 	redirectTo := sanitizeRedirectTarget(c.Query("redirect_to"), services.Config.Auth.PostLoginRedirect)
-	stateTTL := time.Duration(services.Config.Auth.StateTTLMinutes) * time.Minute
+	stateTTL := services.Config.Auth.StateTTL
 	statePayload := &model.OAuthState{
 		RedirectTo:   redirectTo,
 		ResponseMode: mode,
@@ -203,7 +203,7 @@ func discordCallback(c *gin.Context, services *quack.Services) {
 	}
 
 	now := time.Now().UTC()
-	sessionTTL := time.Duration(services.Config.Auth.SessionTTLHours) * time.Hour
+	sessionTTL := services.Config.Auth.SessionTTL
 	session := &model.AuthSession{
 		ID:               sessionID,
 		DiscordUserID:    user.ID,

@@ -3,7 +3,6 @@ package routes
 import (
 	"errors"
 	"net/http"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/quackdiscord/bot/internal/httpapi/apierror"
@@ -14,15 +13,15 @@ import (
 )
 
 func memberReadLimit(services *quack.Services) httpplatform.RateLimit {
-	return httpplatform.RateLimit{Maximum: services.Config.RateLimits.MemberRead.Maximum, Window: time.Duration(services.Config.RateLimits.MemberRead.WindowSeconds) * time.Second}
+	return httpplatform.RateLimit{Maximum: services.Config.Limits.MemberRead.Max, Window: services.Config.Limits.MemberRead.Window}
 }
 
 func memberWriteIdempotency(primitives httpplatform.Primitives, services *quack.Services, class string) gin.HandlerFunc {
-	return primitives.Idempotency.Protect(class, time.Duration(services.Config.RateLimits.IdempotencyTTLHours)*time.Hour, memberWriteSubject)
+	return primitives.Idempotency.Protect(class, services.Config.API.IdempotencyTTL, memberWriteSubject)
 }
 
 func staffWriteIdempotency(primitives httpplatform.Primitives, services *quack.Services, class string) gin.HandlerFunc {
-	protect := primitives.Idempotency.Protect(class, time.Duration(services.Config.RateLimits.IdempotencyTTLHours)*time.Hour, staffWriteSubject)
+	protect := primitives.Idempotency.Protect(class, services.Config.API.IdempotencyTTL, staffWriteSubject)
 	return func(c *gin.Context) {
 		action := model.PermissionActionAppealReview
 		if class == "appeal-settings" {

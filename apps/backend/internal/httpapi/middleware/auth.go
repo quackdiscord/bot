@@ -24,7 +24,7 @@ const (
 
 // RequireAuth is a middleware function that requires a valid authentication session
 // Accepts bearer token or auth cookie
-func RequireAuth(s quack.Repository, auth config.AuthConfig) gin.HandlerFunc {
+func RequireAuth(s quack.Repository, auth config.Auth) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		sessionID := ExtractSessionID(c, auth.SessionCookieName)
 		if sessionID == "" {
@@ -75,7 +75,7 @@ func RequireAuth(s quack.Repository, auth config.AuthConfig) gin.HandlerFunc {
 		}
 
 		session.LastSeenAt = now
-		ttl := time.Duration(auth.SessionTTLHours) * time.Hour
+		ttl := auth.SessionTTL
 		session.SessionExpiresAt = now.Add(ttl)
 		refreshed, err := s.RefreshSession(ctx, session, ttl)
 		if err != nil {
@@ -108,13 +108,13 @@ func NewCSRFToken() (string, error) {
 }
 
 // setCSRFCookie repairs or refreshes the browser's host-only double-submit cookie.
-func setCSRFCookie(c *gin.Context, auth config.AuthConfig, token string, maxAge int) {
+func setCSRFCookie(c *gin.Context, auth config.Auth, token string, maxAge int) {
 	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(auth.CSRFCookieName, token, maxAge, "/", "", auth.CookieSecure, false)
 }
 
 // expireAuthCookies invalidates both browser credentials without exposing their values.
-func expireAuthCookies(c *gin.Context, auth config.AuthConfig) {
+func expireAuthCookies(c *gin.Context, auth config.Auth) {
 	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(auth.SessionCookieName, "", -1, "/", "", auth.CookieSecure, true)
 	c.SetCookie(auth.CSRFCookieName, "", -1, "/", "", auth.CookieSecure, false)

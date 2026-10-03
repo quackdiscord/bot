@@ -5,39 +5,26 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
-	"time"
 
 	"github.com/quackdiscord/bot/internal/config"
 	"github.com/quackdiscord/bot/internal/discordbot"
 	"github.com/quackdiscord/bot/internal/discordbot/commands"
 	"github.com/quackdiscord/bot/internal/httpapi"
-	"github.com/quackdiscord/bot/internal/logging"
 	"github.com/quackdiscord/bot/internal/moduleintegration"
 	"github.com/quackdiscord/bot/internal/quack"
 	"github.com/quackdiscord/bot/internal/store"
 	"github.com/quackdiscord/bot/internal/workqueue"
 )
 
-// Run assembles every adapter around the application core, starts the process, and shuts dependencies down in reverse order.
-func Run(ctx context.Context) (runErr error) {
-	cfg, err := config.Load()
-	if err != nil {
-		return err
-	}
-	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("validate startup configuration: %w", err)
-	}
-	logger, err := logging.New(os.Stderr, cfg.Environment == "dev", cfg.Observability.LogLevel)
-	if err != nil {
-		return err
-	}
-	slog.SetDefault(logger.With("service", cfg.Observability.ServiceName))
+// Run assembles every adapter around the application core, starts the
+// process, and shuts dependencies down in reverse order. cfg must already be
+// validated, and the default logger set.
+func Run(ctx context.Context, cfg config.Config) (runErr error) {
 	slog.InfoContext(ctx, "Starting Quack", "environment", cfg.Environment)
 	if _, err := httpapi.NewPlatformRegistrar(cfg); err != nil {
 		return fmt.Errorf("validate HTTP security configuration: %w", err)
 	}
-	db, err := store.OpenMySQL(cfg.Storage.DBDSN)
+	db, err := store.OpenMySQL(cfg.Database.DSN)
 	if err != nil {
 		return err
 	}
@@ -47,7 +34,7 @@ func Run(ctx context.Context) (runErr error) {
 	}
 	defer sqlDB.Close()
 
-	redis, err := store.OpenRedis(cfg.Storage.RedisURL)
+	redis, err := store.OpenRedis(cfg.Redis.URL)
 	if err != nil {
 		return err
 	}
@@ -63,12 +50,12 @@ func Run(ctx context.Context) (runErr error) {
 	if err != nil {
 		return fmt.Errorf("create Discord bot: %w", err)
 	}
-	queue := workqueue.New(cfg.EventQueue.Size, cfg.EventQueue.Workers)
+	queue := workqueue.New(cfg.Queue.Size, cfg.Queue.Workers)
 	var moduleRuntime *moduleintegration.Runtime
 	queueStarted := false
 	defer func() {
 		slog.Info("Stopping Quack")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.API.ShutdownTimeoutSeconds)*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.API.ShutdownTimeout)
 		defer cancel()
 		var shutdownErrors []error
 		if queueStarted {
@@ -108,7 +95,7 @@ func Run(ctx context.Context) (runErr error) {
 
 	queue.Start(ctx, services.Actions.ProcessCaseActions, repositories)
 	queueStarted = true
-	slog.InfoContext(ctx, "Action workers started", "workers", cfg.EventQueue.Workers, "capacity", cfg.EventQueue.Size)
+	slog.InfoContext(ctx, "Action workers started", "workers", cfg.Queue.Workers, "capacity", cfg.Queue.Size)
 
 	return httpapi.Run(ctx, cfg, services, moduleRuntime, bot)
 }

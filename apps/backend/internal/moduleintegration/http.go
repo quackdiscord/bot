@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/quackdiscord/bot/internal/httpapi/apierror"
 
@@ -58,8 +57,8 @@ func resolveHoneypotActor(c *gin.Context) (honeypot.Actor, error) {
 // reads and writes, keyed by the current actor and internal guild.
 func moduleRateLimit(primitives httpplatform.Primitives, cfg config.Config) gin.HandlerFunc {
 	limit := httpplatform.RateLimit{
-		Maximum: cfg.RateLimits.MemberRead.Maximum,
-		Window:  time.Duration(cfg.RateLimits.MemberRead.WindowSeconds) * time.Second,
+		Maximum: cfg.Limits.MemberRead.Max,
+		Window:  cfg.Limits.MemberRead.Window,
 	}
 	return primitives.RateLimits.Limit("optional-modules", limit, moduleSubject)
 }
@@ -67,7 +66,7 @@ func moduleRateLimit(primitives httpplatform.Primitives, cfg config.Config) gin.
 // moduleIdempotency requires a fenced key for mutation methods while leaving
 // safe reads unaffected.
 func moduleIdempotency(primitives httpplatform.Primitives, cfg config.Config, ticketServices ...*tickets.Service) gin.HandlerFunc {
-	ttl := time.Duration(cfg.RateLimits.IdempotencyTTLHours) * time.Hour
+	ttl := cfg.API.IdempotencyTTL
 	protect := primitives.Idempotency.Protect("optional-module-write", ttl, moduleWriteSubject)
 	return func(c *gin.Context) {
 		switch c.Request.Method {

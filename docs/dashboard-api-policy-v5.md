@@ -10,13 +10,13 @@ routes remain target-scoped and cannot enumerate another member.
 
 | Route class | Rate policy | Write replay policy | Capability |
 | --- | --- | --- | --- |
-| OAuth login/callback | `RATE_LIMIT_OAUTH_*`, client IP | OAuth state is single-use | unauthenticated |
-| Member-owned reads/appeals | `RATE_LIMIT_MEMBER_READ_*`, session | `Idempotency-Key` for appeal writes | case target only |
-| Template/settings/module writes | `RATE_LIMIT_TEMPLATE_WRITE_*`, actor and guild | required, Redis fenced | Manage Guild/Administrator/owner |
-| Case creation | `RATE_LIMIT_CASE_CREATE_*`, actor and guild | required plus durable case key | Moderate Members plus selected action permission/hierarchy |
-| Retry/reversal controls | `RATE_LIMIT_RETRY_*`, actor and guild | required plus action fencing | Moderate Members plus original action permission/hierarchy |
-| Evidence capture | `RATE_LIMIT_EVIDENCE_*`, actor and guild | required | case capability and live message access |
-| Staff/admin/member reads | `RATE_LIMIT_MEMBER_READ_*`, actor and guild | not applicable | route-specific live capability/ownership |
+| OAuth login/callback | `limits.oauth`, client IP | OAuth state is single-use | unauthenticated |
+| Member-owned reads/appeals | `limits.member_read`, session | `Idempotency-Key` for appeal writes | case target only |
+| Template/settings/module writes | `limits.template_write`, actor and guild | required, Redis fenced | Manage Guild/Administrator/owner |
+| Case creation | `limits.case_create`, actor and guild | required plus durable case key | Moderate Members plus selected action permission/hierarchy |
+| Retry/reversal controls | `limits.retry`, actor and guild | required plus action fencing | Moderate Members plus original action permission/hierarchy |
+| Evidence capture | `limits.evidence`, actor and guild | required | case capability and live message access |
+| Staff/admin/member reads | `limits.member_read`, actor and guild | not applicable | route-specific live capability/ownership |
 
 Redis unavailability returns a stable `503` and does not execute protected
 work. Concurrent/restarted replay returns the original response or an

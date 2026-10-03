@@ -22,11 +22,11 @@ func TestPlatformRegistrarRejectsUnsafeProductionConfig(t *testing.T) {
 		name   string
 		mutate func(*config.Config)
 	}{
-		{name: "missing origins", mutate: func(cfg *config.Config) { cfg.API.CORSAllowedOrigins = nil }},
-		{name: "wildcard origin", mutate: func(cfg *config.Config) { cfg.API.CORSAllowedOrigins = []string{"https://*.example.com"} }},
+		{name: "missing origins", mutate: func(cfg *config.Config) { cfg.API.CORSOrigins = nil }},
+		{name: "wildcard origin", mutate: func(cfg *config.Config) { cfg.API.CORSOrigins = []string{"https://*.example.com"} }},
 		{name: "insecure cookie", mutate: func(cfg *config.Config) { cfg.Auth.CookieSecure = false }},
 		{name: "unbounded body", mutate: func(cfg *config.Config) { cfg.API.MaxBodyBytes = 0 }},
-		{name: "unbounded timeout", mutate: func(cfg *config.Config) { cfg.API.ReadTimeoutSeconds = 0 }},
+		{name: "unbounded timeout", mutate: func(cfg *config.Config) { cfg.API.ReadTimeout = 0 }},
 		{name: "invalid trusted proxy", mutate: func(cfg *config.Config) { cfg.API.TrustedProxies = []string{"not-a-proxy"} }},
 	}
 	for _, test := range tests {
@@ -34,7 +34,7 @@ func TestPlatformRegistrarRejectsUnsafeProductionConfig(t *testing.T) {
 			cfg := config.Default()
 			cfg.Environment = "production"
 			cfg.Auth.CookieSecure = true
-			cfg.API.CORSAllowedOrigins = []string{"https://dashboard.example.com"}
+			cfg.API.CORSOrigins = []string{"https://dashboard.example.com"}
 			test.mutate(&cfg)
 			if _, err := NewPlatformRegistrar(cfg); err == nil {
 				t.Fatal("expected unsafe production configuration to fail closed")
@@ -46,10 +46,10 @@ func TestPlatformRegistrarRejectsUnsafeProductionConfig(t *testing.T) {
 func TestHTTPServerPhasesUseConfiguredBounds(t *testing.T) {
 	cfg := config.Default()
 	cfg.API.Port = "9090"
-	cfg.API.ReadHeaderTimeoutSeconds = 2
-	cfg.API.ReadTimeoutSeconds = 3
-	cfg.API.WriteTimeoutSeconds = 4
-	cfg.API.IdleTimeoutSeconds = 5
+	cfg.API.ReadHeaderTimeout = 2 * time.Second
+	cfg.API.ReadTimeout = 3 * time.Second
+	cfg.API.WriteTimeout = 4 * time.Second
+	cfg.API.IdleTimeout = 5 * time.Second
 	server := newHTTPServer(cfg, http.NotFoundHandler())
 	if server.Addr != ":9090" || server.ReadHeaderTimeout != 2*time.Second || server.ReadTimeout != 3*time.Second || server.WriteTimeout != 4*time.Second || server.IdleTimeout != 5*time.Second {
 		t.Fatalf("unexpected server bounds: %+v", server)
@@ -59,7 +59,7 @@ func TestHTTPServerPhasesUseConfiguredBounds(t *testing.T) {
 func TestPlatformSecurityErrorAndCSRFContract(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfg := config.Default()
-	cfg.API.CORSAllowedOrigins = []string{"https://dashboard.example.com"}
+	cfg.API.CORSOrigins = []string{"https://dashboard.example.com"}
 	cfg.API.MaxBodyBytes = 8
 	registrar, err := NewPlatformRegistrar(cfg)
 	if err != nil {

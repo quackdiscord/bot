@@ -24,12 +24,17 @@ are tracked in [`docs/v5-scope-drift.md`](docs/v5-scope-drift.md).
 
 ## Development
 
-Copy `.env.example` to `.env`, start MySQL and Redis with
-`docker compose up -d`, then run:
+Copy `.env.example` to `.env` and fill in the Discord values, start MySQL and
+Redis with `docker compose up -d`, then run:
 
 ```sh
-go run ./apps/backend/cmd/quack
+set -a; source .env; set +a
+go run ./apps/backend/cmd/quack serve
 ```
+
+`quack` is the only binary: `serve` (the default), `migrate [up|down]`, and
+`import-v4`. Settings are described in
+[`docs/configuration.md`](docs/configuration.md).
 
 Run the validation suite with:
 

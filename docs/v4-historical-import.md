@@ -20,14 +20,14 @@ URL, departed/missing target state, and an old action expiry. See
 3. Run a dry-run against an isolated restored v5 target:
 
    ```sh
-   DATABASE_DSN='operator supplied isolated DSN' go run ./apps/backend/cmd/quack-v4-import import \
-     --dry-run --file ./guild.jsonl --source final-v4-export \
-     --guild 01J... --actor 123...
+   QUACK_DATABASE_DSN='operator supplied isolated DSN' quack import-v4 import \
+     -dry-run -file ./guild.jsonl -source final-v4-export \
+     -guild 01J... -actor 123...
    ```
 
 4. Review only the checksum, counts, line numbers, and warning/failure codes.
    Do not paste reasons, member IDs, or source rows into logs or tickets.
-5. Run the same command without `--dry-run`. Preserve its batch ID and report.
+5. Run the same command without `-dry-run`. Preserve its batch ID and report.
 6. Repeat the command. It must report every row as already imported and create
    no cases.
 7. Verify staff history and a target-owned member history view. Imported cases
@@ -45,8 +45,8 @@ warnings for manual review; they are never replayed.
 An untouched batch can be removed with:
 
 ```sh
-DATABASE_DSN='operator supplied isolated DSN' go run ./apps/backend/cmd/quack-v4-import rollback \
-  --guild 01J... --batch v4-... --actor 123...
+QUACK_DATABASE_DSN='operator supplied isolated DSN' quack import-v4 rollback \
+  -guild 01J... -batch v4-... -actor 123...
 ```
 
 Rollback refuses a batch after any v5 action, notification, appeal, or evidence
@@ -59,7 +59,7 @@ and Discord command scopes during rehearsal. Before enabling both, compare the
 registered names:
 
 ```sh
-go run ./apps/backend/cmd/quack-v4-import check-scope --v4 ticket --v5 case
+quack import-v4 check-scope -v4 ticket -v5 case
 ```
 
 At cutover, disable v4 command synchronization and remove `/warn`, `/timeout`,
@@ -67,8 +67,8 @@ At cutover, disable v4 command synchronization and remove `/warn`, `/timeout`,
 post-migration check fails while any direct command remains:
 
 ```sh
-go run ./apps/backend/cmd/quack-v4-import check-scope \
-  --v4 warn,timeout,kick,ban --v5 case --after-migration
+quack import-v4 check-scope \
+  -v4 warn,timeout,kick,ban -v5 case -after-migration
 ```
 
 Rollback means disabling v5 command sync and re-enabling the isolated v4

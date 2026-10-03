@@ -10,13 +10,12 @@ the high-level mismatch without making the technical docs inaccurate.
 ## Index
 
 - `architecture.md`: service layout, startup flow, request flow, Discord interaction flow, and action execution.
-- `configuration.md`: environment variables and runtime dependencies.
+- `configuration.md`: config file, `QUACK_*` environment variables, and every setting.
 - `development.md`: local workflow, Docker usage, commands, and where to make common changes.
 - `http-api-platform.md`: OAuth/session lifecycle, browser security, stable errors, rate limits, and HTTP idempotency contracts.
 - `dashboard-api-policy-v5.md`: final dashboard/internal endpoint policy matrix.
 - `migrations.md`: production migration ledger, forward, rerun, failure recovery, and rollback procedures.
 - `operations-security-v5.md`: final health, metrics, configuration, outage, recovery, and shutdown runbook.
-- `storage-recovery-v5.md`: MySQL backup/restore manifest and Redis recovery rehearsal.
 - `v4-historical-import.md`: final v4 import format, dry-run, repeat, rollback, coexistence, and cutover.
 - `v5-rehearsal.md`: local, external-storage, coexistence, restore, and real-guild evidence protocol.
 - `v5-readiness.md`: requirement matrix, validation evidence, exceptions, and current READY/NOT READY verdict.
@@ -35,8 +34,8 @@ The live backend currently has four main runtime surfaces:
   templates, cases/recovery, audit/statistics, appeals/member access, and optional
   modules in `apps/backend/internal/httpapi/server.go` and `apps/backend/internal/httpapi/routes/`.
 - Case-action queue processing in `apps/backend/internal/workqueue/queue.go` and `apps/backend/internal/workqueue/queue.go`.
-- Operator-only v4 import, migration, and storage verification commands in
-  `apps/backend/cmd/quack-v4-import`, `apps/backend/cmd/quack-migrate`, and `apps/backend/cmd/quack-storage-verify`.
+- Operator-only `quack migrate` and `quack import-v4` subcommands of the same
+  binary, in `apps/backend/cmd/quack/main.go`.
 - Existing local container packaging in `compose.yaml` and `apps/backend/Dockerfile`;
   proposed release-infrastructure changes remain explicitly unauthorized.
 

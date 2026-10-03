@@ -149,7 +149,7 @@ func readinessDetail(ready bool, unavailable string) string {
 // @Failure 503 {string} string
 // @Router /metrics [get]
 func metrics(c *gin.Context, services *quack.Services) {
-	configured := strings.TrimSpace(services.Config.Observability.MetricsToken)
+	configured := strings.TrimSpace(services.Config.API.MetricsToken)
 	provided := strings.TrimSpace(c.GetHeader("X-Quack-Metrics-Key"))
 	if configured == "" {
 		c.Status(http.StatusNotFound)

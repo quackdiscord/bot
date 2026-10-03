@@ -1,115 +1,116 @@
 # Configuration
 
-## Runtime Dependencies
+Quack reads its settings in three layers, each overriding the one before:
 
-The process expects:
+1. Defaults in code (`config.Default` in `apps/backend/internal/config`).
+2. An optional TOML file. `-config <file>` names it; otherwise `QUACK_CONFIG`;
+   otherwise `quack.toml` in the working directory. Only the default file may
+   be missing. `apps/backend/quack.example.toml` lists every key.
+3. Environment variables named `QUACK_<SECTION>_<KEY>`.
 
-- MySQL, connected through `DATABASE_DSN` in `apps/backend/internal/store/connect_db.go`
-- Redis, connected through `REDIS_URL` in `apps/backend/internal/store/connect_redis.go`
-- Discord bot credentials and OAuth settings loaded in `apps/backend/internal/config/config.go`
+Unknown keys in the file, or in a known section's environment variable, fail
+startup, so typos don't pass silently. `quack serve` then validates the result
+and reports every problem at once. `migrate` and `import-v4` need only
+`database.dsn`.
 
-The startup path fails fast on missing critical storage env vars and on failed
-DB or Redis pings. See `apps/backend/internal/config/config.go`, `apps/backend/internal/store/connect_db.go`, and
-`apps/backend/internal/store/connect_redis.go`.
+Quack does not read `.env` files. air and Docker Compose load the repository's
+`.env` for you; in a shell, run `set -a; source .env; set +a` first.
 
-## Environment Variables
+## Environment variables
 
-Environment bindings are declared on the structs in `apps/backend/internal/config/types.go`
-and decoded by `github.com/caarlos0/env/v11`. Defaults live in `config.Default()`.
-Empty numeric and boolean values retain their defaults; malformed non-empty values
-fail startup. Validation checks the loaded configuration without rereading the environment.
+Take the TOML key, uppercase it, swap the dot for an underscore, and add
+`QUACK_`: `discord.app_id` is `QUACK_DISCORD_APP_ID`, `api.cors_origins` is
+`QUACK_API_CORS_ORIGINS`. Section names have no underscores, so the first
+underscore after the section ends it. The top-level `environment` key is
+`QUACK_ENVIRONMENT`.
 
-In development, `.env` fills missing process variables without changing the process
-environment. Explicit process values take precedence.
+- Lists are comma-separated: `QUACK_API_CORS_ORIGINS=https://a.example,https://b.example`.
+- Durations are Go durations: `15s`, `10m`, `168h`.
+- Rate limits are `<max>/<window>`: `QUACK_LIMITS_MEMBER_READ=120/1m`.
+- An empty variable counts as unset, so Compose's `${VAR:-}` keeps the default.
+- `QUACK_CONFIG` and the test-only `QUACK_TEST_*` variables are not settings.
 
-| Variable | Required | Purpose |
+## Example
+
+```toml
+environment = "production"
+
+[api]
+cors_origins = ["https://dashboard.example.com"]
+trusted_proxies = ["10.0.0.0/8"]
+
+[discord]
+oauth_redirect_uri = "https://api.example.com/auth/discord/callback"
+command_prune = true
+
+[limits]
+member_read = "240/1m"
+```
+
+Secrets (`discord.token`, `discord.client_secret`, `api.ops_token`,
+`api.metrics_token`, `database.dsn`) are best left to the environment.
+
+## Reference
+
+"Prod" means `staging` or `production`.
+
+| Key | Default | Meaning |
 | --- | --- | --- |
-| `ENVIRONMENT` | no | Runtime mode. Defaults to `dev`. |
-| `API_PORT` | no | API listen port. Defaults to `8080`. |
-| `OPS_STATUS_TOKEN` | no | Enables global `GET /ops/status` when supplied and matched by `X-Quack-Ops-Key`. |
-| `API_CORS_ALLOWED_ORIGINS` | required outside `dev` | Comma-separated exact dashboard origins. Wildcards and malformed origins fail startup. Development defaults to localhost ports `3000`. |
-| `API_TRUSTED_PROXIES` | no | Comma-separated proxy IPs/CIDRs allowed to supply forwarded client IPs. Empty disables forwarded-IP trust. |
-| `API_MAX_BODY_BYTES` | no | Maximum request body size. Defaults to `1048576`. |
-| `API_READ_HEADER_TIMEOUT_SECONDS` | no | Header-read bound. Defaults to `5`. |
-| `API_READ_TIMEOUT_SECONDS` | no | Whole-request read bound. Defaults to `15`. |
-| `API_WRITE_TIMEOUT_SECONDS` | no | Response-write bound. Defaults to `30`. |
-| `API_IDLE_TIMEOUT_SECONDS` | no | Keep-alive idle bound. Defaults to `60`. |
-| `DATABASE_DSN` | yes | MySQL DSN for GORM. |
-| `REDIS_URL` | yes | Redis connection URL. |
-| `DISCORD_TOKEN` or `DEV_DISCORD_TOKEN` | yes | Discord bot token. `DEV_` override is used when `ENVIRONMENT=dev`. |
-| `DISCORD_APP_ID` or `DEV_DISCORD_APP_ID` | yes | Discord application ID. |
-| `DISCORD_CLIENT_SECRET` or `DEV_DISCORD_CLIENT_SECRET` | needed for OAuth | Discord OAuth client secret. |
-| `DISCORD_OAUTH_REDIRECT_URI` | needed for OAuth | OAuth callback URI used by `/auth/discord/callback`. |
-| `DISCORD_OAUTH_SCOPES` | no | OAuth scopes. Defaults to `identify guilds`. |
-| `DISCORD_COMMAND_GUILD_ID` | no | Optional test-guild command sync target. |
-| `DISCORD_COMMAND_PRUNE` | no | Enables command pruning on sync. Defaults to `false`. |
-| `AUTH_SESSION_COOKIE_NAME` | no | Session cookie name. Defaults to `quack_session`. |
-| `AUTH_CSRF_COOKIE_NAME` | no | Non-HttpOnly double-submit token cookie. Defaults to `quack_csrf`. |
-| `AUTH_SESSION_TTL_HOURS` | no | Session TTL in hours. Defaults to `168`. |
-| `AUTH_STATE_TTL_MINUTES` | no | OAuth state TTL in minutes. Defaults to `10`. |
-| `AUTH_POST_LOGIN_REDIRECT` | no | Default post-login redirect path. Defaults to `/`. |
-| `AUTH_COOKIE_SECURE` | no | Secure-cookie toggle. Defaults to `true` outside `dev`. |
-| `RATE_LIMIT_<CLASS>_MAXIMUM` | no | Fixed-window capacity for `OAUTH`, `MEMBER_READ`, `TEMPLATE_WRITE`, `CASE_CREATE`, `RETRY`, or `EVIDENCE`. See `docs/http-api-platform.md`. |
-| `RATE_LIMIT_<CLASS>_WINDOW_SECONDS` | no | Positive fixed-window duration for the matching class. |
-| `HTTP_IDEMPOTENCY_TTL_HOURS` | no | Completed HTTP replay retention. Defaults to `24`. |
-| `EVENT_QUEUE_SIZE` | no | In-process queue buffer size. Defaults to `1000`. |
-| `EVENT_QUEUE_WORKERS` | no | Number of queue workers. Defaults to `3`. |
+| `environment` | `dev` | `dev`, `test`, `staging`, or `production`. Anything but `dev` defaults `auth.cookie_secure` to true and `api.cors_origins` to empty. |
+| `api.port` | `8080` | HTTP listen port. |
+| `api.cors_origins` | localhost:3000 and 127.0.0.1:3000 in dev | Exact dashboard origins allowed to make credentialed requests. Required outside dev; wildcards fail startup. |
+| `api.trusted_proxies` | none | Proxy IPs or CIDRs whose forwarded client IP is trusted. |
+| `api.max_body_bytes` | `1048576` | Largest accepted request body. |
+| `api.read_header_timeout` | `5s` | HTTP header read limit. |
+| `api.read_timeout` | `15s` | Whole-request read limit. |
+| `api.write_timeout` | `30s` | Response write limit. |
+| `api.idle_timeout` | `1m` | Keep-alive idle limit. |
+| `api.shutdown_timeout` | `20s` | Time allowed for a graceful shutdown of the whole process. |
+| `api.idempotency_ttl` | `24h` | How long a completed write can be replayed by its `Idempotency-Key`. |
+| `api.ops_token` | none | Enables `GET /ops/status` for callers sending it in `X-Quack-Ops-Key`. Required in prod. |
+| `api.metrics_token` | none | Required in `X-Quack-Metrics-Key` to read metrics. Required in prod. |
+| `auth.session_cookie_name` | `quack_session` | Session cookie name. |
+| `auth.csrf_cookie_name` | `quack_csrf` | Double-submit CSRF cookie name. |
+| `auth.session_ttl` | `168h` | Dashboard session lifetime. |
+| `auth.state_ttl` | `10m` | How long an OAuth login may take. |
+| `auth.post_login_redirect` | `/` | Where to send users after login when no target was given. |
+| `auth.cookie_secure` | false in dev, true otherwise | Mark cookies `Secure`. Must be true outside dev. |
+| `discord.token` | none | Bot token. Required. |
+| `discord.app_id` | none | Application ID. Required. |
+| `discord.client_secret` | none | OAuth client secret. Required in prod. |
+| `discord.oauth_redirect_uri` | none | OAuth callback URL (`.../auth/discord/callback`). A plain `https` URL in prod. |
+| `discord.oauth_scopes` | `identify guilds` | Space-separated OAuth scopes; must include both defaults in prod. |
+| `discord.command_guild_id` | none | Sync slash commands to this guild only. Guild commands update instantly. |
+| `discord.command_prune` | `false` | Delete registered commands Quack no longer defines. |
+| `limits.oauth` | `20/10m` | OAuth login and callback, per client IP. |
+| `limits.member_read` | `120/1m` | Dashboard reads, appeals, and module routes. |
+| `limits.template_write` | `30/1m` | Other dashboard writes. |
+| `limits.case_create` | `20/1m` | Case creation. |
+| `limits.retry` | `10/1m` | Action retries and reversals. |
+| `limits.evidence` | `20/1m` | Evidence uploads, and also applied to case creation. |
+| `database.dsn` | none | MySQL DSN, e.g. `user:pass@tcp(host:3306)/quack?charset=utf8mb4&parseTime=True&loc=Local`. Required. |
+| `redis.url` | none | Redis URL, e.g. `redis://host:6379/0`. Required for `serve`. |
+| `queue.size` | `1000` | Action queue buffer. |
+| `queue.workers` | `3` | Action queue workers. |
+| `log.level` | `info` | `debug`, `info`, `warn`, or `error`. Dev logs are colored text; others are JSON. |
 
-`.env.example` mirrors the local Compose workflow and includes the same
-development-oriented defaults used by `compose.yaml`. The app service profile in
-`compose.yaml` also injects container-local values for `DATABASE_DSN` and
-`REDIS_URL`, so those two settings do not need to point at `127.0.0.1` when the
-service runs inside Compose.
+See `docs/http-api-platform.md` for how the rate limit classes map to routes.
 
-## Compose-Specific Notes
+## Development and production Discord apps
 
-The dependency-only workflow and the full app-container workflow use the same
-env names, but with different responsibilities:
+Use a separate Discord application for development and keep its credentials
+in your local `.env`. Production credentials live only in the production
+environment. (Earlier versions swapped in `DEV_DISCORD_*` variables when
+`ENVIRONMENT=dev`; that indirection is gone.)
 
-- `docker compose up -d` expects your host-side `.env` to point at
-  `127.0.0.1:3306` and `127.0.0.1:6379`
-- `docker compose --profile app up --build` injects container-local
-  `DATABASE_DSN` and `REDIS_URL` values for the app service
-- Discord and auth-related env vars still need to be populated by your local
-  `.env` when the app profile is enabled
+## Docker Compose
 
-In practice, the variables that matter specifically for the app container
-profile are the app runtime settings and Discord/auth credentials from
-`.env.example`, especially:
+`docker compose up -d` starts MySQL and Redis; the `.env.example` storage
+addresses point at them from the host. `docker compose --profile app up --build`
+also runs the app, reading `.env` and replacing `QUACK_DATABASE_DSN` and
+`QUACK_REDIS_URL` with the container hostnames.
 
-- `ENVIRONMENT`
-- `API_PORT`
-- `OPS_STATUS_TOKEN`
-- `API_CORS_ALLOWED_ORIGINS`
-- `API_TRUSTED_PROXIES`
-- `API_MAX_BODY_BYTES`
-- `API_READ_HEADER_TIMEOUT_SECONDS`, `API_READ_TIMEOUT_SECONDS`, `API_WRITE_TIMEOUT_SECONDS`, `API_IDLE_TIMEOUT_SECONDS`
-- `DEV_DISCORD_TOKEN`
-- `DEV_DISCORD_APP_ID`
-- `DEV_DISCORD_CLIENT_SECRET`
-- `DISCORD_OAUTH_REDIRECT_URI`
-- `DISCORD_COMMAND_GUILD_ID`
-- `DISCORD_COMMAND_PRUNE`
-- `AUTH_SESSION_COOKIE_NAME`
-- `AUTH_CSRF_COOKIE_NAME`
-- `AUTH_SESSION_TTL_HOURS`
-- `AUTH_STATE_TTL_MINUTES`
-- `AUTH_POST_LOGIN_REDIRECT`
-- `AUTH_COOKIE_SECURE`
-- `RATE_LIMIT_*` and `HTTP_IDEMPOTENCY_TTL_HOURS`
-- `EVENT_QUEUE_SIZE`
-- `EVENT_QUEUE_WORKERS`
-
-## Local Auth and CORS Notes
-
-Development defaults allow credentialed browser requests from
-`http://localhost:3000` and `http://127.0.0.1:3000`. Configure exact production
-origins with `API_CORS_ALLOWED_ORIGINS`; an empty, wildcard, or malformed
-production allowlist fails startup. Cookie-authenticated writes also require the
-`X-CSRF-Token` header to match the `quack_csrf` cookie and must originate from
-the configured dashboard origin.
-
-## Discord Install Permissions and Intents
+## Discord install permissions and intents
 
 The install URL needs the `bot` and `applications.commands` OAuth scopes. Core
 case responses require the bot to view the invoking staff channel, send
@@ -142,26 +143,3 @@ must enable every privileged intent it requests in the Discord developer
 portal or Discord may reject the gateway session. Reducing this mask to the
 minimum enabled feature set remains tracked work; `Guild Presences` is not a v5
 product requirement.
-
-## Config Loading Rules
-
-`lib.LoadConfig()` reads `.env` through `github.com/joho/godotenv` and then
-builds `lib.Config`.
-
-When `ENVIRONMENT=dev`, some Discord values are read from `DEV_*` names first:
-
-- `DEV_DISCORD_TOKEN`
-- `DEV_DISCORD_APP_ID`
-- `DEV_DISCORD_CLIENT_SECRET`
-
-For non-dev environments, the non-prefixed names are used directly.
-
-Relevant files:
-
-- `apps/backend/internal/config/config.go`
-- `structs/config.go`
-- `.env.example`
-- `compose.yaml`
-- `apps/backend/internal/httpapi/server.go`
-- `apps/backend/internal/store/connect_db.go`
-- `apps/backend/internal/store/connect_redis.go`

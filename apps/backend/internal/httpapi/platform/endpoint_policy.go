@@ -30,13 +30,13 @@ func EndpointPolicy(primitives Primitives, cfg config.Config) gin.HandlerFunc {
 			return
 		}
 		if class == "case-create" {
-			evidence := cfg.RateLimits.Evidence
-			if !applyEndpointRate(c, primitives.RateLimits, "evidence", RateLimit{Maximum: evidence.Maximum, Window: time.Duration(evidence.WindowSeconds) * time.Second}, cfg.Auth.SessionCookieName) {
+			evidence := cfg.Limits.Evidence
+			if !applyEndpointRate(c, primitives.RateLimits, "evidence", RateLimit{Maximum: evidence.Max, Window: evidence.Window}, cfg.Auth.SessionCookieName) {
 				return
 			}
 		}
 		if isEndpointWrite(c.Request.Method) {
-			protect := primitives.Idempotency.Protect("dashboard-write:"+class, time.Duration(cfg.RateLimits.IdempotencyTTLHours)*time.Hour, func(c *gin.Context) string {
+			protect := primitives.Idempotency.Protect("dashboard-write:"+class, cfg.API.IdempotencyTTL, func(c *gin.Context) string {
 				return endpointWriteSubject(c, cfg.Auth.SessionCookieName)
 			})
 			c.Set(middleware.ContextAuthorizedWriteKey, protect)
@@ -107,25 +107,25 @@ func endpointRatePolicy(method, path string, cfg config.Config) (string, RateLim
 	if !strings.HasPrefix(path, "/guilds") && !strings.HasPrefix(path, "/members/me") {
 		return "", RateLimit{}, false
 	}
-	selected := cfg.RateLimits.MemberRead
+	selected := cfg.Limits.MemberRead
 	class := "member-read"
 	if isEndpointWrite(method) {
-		selected = cfg.RateLimits.TemplateWrite
+		selected = cfg.Limits.TemplateWrite
 		class = "authenticated-write"
 	}
 	if isCaseCreationEndpoint(method, path) {
-		selected = cfg.RateLimits.CaseCreate
+		selected = cfg.Limits.CaseCreate
 		class = "case-create"
 	}
 	if strings.Contains(path, "/retry") || strings.Contains(path, "/reversals") {
-		selected = cfg.RateLimits.Retry
+		selected = cfg.Limits.Retry
 		class = "action-recovery"
 	}
 	if strings.Contains(path, "/evidence") {
-		selected = cfg.RateLimits.Evidence
+		selected = cfg.Limits.Evidence
 		class = "evidence"
 	}
-	return class, RateLimit{Maximum: selected.Maximum, Window: time.Duration(selected.WindowSeconds) * time.Second}, true
+	return class, RateLimit{Maximum: selected.Max, Window: selected.Window}, true
 }
 
 // isCaseCreationEndpoint matches only the guild case-collection POST route.

@@ -37,7 +37,7 @@ func Run(ctx context.Context, cfg config.Config, services *quack.Services, modul
 	}
 
 	server := newHTTPServer(cfg, r)
-	return serve(ctx, server, time.Duration(cfg.API.ShutdownTimeoutSeconds)*time.Second)
+	return serve(ctx, server, cfg.API.ShutdownTimeout)
 }
 
 // serve owns the listener and joins shutdown before dependencies are closed.
@@ -82,9 +82,9 @@ func newHTTPServer(cfg config.Config, handler http.Handler) *http.Server {
 	return &http.Server{
 		Addr:              fmt.Sprintf(":%s", cfg.API.Port),
 		Handler:           handler,
-		ReadHeaderTimeout: time.Duration(cfg.API.ReadHeaderTimeoutSeconds) * time.Second,
-		ReadTimeout:       time.Duration(cfg.API.ReadTimeoutSeconds) * time.Second,
-		WriteTimeout:      time.Duration(cfg.API.WriteTimeoutSeconds) * time.Second,
-		IdleTimeout:       time.Duration(cfg.API.IdleTimeoutSeconds) * time.Second,
+		ReadHeaderTimeout: cfg.API.ReadHeaderTimeout,
+		ReadTimeout:       cfg.API.ReadTimeout,
+		WriteTimeout:      cfg.API.WriteTimeout,
+		IdleTimeout:       cfg.API.IdleTimeout,
 	}
 }

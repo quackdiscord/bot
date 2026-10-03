@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM golang:1.25.4-alpine AS build
+FROM golang:1.27.1-alpine AS build
 
 WORKDIR /src
 
@@ -23,3 +23,4 @@ USER quack
 EXPOSE 8080
 
 ENTRYPOINT ["/usr/local/bin/quack"]
+CMD ["serve"]

@@ -2,8 +2,9 @@
 
 ## Runtime
 
-Quack is one Go process started by `apps/backend/cmd/quack/main.go`. The composition root in
-`apps/backend/internal/runtime` loads immutable configuration, opens MySQL and Redis,
+Quack is one Go process started by `quack serve` (`apps/backend/cmd/quack/main.go`),
+which loads and validates configuration and sets the logger. The composition root in
+`apps/backend/internal/runtime` then opens MySQL and Redis,
 migrates the schema, creates the Discord adapter, application services, durable
 work scheduler, and HTTP adapter, then shuts them down in reverse order.
 
@@ -30,7 +31,7 @@ guild.
   application calls and owns Discord response rendering and command sync.
 - `apps/backend/internal/workqueue` schedules persisted case actions for application
   processing.
-- `apps/backend/internal/config` owns environment parsing without mutable global state.
+- `apps/backend/internal/config` loads defaults, the TOML file, and `QUACK_*` environment variables without mutable global state.
 
 Dependencies point inward: adapters may import the application core, while the
 core imports no Gin, DiscordGo, GORM, or Redis packages.
