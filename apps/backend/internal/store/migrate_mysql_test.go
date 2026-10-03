@@ -75,6 +75,34 @@ func TestMySQL(t *testing.T) {
 		}
 	})
 
+	// MySQL rewrites json columns as "key": "value", so the audit filters must
+	// not assume the compact spelling they were written with.
+	t.Run("audit metadata filters", func(t *testing.T) {
+		ctx := context.Background()
+		guildID := addGuild(t, s, "mysql-audit")
+		entry := quack.AuditLogEntry{
+			GuildID:      guildID,
+			Source:       quack.AuditSourceSystem,
+			Action:       "case_action.failed",
+			ResourceType: "case_action_execution",
+			ResourceID:   "action-1",
+			Result:       quack.AuditResultFailure,
+			MetadataJSON: `{"case_id":"case-1","target_discord_user_id":"member-1"}`,
+		}
+		if err := s.CreateAuditLogEntry(ctx, &entry); err != nil {
+			t.Fatal(err)
+		}
+		for _, params := range []quack.ListAuditLogEntriesParams{
+			{GuildID: guildID, CaseID: "case-1"},
+			{GuildID: guildID, MemberDiscordUserID: "member-1"},
+		} {
+			got, err := s.ListAuditLogEntriesFiltered(ctx, params)
+			if err != nil || len(got.Entries) != 1 {
+				t.Errorf("filter %+v = %+v, %v; want the one entry", params, got, err)
+			}
+		}
+	})
+
 	if err := s.Rollback(false); !errors.Is(err, store.ErrBaselineRollback) {
 		t.Fatalf("Rollback(false) = %v, want ErrBaselineRollback", err)
 	}

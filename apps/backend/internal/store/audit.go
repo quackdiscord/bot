@@ -77,12 +77,15 @@ func filterAudit(query *gorm.DB, params quack.ListAuditLogEntriesParams) *gorm.D
 		}
 	}
 	if id := params.CaseID; id != "" {
-		query = query.Where("(resource_type = ? AND resource_id = ?) OR metadata_json LIKE ? ESCAPE '!'",
-			"case", id, metadataPattern("case_id", id))
+		caseMatch, caseArgs := metadataMatch("case_id", id)
+		query = query.Where("(resource_type = ? AND resource_id = ?) OR "+caseMatch,
+			append([]any{"case", id}, caseArgs...)...)
 	}
 	if id := params.MemberDiscordUserID; id != "" {
-		query = query.Where("actor_discord_user_id = ? OR metadata_json LIKE ? ESCAPE '!' OR metadata_json LIKE ? ESCAPE '!'",
-			id, metadataPattern("member_discord_user_id", id), metadataPattern("target_discord_user_id", id))
+		memberMatch, memberArgs := metadataMatch("member_discord_user_id", id)
+		targetMatch, targetArgs := metadataMatch("target_discord_user_id", id)
+		args := append(append([]any{id}, memberArgs...), targetArgs...)
+		query = query.Where("actor_discord_user_id = ? OR "+memberMatch+" OR "+targetMatch, args...)
 	}
 	if value, err := time.Parse(time.RFC3339Nano, params.CreatedAfter); err == nil {
 		query = query.Where("created_at >= ?", value.UTC())
@@ -98,11 +101,16 @@ func filterAudit(query *gorm.DB, params quack.ListAuditLogEntriesParams) *gorm.D
 // SQLite; '!' means the same on both.
 var likeEscaper = strings.NewReplacer("!", "!!", "%", "!%", "_", "!_")
 
-// metadataPattern returns a LIKE pattern, for use with ESCAPE '!', that
-// matches metadata JSON containing "key":"value". value is matched
-// literally, so a caller cannot widen the filter with % or _.
-func metadataPattern(key, value string) string {
-	return `%"` + key + `":"` + likeEscaper.Replace(value) + `"%`
+// metadataMatch returns a SQL condition and its arguments matching metadata
+// JSON that contains "key":"value". MySQL stores json columns normalized as
+// "key": "value" while SQLite keeps the text as written, so both spellings
+// are tried. value is matched literally; % and _ cannot widen the filter.
+func metadataMatch(key, value string) (string, []any) {
+	escaped := likeEscaper.Replace(value)
+	return "(metadata_json LIKE ? ESCAPE '!' OR metadata_json LIKE ? ESCAPE '!')", []any{
+		`%"` + key + `":"` + escaped + `"%`,
+		`%"` + key + `": "` + escaped + `"%`,
+	}
 }
 
 // ListPendingAuditMirrorEntries returns important entries with no successful
