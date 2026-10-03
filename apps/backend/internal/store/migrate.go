@@ -64,6 +64,16 @@ func (s *Store) Migrate() error {
 				return fmt.Errorf("record migration %d %s: %w", m.version, m.name, err)
 			}
 		}
+		if len(applied) == 0 {
+			return nil
+		}
+		// The baseline is the record structs, which keep gaining tables and
+		// columns. Re-running it adds whatever an older database is missing;
+		// AutoMigrate never drops anything, so removals still need a numbered
+		// migration.
+		if err := createBaseline(db); err != nil {
+			return fmt.Errorf("bring baseline up to date: %w", err)
+		}
 		return nil
 	})
 }

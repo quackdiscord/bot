@@ -62,6 +62,27 @@ func TestMigrateCreatesSchemaOnce(t *testing.T) {
 	}
 }
 
+// TestMigrateCatchesUpOlderBaseline covers a database that recorded the
+// baseline before the record structs gained tables and columns.
+func TestMigrateCatchesUpOlderBaseline(t *testing.T) {
+	db := testutil.NewSQLiteDB(t)
+	if err := db.Migrator().DropTable("case_publications"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("ALTER TABLE guild_settings DROP COLUMN appeal_queue_channel_discord_id").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := store.New(db, nil).Migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if !db.Migrator().HasTable("case_publications") {
+		t.Error("case_publications was not created")
+	}
+	if !db.Migrator().HasColumn("guild_settings", "appeal_queue_channel_discord_id") {
+		t.Error("guild_settings.appeal_queue_channel_discord_id was not added")
+	}
+}
+
 func TestMigrateRefusesUnknownLedger(t *testing.T) {
 	db := testutil.NewSQLiteDB(t)
 	future := "INSERT INTO quack_schema_migrations (version, name, applied_at) " +
