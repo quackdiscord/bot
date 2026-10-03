@@ -201,7 +201,7 @@ func (s *GuildSettingsService) RejectUpdatePayload(ctx context.Context, guildCon
 // template" notice. The starter template itself is untouched.
 func (s *GuildSettingsService) AcknowledgeStarterPolicyNotice(ctx context.Context, guildContext *GuildStaffContext) (*GuildSettingsResponse, error) {
 	ctx = ensureTraceContext(ctx)
-	const action = "guild_settings.starter_policy_notice.acknowledge"
+	const action = string(AuditActionStarterNoticeAcknowledge)
 	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
 		return nil, errNoGuildContext
 	}

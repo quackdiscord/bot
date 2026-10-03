@@ -2,6 +2,8 @@ package tickets
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -100,6 +102,11 @@ func (a *DiscordAdapter) Reply(ctx context.Context, actor modules.Actor, ticketI
 	if err != nil {
 		return err
 	}
+	// Check before posting: Service.Reply would refuse a closed ticket, but
+	// only after the message was already in Discord.
+	if ticket.Status != StatusOpen {
+		return ErrInvalidTransition
+	}
 	if err := a.client.SendReply(ctx, ticket.ThreadDiscordChannelID, body); err != nil {
 		return err
 	}
@@ -108,7 +115,8 @@ func (a *DiscordAdapter) Reply(ctx context.Context, actor modules.Actor, ticketI
 
 // Close saves the transcript, resolves the ticket, and archives its
 // channel. It needs a moderator. Retrying after an archive failure only
-// retries the archive.
+// retries the archive. The Discord button and the HTTP resolve route both
+// use it.
 func (a *DiscordAdapter) Close(ctx context.Context, actor modules.Actor, ticketID string) (*Ticket, error) {
 	if !actor.CanModerate {
 		return nil, ErrPermissionDenied
@@ -118,9 +126,8 @@ func (a *DiscordAdapter) Close(ctx context.Context, actor modules.Actor, ticketI
 	})
 }
 
-// Cancel is Close for a withdrawal by the owner or a moderator. Nothing
-// calls it yet: the HTTP cancel route uses Service.Cancel, which leaves the
-// ticket's channel open and saves no transcript.
+// Cancel is Close for a withdrawal by the owner or a moderator. The HTTP
+// cancel route uses it.
 func (a *DiscordAdapter) Cancel(ctx context.Context, actor modules.Actor, ticketID string) (*Ticket, error) {
 	return a.archive(ctx, actor, ticketID, StatusCancelled, func(transcript string) (*Ticket, error) {
 		return a.service.cancel(ctx, actor, ticketID, &transcript)
@@ -152,7 +159,9 @@ func (a *DiscordAdapter) RepairPermissions(ctx context.Context, actor modules.Ac
 // archive closes a ticket in two steps: an open ticket's transcript is
 // captured and finish moves it to closed, then its channel is archived. A
 // ticket already in closed skips to the archive, so a retry finishes a
-// close whose archive failed.
+// close whose archive failed. A ticket whose channel was deleted closes with
+// an empty transcript and nothing to archive. Other Discord failures wrap
+// ErrDiscord.
 func (a *DiscordAdapter) archive(ctx context.Context, actor modules.Actor, ticketID string, closed Status, finish func(transcript string) (*Ticket, error)) (*Ticket, error) {
 	ticket, err := a.service.visibleTicket(ctx, actor, ticketID)
 	if err != nil {
@@ -162,8 +171,8 @@ func (a *DiscordAdapter) archive(ctx context.Context, actor modules.Actor, ticke
 	switch ticket.Status {
 	case StatusOpen:
 		transcript, err := a.client.CaptureTranscript(ctx, ticket.ThreadDiscordChannelID)
-		if err != nil {
-			return nil, err
+		if err != nil && !errors.Is(err, ErrChannelMissing) {
+			return nil, fmt.Errorf("%w: %w", ErrDiscord, err)
 		}
 		if result, err = finish(transcript); err != nil {
 			return nil, err
@@ -172,8 +181,9 @@ func (a *DiscordAdapter) archive(ctx context.Context, actor modules.Actor, ticke
 	default:
 		return nil, ErrInvalidTransition
 	}
-	if err := a.client.ArchiveChannel(ctx, ticket.ThreadDiscordChannelID); err != nil {
-		return result, err
+	err = a.client.ArchiveChannel(ctx, ticket.ThreadDiscordChannelID)
+	if err != nil && !errors.Is(err, ErrChannelMissing) {
+		return result, fmt.Errorf("%w: %w", ErrDiscord, err)
 	}
 	return result, nil
 }

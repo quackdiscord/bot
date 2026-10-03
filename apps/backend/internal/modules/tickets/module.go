@@ -54,7 +54,7 @@ func New(db *gorm.DB, registry *modules.Registry, audit modules.Auditor, guilds 
 
 // MountHTTP mounts the ticket routes.
 func (m *Module) MountHTTP(mux modules.Mux) {
-	RegisterRoutes(mux, m.service, modules.RequestActor)
+	RegisterRoutes(mux, m.service, m.discord, modules.RequestActor)
 }
 
 // RegisterGateway subscribes tickets to the gateway events that can change

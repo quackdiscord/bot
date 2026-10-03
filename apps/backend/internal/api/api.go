@@ -135,15 +135,17 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 }
 
 // Run serves the API until ctx is canceled, then drains in-flight requests
-// for up to api.shutdown_timeout.
-func (s *Server) Run(ctx context.Context) error {
-	return serve(ctx, newHTTPServer(s.cfg, s), s.cfg.API.ShutdownTimeout)
+// until shutdownDeadline. The caller supplies the deadline so the HTTP drain
+// and the rest of shutdown share one api.shutdown_timeout; Run calls it once
+// ctx ends.
+func (s *Server) Run(ctx context.Context, shutdownDeadline func() time.Time) error {
+	return serve(ctx, newHTTPServer(s.cfg, s), shutdownDeadline)
 }
 
 // serve owns the listener and returns only after shutdown has finished, so
 // no handler can still be using storage when the caller closes it. If the
 // drain times out, remaining connections are closed.
-func serve(ctx context.Context, server *http.Server, shutdownTimeout time.Duration) error {
+func serve(ctx context.Context, server *http.Server, shutdownDeadline func() time.Time) error {
 	listener, err := net.Listen("tcp", server.Addr)
 	if err != nil {
 		return fmt.Errorf("listen for HTTP: %w", err)
@@ -159,7 +161,7 @@ func serve(ctx context.Context, server *http.Server, shutdownTimeout time.Durati
 			return
 		case <-ctx.Done():
 		}
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		shutdownCtx, cancel := context.WithDeadline(context.Background(), shutdownDeadline())
 		defer cancel()
 		err := server.Shutdown(shutdownCtx)
 		if err != nil {

@@ -9,7 +9,7 @@ import (
 func (s *Server) listTemplates(w http.ResponseWriter, r *http.Request) {
 	templates, err := s.services.Templates.List(r.Context(), quack.StaffFromContext(r.Context()))
 	if err != nil {
-		writeError(w, r, http.StatusInternalServerError, codeInternal, "failed to list templates")
+		templateErrors.withFallback("failed to list templates").write(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"templates": templates})

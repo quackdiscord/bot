@@ -225,15 +225,17 @@ func importV4(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 func importV4Import(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	fs, path := newFlagSet("import-v4 import", stderr)
 	file := fs.String("file", "", "versioned JSONL `export` to import (required)")
-	source := fs.String("source", "", "stable source name, used to detect re-imports")
-	guild := fs.String("guild", "", "v5 guild ULID")
-	actor := fs.String("actor", "", "operator Discord user ID")
+	source := fs.String("source", "", "stable source name, used to detect re-imports (required)")
+	guild := fs.String("guild", "", "v5 guild ULID (required)")
+	actor := fs.String("actor", "", "operator Discord user ID (required)")
 	dryRun := fs.Bool("dry-run", false, "validate and report without writing")
 	if err := parse(fs, args); err != nil {
 		return err
 	}
-	if *file == "" {
-		fmt.Fprintln(stderr, "quack import-v4 import: -file is required")
+	// The importer trims these too; checking here keeps a missing flag a
+	// usage error instead of a failure after connecting to the database.
+	if *file == "" || strings.TrimSpace(*source) == "" || strings.TrimSpace(*guild) == "" || strings.TrimSpace(*actor) == "" {
+		fmt.Fprintln(stderr, "quack import-v4 import: -file, -source, -guild, and -actor are required")
 		return errReported
 	}
 	cfg, err := loadConfig(*path, stderr)

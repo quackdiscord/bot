@@ -24,10 +24,8 @@ type ticketRecord struct {
 	OwnerDiscordUserID      string `gorm:"size:32;not null;index:idx_ticket_guild_owner,priority:2"`
 	ThreadDiscordChannelID  string `gorm:"size:32;uniqueIndex"`
 	Status                  Status `gorm:"size:32;not null;index:idx_ticket_guild_status,priority:2"`
-	LogMessageDiscordID     string `gorm:"size:32"`
 	ResolvedByDiscordUserID string `gorm:"size:32"`
 	ResolvedAt              *time.Time
-	TranscriptURL           string `gorm:"size:1024"`
 	MetadataJSON            string `gorm:"type:json;not null"`
 	CreatedAt, UpdatedAt    time.Time
 }

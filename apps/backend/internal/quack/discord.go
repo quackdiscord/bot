@@ -120,6 +120,20 @@ type DiscordError struct {
 	OutcomeUncertain bool
 }
 
+// Failure classes the Discord adapter appends to the operation name in
+// DiscordError.Code, as in "ban_rate_limited", for callers that branch on
+// the kind of failure.
+const (
+	DiscordFailureRateLimited      = "rate_limited"
+	DiscordFailurePermissionDenied = "permission_or_hierarchy_denied"
+)
+
+// HasFailure reports whether e failed with class, one of the
+// DiscordFailure constants.
+func (e DiscordError) HasFailure(class string) bool {
+	return strings.HasSuffix(e.Code, "_"+class)
+}
+
 // Error returns the adapter's message, which is safe to store and show.
 func (e DiscordError) Error() string {
 	if e.Message != "" {

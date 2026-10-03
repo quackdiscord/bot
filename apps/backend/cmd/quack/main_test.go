@@ -22,6 +22,9 @@ func TestRunRejectsBadUsage(t *testing.T) {
 		{"import-v4"},
 		{"import-v4", "export"},
 		{"import-v4", "import"},
+		{"import-v4", "import", "-file", "export.jsonl"},
+		{"import-v4", "import", "-file", "export.jsonl", "-source", "s", "-guild", "g"},
+		{"import-v4", "import", "-file", "export.jsonl", "-source", " ", "-guild", "g", "-actor", "a"},
 		{"import-v4", "rollback", "-guild", "g"},
 	}
 	for _, args := range tests {

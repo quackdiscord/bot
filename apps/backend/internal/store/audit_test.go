@@ -123,6 +123,16 @@ func TestListAuditFiltersAndCursor(t *testing.T) {
 			want:   []string{"action-1"},
 		},
 		{
+			name:   "case wildcards match literally",
+			params: quack.ListAuditLogEntriesParams{GuildID: guildID, CaseID: "case_%"},
+			want:   nil,
+		},
+		{
+			name:   "member wildcards match literally",
+			params: quack.ListAuditLogEntriesParams{GuildID: guildID, MemberDiscordUserID: "%"},
+			want:   nil,
+		},
+		{
 			name:   "before cursor",
 			params: quack.ListAuditLogEntriesParams{GuildID: guildID, BeforeID: entries[1].ID},
 			want:   []string{"case-1"},
@@ -192,5 +202,28 @@ func TestPendingAuditMirrorEntries(t *testing.T) {
 		if e.ID == important.ID {
 			t.Fatal("delivered entry is still pending")
 		}
+	}
+}
+
+// TestPendingAuditMirrorLimitClamps checks that an oversized limit is
+// clamped to the shared page maximum rather than reset to the default.
+func TestPendingAuditMirrorLimitClamps(t *testing.T) {
+	ctx := context.Background()
+	s, guildID := newTestStore(t)
+	for range 60 {
+		entry := quack.AuditLogEntry{
+			GuildID: guildID, Source: quack.AuditSourceAPI, Action: quack.ImportantAuditActions()[0],
+			ResourceType: "case", Result: quack.AuditResultSuccess,
+		}
+		if err := s.CreateAuditLogEntry(ctx, &entry); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.ListPendingAuditMirrorEntries(ctx, 500)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 60 {
+		t.Fatalf("got %d entries for limit 500, want all 60", len(got))
 	}
 }

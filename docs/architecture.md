@@ -67,11 +67,10 @@ belong there, not in handlers.
 6. Open the Discord gateway.
 7. Serve HTTP until the context is cancelled (SIGINT or SIGTERM).
 
-On shutdown the HTTP server drains first, for up to `api.shutdown_timeout`.
-Then the remaining components stop newest first (Discord gateway, honeypot
-pool, logging pool, worker, Redis, MySQL), sharing a second
-`api.shutdown_timeout`. The worker stops polling and drains cases already
-queued.
+On shutdown the HTTP server drains first. Then the remaining components stop
+newest first (Discord gateway, honeypot pool, logging pool, worker, Redis,
+MySQL). One `api.shutdown_timeout`, started when shutdown begins, bounds the
+whole sequence. The worker stops polling and drains cases already queued.
 
 Gateway intents are decided once at startup. Logging adds members, moderation,
 messages, and message content; honeypot adds guild messages. Each is added only

@@ -57,13 +57,23 @@ func (n *AppealNotifier) SendAppealMemberNotification(ctx context.Context, disco
 	}
 	channel, err := n.bot.Session.UserChannelCreate(discordUserID, rest(ctx)...)
 	if err != nil {
-		return "", fmt.Errorf("open appeal dm channel: %w", err)
+		return "", notificationError("appeal_dm_channel", err)
 	}
 	message, err := n.bot.send(ctx, channel.ID, &discordgo.MessageSend{Content: body})
 	if err != nil {
-		return "", fmt.Errorf("send appeal dm: %w", err)
+		return "", notificationError("appeal_dm", err)
 	}
 	return message.ID, nil
+}
+
+// notificationError classifies a failed appeal notification send, so the
+// dispatcher can record a coarse code without reading Discord's text. A
+// deadline is kept as is, so it still reads as a timeout.
+func notificationError(operation string, err error) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("%s: %w", operation, err)
+	}
+	return fmt.Errorf("%s: %w", operation, classify(operation, err, false))
 }
 
 // SendAppealStaffNotification posts a queue update to the guild's staff
@@ -78,7 +88,7 @@ func (n *AppealNotifier) SendAppealStaffNotification(ctx context.Context, guildI
 	}
 	message, err := n.bot.send(ctx, channelID, &discordgo.MessageSend{Content: body})
 	if err != nil {
-		return "", fmt.Errorf("send appeal staff notification: %w", err)
+		return "", notificationError("appeal_staff_notification", err)
 	}
 	return message.ID, nil
 }

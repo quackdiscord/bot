@@ -17,6 +17,33 @@ func (f *caseCreatorFake) CreateSystemHoneypot(_ context.Context, guildID string
 	return &quack.CaseResponse{ID: "case-1"}, nil
 }
 
+// templateStoreFake returns one template with a single default level
+// running action.
+type templateStoreFake struct{ action quack.ActionType }
+
+func (f templateStoreFake) GetCaseTemplateExpanded(context.Context, string, string) (*quack.ExpandedCaseTemplate, error) {
+	level := quack.ExpandedCaseTemplateLevel{Level: quack.CaseTemplateLevel{IsDefault: true}}
+	if f.action != "" {
+		level.Actions = []quack.CaseTemplateLevelAction{{ActionType: f.action}}
+	}
+	return &quack.ExpandedCaseTemplate{Levels: []quack.ExpandedCaseTemplateLevel{level}}, nil
+}
+
+func TestTemplateValidatorAcceptsOnlyEnforcementActions(t *testing.T) {
+	for action, valid := range map[quack.ActionType]bool{
+		"":                      true,
+		quack.ActionTimeoutUser: true,
+		quack.ActionKickUser:    true,
+		quack.ActionBanUser:     true,
+		quack.ActionSendDM:      false,
+	} {
+		err := templateValidator{store: templateStoreFake{action}}.ValidateHoneypotTemplate(context.Background(), "guild", "template")
+		if (err == nil) != valid {
+			t.Errorf("action %q: err = %v, want valid %t", action, err, valid)
+		}
+	}
+}
+
 func TestCaseApplierKeepsTheNormalCaseEnvelope(t *testing.T) {
 	creator := &caseCreatorFake{}
 	applier := caseApplier{cases: creator}

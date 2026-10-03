@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -62,7 +63,7 @@ func (m *Module) openComponent(_ context.Context, interaction *discordgo.Interac
 	return m.task(interaction, func(ctx context.Context, responder discord.Responder, actor modules.Actor) error {
 		ticket, err := m.discord.Open(ctx, actor)
 		if err != nil {
-			return showError(responder, err)
+			return showError(ctx, responder, err)
 		}
 		message := discord.Content("Ticket opened: <#"+ticket.ThreadDiscordChannelID+">", true)
 		message.Components = ticketControls(ticket.ID, actor.CanManage)
@@ -76,7 +77,7 @@ func (m *Module) queueComponent(_ context.Context, interaction *discordgo.Intera
 	return m.task(interaction, func(ctx context.Context, responder discord.Responder, actor modules.Actor) error {
 		queue, err := m.service.Queue(ctx, actor, StatusOpen, 25)
 		if err != nil {
-			return showError(responder, err)
+			return showError(ctx, responder, err)
 		}
 		lines := []string{"Open tickets:"}
 		for _, ticket := range queue {
@@ -99,7 +100,7 @@ func (m *Module) viewComponent(_ context.Context, interaction *discordgo.Interac
 	return m.task(interaction, func(ctx context.Context, responder discord.Responder, actor modules.Actor) error {
 		ticket, events, err := m.service.Detail(ctx, actor, ticketID)
 		if err != nil {
-			return showError(responder, err)
+			return showError(ctx, responder, err)
 		}
 		lines := []string{fmt.Sprintf("Ticket `%s` is **%s**.", ticket.ID, ticket.Status)}
 		for _, event := range events {
@@ -120,7 +121,7 @@ func (m *Module) repairComponent(_ context.Context, interaction *discordgo.Inter
 	}
 	return m.task(interaction, func(ctx context.Context, responder discord.Responder, actor modules.Actor) error {
 		if err := m.discord.RepairPermissions(ctx, actor, ticketID); err != nil {
-			return showError(responder, err)
+			return showError(ctx, responder, err)
 		}
 		_, err := responder.EditOriginal(discord.EditMessage(discord.Content("Ticket permissions repaired.", true)))
 		return err
@@ -157,7 +158,7 @@ func (m *Module) submitReplyModal(_ context.Context, interaction *discordgo.Inte
 	body := strings.TrimSpace(discord.ModalValue(data, "body"))
 	return m.task(interaction, func(ctx context.Context, responder discord.Responder, actor modules.Actor) error {
 		if err := m.discord.Reply(ctx, actor, id.Payload, body); err != nil {
-			return showError(responder, err)
+			return showError(ctx, responder, err)
 		}
 		_, err := responder.EditOriginal(discord.EditMessage(discord.Content("Reply sent.", true)))
 		return err
@@ -172,7 +173,7 @@ func (m *Module) closeComponent(_ context.Context, interaction *discordgo.Intera
 	}
 	return m.task(interaction, func(ctx context.Context, responder discord.Responder, actor modules.Actor) error {
 		if _, err := m.discord.Close(ctx, actor, ticketID); err != nil {
-			return showError(responder, err)
+			return showError(ctx, responder, err)
 		}
 		_, err := responder.EditOriginal(discord.EditMessage(discord.Content("Ticket closed and transcript captured.", true)))
 		return err
@@ -231,26 +232,36 @@ func (m *Module) actor(ctx context.Context, interaction *discordgo.InteractionCr
 }
 
 // showError replaces the deferred response with a message safe to show the
-// member. The interaction itself succeeded, so it returns nil.
-func showError(responder discord.Responder, err error) error {
-	_, _ = responder.EditOriginal(discord.ErrorEdit(errorMessage(err)))
+// member, and logs the error, since returning nil keeps the router from
+// doing so. Errors the member caused are only debug noise.
+func showError(ctx context.Context, responder discord.Responder, err error) error {
+	message, expected := errorMessage(err)
+	if expected {
+		slog.DebugContext(ctx, "Ticket interaction refused", "error", err)
+	} else {
+		slog.ErrorContext(ctx, "Ticket interaction failed", "error", err)
+	}
+	_, _ = responder.EditOriginal(discord.ErrorEdit(message))
 	return nil
 }
 
-// errorMessage maps an error to text safe to show the member.
-func errorMessage(err error) string {
+// errorMessage maps an error to text safe to show the member, and reports
+// whether it is an expected refusal rather than a failure.
+func errorMessage(err error) (string, bool) {
 	switch {
 	case errors.Is(err, ErrDisabled):
-		return "Tickets are not enabled for this server."
+		return "Tickets are not enabled for this server.", true
 	case errors.Is(err, ErrPermissionDenied):
-		return "You do not have permission to use that ticket."
+		return "You do not have permission to use that ticket.", true
 	case errors.Is(err, ErrDuplicateOpen):
-		return "You already have an open ticket."
+		return "You already have an open ticket.", true
 	case errors.Is(err, ErrRateLimited):
-		return "You have reached this server's ticket limit."
+		return "You have reached this server's ticket limit.", true
 	case errors.Is(err, ErrNotFound):
-		return "That ticket was not found."
+		return "That ticket was not found.", true
+	case errors.Is(err, ErrInvalidTransition):
+		return "That ticket is not open.", true
 	default:
-		return "Quack could not complete that ticket operation."
+		return "Quack could not complete that ticket operation.", false
 	}
 }

@@ -305,7 +305,7 @@ func TestCaseContextEvidenceVoidReplacementAndMemberProjection(t *testing.T) {
 	if len(detail.ContextValues) != 3 || detail.ContextValues[2].Value != nil || len(detail.Evidence) != 1 || len(detail.Evidence[0].Attachments) != 1 || detail.Evidence[0].Attachments[0].CopyOutcome != "preserved" {
 		t.Fatalf("case snapshot incomplete: %+v", detail)
 	}
-	voided, err := service.Void(ctx, moderator, created.ID, "wrong policy", nil)
+	voided, err := service.Void(ctx, moderator, created.ID, "wrong policy")
 	if err != nil || voided.Validity != quack.CaseValidityVoided {
 		t.Fatalf("void failed: %+v err=%v", voided, err)
 	}

@@ -103,6 +103,7 @@ const (
 	AuditActionTemplateRead               AuditAction = "case_template.read"
 	AuditActionSettingsRead               AuditAction = "guild_settings.read"
 	AuditActionSettingsUpdate             AuditAction = "guild_settings.update"
+	AuditActionStarterNoticeAcknowledge   AuditAction = "guild_settings.starter_policy_notice.acknowledge"
 	AuditActionActionAttempt              AuditAction = "case_action.attempt"
 	AuditActionActionSucceeded            AuditAction = "case_action.succeeded"
 	AuditActionActionRetrying             AuditAction = "case_action.retrying"

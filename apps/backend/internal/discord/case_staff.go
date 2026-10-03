@@ -95,7 +95,7 @@ func (c *cases) runStaffCommand(
 		if !confirmed() {
 			return Message{}, quack.ErrCaseValidation
 		}
-		if _, err := c.services.Cases.Void(ctx, staff, option("case"), option("reason"), nil); err != nil {
+		if _, err := c.services.Cases.Void(ctx, staff, option("case"), option("reason")); err != nil {
 			return Message{}, err
 		}
 		return Content("**Case voided**\nThe correction remains visible in history.", false), nil
@@ -252,7 +252,7 @@ func (c *cases) voidModal(_ context.Context, i *discordgo.InteractionCreate) Res
 		if err != nil {
 			return err
 		}
-		voided, err := c.services.Cases.Void(ctx, staff, id.Payload, reason, nil)
+		voided, err := c.services.Cases.Void(ctx, staff, id.Payload, reason)
 		if err != nil {
 			_, err := responder.EditOriginal(ErrorEdit(caseErrorMessage(err)))
 			return err

@@ -79,8 +79,14 @@ func (s *Server) voidCase(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &input, "invalid void payload") {
 		return
 	}
-	result, err := s.services.Cases.Void(r.Context(), quack.StaffFromContext(r.Context()), r.PathValue("caseRef"),
-		input.Reason, input.ReplacementCaseID)
+	if input.ReplacementCaseID != nil {
+		// The field is still in the contract, but a correction is a void
+		// followed by a new case with replaces_case_id.
+		writeError(w, r, http.StatusBadRequest, codeValidation,
+			quack.ErrCaseValidation.Error()+": create the replacement after voiding this case")
+		return
+	}
+	result, err := s.services.Cases.Void(r.Context(), quack.StaffFromContext(r.Context()), r.PathValue("caseRef"), input.Reason)
 	if err != nil {
 		caseErrors.write(w, r, err)
 		return

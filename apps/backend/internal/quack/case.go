@@ -126,7 +126,7 @@ func (s *CaseService) CreateSystemHoneypot(ctx context.Context, guildID string, 
 // Void marks a case invalid so it stops counting toward escalation. The
 // case and the reason it was voided stay on record. To correct a case, void
 // it and create the replacement with ReplacesCaseID.
-func (s *CaseService) Void(ctx context.Context, guildContext *GuildStaffContext, caseRef, reason string, replacementCaseID *string) (response *CaseResponse, err error) {
+func (s *CaseService) Void(ctx context.Context, guildContext *GuildStaffContext, caseRef, reason string) (response *CaseResponse, err error) {
 	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
 		return nil, caseValidationError("missing guild context")
 	}
@@ -147,9 +147,6 @@ func (s *CaseService) Void(ctx context.Context, guildContext *GuildStaffContext,
 	reason = strings.TrimSpace(reason)
 	if reason == "" {
 		return nil, caseValidationError("void reason is required")
-	}
-	if replacementCaseID != nil {
-		return nil, caseValidationError("create the replacement after voiding this case")
 	}
 	item, err := s.store.GetCaseByIDOrNumber(ctx, guildContext.Guild.ID, caseRef)
 	if err != nil {

@@ -77,12 +77,12 @@ func filterAudit(query *gorm.DB, params quack.ListAuditLogEntriesParams) *gorm.D
 		}
 	}
 	if id := params.CaseID; id != "" {
-		query = query.Where("(resource_type = ? AND resource_id = ?) OR metadata_json LIKE ?",
-			"case", id, `%"case_id":"`+id+`"%`)
+		query = query.Where("(resource_type = ? AND resource_id = ?) OR metadata_json LIKE ? ESCAPE '!'",
+			"case", id, metadataPattern("case_id", id))
 	}
 	if id := params.MemberDiscordUserID; id != "" {
-		query = query.Where("actor_discord_user_id = ? OR metadata_json LIKE ? OR metadata_json LIKE ?",
-			id, `%"member_discord_user_id":"`+id+`"%`, `%"target_discord_user_id":"`+id+`"%`)
+		query = query.Where("actor_discord_user_id = ? OR metadata_json LIKE ? ESCAPE '!' OR metadata_json LIKE ? ESCAPE '!'",
+			id, metadataPattern("member_discord_user_id", id), metadataPattern("target_discord_user_id", id))
 	}
 	if value, err := time.Parse(time.RFC3339Nano, params.CreatedAfter); err == nil {
 		query = query.Where("created_at >= ?", value.UTC())
@@ -93,13 +93,23 @@ func filterAudit(query *gorm.DB, params quack.ListAuditLogEntriesParams) *gorm.D
 	return query
 }
 
+// likeEscaper escapes LIKE's wildcards with '!', which the filters name in
+// an ESCAPE clause. A backslash would need different quoting on MySQL and
+// SQLite; '!' means the same on both.
+var likeEscaper = strings.NewReplacer("!", "!!", "%", "!%", "_", "!_")
+
+// metadataPattern returns a LIKE pattern, for use with ESCAPE '!', that
+// matches metadata JSON containing "key":"value". value is matched
+// literally, so a caller cannot widen the filter with % or _.
+func metadataPattern(key, value string) string {
+	return `%"` + key + `":"` + likeEscaper.Replace(value) + `"%`
+}
+
 // ListPendingAuditMirrorEntries returns important entries with no successful
 // mirror outcome, oldest first. An entry whose delivery failed comes back
 // once the failure is a minute old.
 func (s *Store) ListPendingAuditMirrorEntries(ctx context.Context, limit int) ([]quack.AuditLogEntry, error) {
-	if limit <= 0 || limit > 100 {
-		limit = 50
-	}
+	limit, _ = page(limit, 0)
 	retryAfter := time.Now().UTC().Add(-time.Minute)
 	outcomes := []string{string(quack.AuditActionMirrorDelivered), string(quack.AuditActionMirrorSkipped)}
 	var records []auditRecord

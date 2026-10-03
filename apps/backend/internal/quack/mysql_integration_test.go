@@ -136,7 +136,7 @@ func TestMySQLConcurrentCaseCreationAndVoidPreserveNumberingAndValidity(t *testi
 	}()
 	go func() {
 		<-start
-		_, voidErr := services.Cases.Void(ctx, guildContext, first.ID, "concurrent correction", nil)
+		_, voidErr := services.Cases.Void(ctx, guildContext, first.ID, "concurrent correction")
 		errors <- voidErr
 	}()
 	close(start)

@@ -266,6 +266,42 @@ func assertEnvelope(t *testing.T, response *httptest.ResponseRecorder, status in
 	}
 }
 
+// TestListErrorsUseServiceTables checks the list handlers' error tables: a
+// known sentinel keeps its own status, and anything else keeps the status
+// and message the handlers have always sent.
+func TestListErrorsUseServiceTables(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		table   serviceErrors
+		err     error
+		status  int
+		code    errorCode
+		message string
+	}{
+		{"template denial", templateErrors.withFallback("failed to list templates"), quack.ErrTemplatePermissionDenied,
+			http.StatusForbidden, codeAuthorization, "template access denied"},
+		{"template failure", templateErrors.withFallback("failed to list templates"), errors.New("database down"),
+			http.StatusInternalServerError, codeInternal, "failed to list templates"},
+		{"guild list failure", guildListErrors, errors.New("discord down"),
+			http.StatusBadGateway, codeDependency, "failed to list discord guilds"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			test.table.write(response, httptest.NewRequest(http.MethodGet, "/", nil), test.err)
+			var body errorResponse
+			if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			if response.Code != test.status || body.Error.Code != test.code || body.Error.Message != test.message {
+				t.Fatalf("got %d %+v, want %d %s %q", response.Code, body.Error, test.status, test.code, test.message)
+			}
+		})
+	}
+	if templateErrors.fallback != "template operation failed" {
+		t.Fatal("withFallback changed the shared table")
+	}
+}
+
 func TestHTTPServerUsesConfiguredBounds(t *testing.T) {
 	cfg := config.Default()
 	cfg.API.Port = "9090"

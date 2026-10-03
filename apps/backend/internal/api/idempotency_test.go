@@ -130,6 +130,21 @@ func TestIdempotencyScopeIncludesResource(t *testing.T) {
 	}
 }
 
+// TestVoidRejectsReplacementCaseID checks that the retired
+// replacement_case_id field is still refused, before the case is touched.
+func TestVoidRejectsReplacementCaseID(t *testing.T) {
+	server, sessionID, templateID := caseHarness(t, uint64(discordgo.PermissionAdministrator))
+	expectStatus(t, send(t, server, http.MethodPost, "/guilds/guild-1/cases", casePayload(templateID, "target-1"), sessionID), http.StatusCreated)
+	response := send(t, server, http.MethodPost, "/guilds/guild-1/cases/1/void", `{"reason":"mistake","replacement_case_id":"2"}`,
+		sessionID, idempotencyKeyHeader, "void-replacement")
+	assertEnvelope(t, response, http.StatusBadRequest, codeValidation)
+	if !strings.Contains(response.Body.String(), "create the replacement after voiding this case") {
+		t.Fatalf("body = %s", response.Body.String())
+	}
+	expectStatus(t, send(t, server, http.MethodPost, "/guilds/guild-1/cases/1/void", `{"reason":"mistake"}`,
+		sessionID, idempotencyKeyHeader, "void-plain"), http.StatusOK)
+}
+
 // fakeModule mounts an "example" module whose writes are allowed while
 // allowed is set.
 type fakeModule struct {

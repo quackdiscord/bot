@@ -11,10 +11,11 @@ import (
 // RegisterRoutes mounts the ticket settings, status, queue, detail,
 // transcript, and lifecycle routes. Settings writes need Manage Guild;
 // resolving and reopening need a moderator; a ticket's owner may cancel it
-// too. The lifecycle routes change only Quack's records, not the ticket's
-// Discord channel.
-func RegisterRoutes(mux modules.Mux, service *Service, resolve modules.ActorResolver) {
-	h := routes{service: service}
+// too. Resolve and cancel go through adapter, like the Discord buttons, so
+// the transcript is captured and the channel archived whichever surface
+// closes the ticket. Reopen changes only Quack's records.
+func RegisterRoutes(mux modules.Mux, service *Service, adapter *DiscordAdapter, resolve modules.ActorResolver) {
+	h := routes{service: service, adapter: adapter}
 	with := func(handle func(http.ResponseWriter, *http.Request, modules.Actor)) http.Handler {
 		return modules.WithActor(resolve, handle)
 	}
@@ -33,7 +34,10 @@ func RegisterRoutes(mux modules.Mux, service *Service, resolve modules.ActorReso
 }
 
 // routes are the ticket HTTP handlers.
-type routes struct{ service *Service }
+type routes struct {
+	service *Service
+	adapter *DiscordAdapter
+}
 
 func (rt routes) settings(w http.ResponseWriter, r *http.Request, actor modules.Actor) {
 	settings, enabled, err := rt.service.Settings(r.Context(), actor)
@@ -100,19 +104,19 @@ func (rt routes) transcript(w http.ResponseWriter, r *http.Request, actor module
 }
 
 func (rt routes) resolve(w http.ResponseWriter, r *http.Request, actor modules.Actor) {
-	var input struct {
-		Transcript string `json:"transcript"`
-	}
+	// The body must still be JSON, as before, but the transcript is now
+	// captured from Discord, so a "transcript" field is ignored.
+	var input struct{}
 	if err := modules.DecodeJSON(r, &input); err != nil {
 		modules.WriteError(w, http.StatusBadRequest)
 		return
 	}
-	ticket, err := rt.service.Resolve(r.Context(), actor, r.PathValue("ticketID"), input.Transcript)
+	ticket, err := rt.adapter.Close(r.Context(), actor, r.PathValue("ticketID"))
 	writeTicket(w, ticket, err)
 }
 
 func (rt routes) cancel(w http.ResponseWriter, r *http.Request, actor modules.Actor) {
-	ticket, err := rt.service.Cancel(r.Context(), actor, r.PathValue("ticketID"))
+	ticket, err := rt.adapter.Cancel(r.Context(), actor, r.PathValue("ticketID"))
 	writeTicket(w, ticket, err)
 }
 
@@ -156,6 +160,8 @@ func writeError(w http.ResponseWriter, err error) {
 		modules.WriteError(w, http.StatusTooManyRequests)
 	case errors.Is(err, ErrDisabled):
 		modules.WriteError(w, http.StatusServiceUnavailable)
+	case errors.Is(err, ErrDiscord):
+		modules.WriteError(w, http.StatusBadGateway)
 	default:
 		modules.WriteError(w, http.StatusBadRequest)
 	}

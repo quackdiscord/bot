@@ -215,16 +215,19 @@ func (d *AppealNotificationDispatcher) DispatchPending(ctx context.Context, limi
 }
 
 // appealNotificationErrorCode reduces a delivery error to a coarse code so
-// no Discord response text is stored.
+// no Discord response text is stored. It reads the adapter's DiscordError
+// classification, never the error text.
 func appealNotificationErrorCode(err error) string {
-	text := strings.ToLower(err.Error())
+	var discordErr DiscordError
 	switch {
-	case strings.Contains(text, "permission"), strings.Contains(text, "forbidden"):
-		return "discord_forbidden"
-	case strings.Contains(text, "rate"):
-		return "discord_rate_limited"
-	case strings.Contains(text, "timeout"):
+	case errors.Is(err, context.DeadlineExceeded):
 		return "discord_timeout"
+	case !errors.As(err, &discordErr):
+		return "discord_delivery_failed"
+	case discordErr.HasFailure(DiscordFailurePermissionDenied):
+		return "discord_forbidden"
+	case discordErr.HasFailure(DiscordFailureRateLimited):
+		return "discord_rate_limited"
 	default:
 		return "discord_delivery_failed"
 	}

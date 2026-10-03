@@ -45,12 +45,23 @@ type errorDetail struct {
 
 // serviceErrors maps one service's sentinel errors to responses. Handlers
 // pass every service error through one of these, so a sentinel always gets
-// the same status, and anything unrecognized becomes a 500 that names the
-// operation without leaking the cause.
+// the same status, and anything unrecognized becomes a 500 (or
+// fallbackStatus) that names the operation without leaking the cause.
 type serviceErrors struct {
 	known []knownError
 	// fallback is the message for errors that match nothing in known.
 	fallback string
+	// fallbackStatus and fallbackCode replace 500 and internal_error for
+	// unrecognized errors when set.
+	fallbackStatus int
+	fallbackCode   errorCode
+}
+
+// withFallback returns a copy of e that answers unrecognized errors with
+// message, for handlers whose failure message names one operation.
+func (e serviceErrors) withFallback(message string) serviceErrors {
+	e.fallback = message
+	return e
 }
 
 // knownError is one sentinel's response. An empty message sends the
@@ -105,6 +116,14 @@ var appealErrors = serviceErrors{
 	fallback: "appeal operation failed",
 }
 
+// guildListErrors maps failures listing the caller's Discord guilds. The
+// list comes straight from Discord, so anything unrecognized is a 502.
+var guildListErrors = serviceErrors{
+	fallback:       "failed to list discord guilds",
+	fallbackStatus: http.StatusBadGateway,
+	fallbackCode:   codeDependency,
+}
+
 var auditErrors = serviceErrors{
 	known: []knownError{
 		{quack.ErrAuditValidation, http.StatusBadRequest, codeValidation, ""},
@@ -134,7 +153,11 @@ func (e serviceErrors) write(w http.ResponseWriter, r *http.Request, err error) 
 		writeError(w, r, known.status, known.code, message)
 		return
 	}
-	writeError(w, r, http.StatusInternalServerError, codeInternal, e.fallback)
+	status, code := http.StatusInternalServerError, codeInternal
+	if e.fallbackStatus != 0 {
+		status, code = e.fallbackStatus, e.fallbackCode
+	}
+	writeError(w, r, status, code, e.fallback)
 }
 
 // writeJSON writes v as the response body. Like the dashboard has always

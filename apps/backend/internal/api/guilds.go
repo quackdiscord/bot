@@ -68,7 +68,7 @@ func can(action quack.PermissionAction) func(*http.Request) bool {
 func (s *Server) listGuilds(w http.ResponseWriter, r *http.Request) {
 	guilds, err := s.services.Guilds.ListUserManageableGuilds(r.Context(), sessionFrom(r.Context()))
 	if err != nil {
-		writeError(w, r, http.StatusBadGateway, codeDependency, "failed to list discord guilds")
+		guildListErrors.write(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"guilds": guilds})

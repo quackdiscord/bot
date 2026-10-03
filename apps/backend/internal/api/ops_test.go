@@ -79,6 +79,8 @@ func TestGlobalOpsStatus(t *testing.T) {
 	cfg.API.OpsToken = "secret"
 	server := storeServer(t, store, nil, nil, cfg)
 	assertEnvelope(t, send(t, server, http.MethodGet, "/ops/status", "", ""), http.StatusForbidden, codeAuthorization)
+	// Whitespace around the key is ignored, as it is for the metrics key.
+	expectStatus(t, send(t, server, http.MethodGet, "/ops/status", "", "", opsKeyHeader, " secret "), http.StatusOK)
 
 	response := send(t, server, http.MethodGet, "/ops/status", "", "", opsKeyHeader, "secret")
 	expectStatus(t, response, http.StatusOK)

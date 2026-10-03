@@ -2,6 +2,7 @@ package logging
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -46,7 +47,14 @@ func NewPool(service *Service) *modules.Pool[Event] {
 			_ = service.HandleBulkDelete(ctx, event.GuildID, event.ChannelDiscordID, event.MessageIDs)
 			return
 		}
-		if err := service.Handle(ctx, event); err != nil {
+		err := service.Handle(ctx, event)
+		switch {
+		case err == nil:
+		case errors.Is(err, ErrDisabled), errors.Is(err, ErrNoDestination):
+			// Most events in most guilds land here; it is not a failure.
+			slog.DebugContext(ctx, "General logging skipped event",
+				"guild_id", event.GuildID, "event", event.Type, "reason", err)
+		default:
 			// Only the error's type is logged: its text may quote message
 			// content.
 			slog.ErrorContext(ctx, "General logging delivery failed",

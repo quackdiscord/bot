@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/modules"
 )
 
@@ -25,13 +26,6 @@ var secretPattern = regexp.MustCompile(`(?i)(bot\s+[A-Za-z0-9._-]{20,}|https://(
 type DeliveryClient interface {
 	SendStaffLog(ctx context.Context, guildID, channelID, payload string) error
 	ValidateStaffOnlyChannel(ctx context.Context, guildID, channelID string) error
-}
-
-// RetryAfterError is a delivery error that says how long Discord asked us
-// to wait before retrying.
-type RetryAfterError interface {
-	error
-	RetryAfter() time.Duration
 }
 
 // Status is a guild's delivery health since the process started.
@@ -183,11 +177,7 @@ func (s *Service) Handle(ctx context.Context, event Event) error {
 		if attempt == settings.MaxDeliveryAttempts {
 			break
 		}
-		delay := time.Duration(attempt) * 100 * time.Millisecond
-		var retry RetryAfterError
-		if errors.As(last, &retry) {
-			delay = max(delay, retry.RetryAfter())
-		}
+		delay := max(time.Duration(attempt)*100*time.Millisecond, retryAfter(last))
 		if err := sleep(ctx, delay); err != nil {
 			last = err
 			break
@@ -330,6 +320,17 @@ func formatEvent(event Event, settings Settings) string {
 // destinations returns the distinct channels routes send to, sorted.
 func destinations(routes map[EventType]string) []string {
 	return slices.Compact(slices.Sorted(maps.Values(routes)))
+}
+
+// retryAfter returns how long Discord asked us to wait if err is a rate
+// limit, or zero. Delivery turns off discordgo's own rate-limit retries, so
+// the limit arrives here as a *discordgo.RateLimitError.
+func retryAfter(err error) time.Duration {
+	var limited *discordgo.RateLimitError
+	if errors.As(err, &limited) && limited.RateLimit != nil && limited.TooManyRequests != nil {
+		return limited.RetryAfter
+	}
+	return 0
 }
 
 // sleep waits for d or until ctx is done.

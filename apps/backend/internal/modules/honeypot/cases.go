@@ -62,7 +62,8 @@ type templateValidator struct{ store TemplateStore }
 
 // ValidateHoneypotTemplate accepts only a template that can run with nobody
 // at the keyboard: active, no required context fields, exactly one default
-// level, and at most one DM, timeout, kick, or ban per level.
+// level, and at most one timeout, kick, or ban per level. Member DMs come
+// from a level's notify_user, not an action.
 func (v templateValidator) ValidateHoneypotTemplate(ctx context.Context, guildID, templateID string) error {
 	template, err := v.store.GetCaseTemplateExpanded(ctx, strings.TrimSpace(guildID), strings.TrimSpace(templateID))
 	if err != nil {
@@ -86,7 +87,7 @@ func (v templateValidator) ValidateHoneypotTemplate(ctx context.Context, guildID
 		}
 		for _, action := range level.Actions {
 			switch action.ActionType {
-			case quack.ActionSendDM, quack.ActionTimeoutUser, quack.ActionKickUser, quack.ActionBanUser:
+			case quack.ActionTimeoutUser, quack.ActionKickUser, quack.ActionBanUser:
 			default:
 				return fmt.Errorf("%w: unsupported unattended action %s", ErrTemplateUnavailable, action.ActionType)
 			}

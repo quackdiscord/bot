@@ -200,6 +200,7 @@ func (c *cases) messageTemplate(ctx context.Context, i *discordgo.InteractionCre
 	return Async(DeferEphemeral(), func(ctx context.Context, responder Responder) error {
 		created, err := c.services.Cases.Create(ctx, staff, input)
 		if err != nil {
+			_, err := responder.EditOriginal(ErrorEdit(caseErrorMessage(err)))
 			return err
 		}
 		return c.publish(ctx, responder, created, template)

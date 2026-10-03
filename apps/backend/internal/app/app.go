@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -34,15 +35,20 @@ const (
 )
 
 // Run starts Quack and blocks until ctx is canceled or a component fails,
-// then stops everything it started, newest first, within
-// api.shutdown_timeout. cfg must already be validated and the default
-// logger set.
+// then stops everything it started, newest first. The HTTP drain and every
+// stop after it share one api.shutdown_timeout, which starts when shutdown
+// begins. cfg must already be validated and the default logger set.
 func Run(ctx context.Context, cfg config.Config) (err error) {
 	slog.InfoContext(ctx, "Starting Quack", "environment", cfg.Environment)
+	// The deadline is fixed by whichever comes first: the HTTP server seeing
+	// ctx end, or Run returning on its own.
+	shutdownDeadline := sync.OnceValue(func() time.Time {
+		return time.Now().Add(cfg.API.ShutdownTimeout)
+	})
 	var stops stopList
 	defer func() {
 		slog.Info("Stopping Quack")
-		err = errors.Join(err, stops.run(cfg.API.ShutdownTimeout))
+		err = errors.Join(err, stops.run(shutdownDeadline()))
 		if err == nil {
 			slog.Info("Quack stopped cleanly")
 		}
@@ -74,7 +80,7 @@ func Run(ctx context.Context, cfg config.Config) (err error) {
 		return fmt.Errorf("connect Discord bot: %w", err)
 	}
 	stops.add("discord", func(ctx context.Context) error { return closeBot(ctx, bot) })
-	return q.server.Run(ctx)
+	return q.server.Run(ctx, shutdownDeadline)
 }
 
 // openStorage connects to MySQL and Redis and migrates the schema. Both
@@ -239,9 +245,10 @@ func (s *stopList) add(name string, stop func(context.Context) error) {
 	*s = append(*s, stopper{name, stop})
 }
 
-// run stops everything, sharing one timeout, and returns every failure.
-func (s stopList) run(timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+// run stops everything before one shared deadline and returns every
+// failure.
+func (s stopList) run(deadline time.Time) error {
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
 	defer cancel()
 	var errs []error
 	for _, stopper := range slices.Backward(s) {

@@ -163,8 +163,9 @@ func (s *Service) Resolve(ctx context.Context, actor modules.Actor, ticketID, tr
 	return ticket, nil
 }
 
-// Cancel withdraws an open ticket without saving a transcript. The owner
-// and moderators may cancel.
+// Cancel withdraws an open ticket without saving a transcript or touching
+// its channel. The owner and moderators may cancel. Callers that should also
+// close the channel use DiscordAdapter.Cancel.
 func (s *Service) Cancel(ctx context.Context, actor modules.Actor, ticketID string) (*Ticket, error) {
 	return s.cancel(ctx, actor, ticketID, nil)
 }

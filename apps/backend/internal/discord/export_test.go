@@ -28,6 +28,10 @@ func (c Cases) MessageCommand(ctx context.Context, i *discordgo.InteractionCreat
 	return c.c.messageCommand(ctx, i)
 }
 
+func (c Cases) MessageTemplate(ctx context.Context, i *discordgo.InteractionCreate) Result {
+	return c.c.messageTemplate(ctx, i)
+}
+
 func (c Cases) ContextModal(ctx context.Context, i *discordgo.InteractionCreate) Result {
 	return c.c.contextModal(ctx, i)
 }

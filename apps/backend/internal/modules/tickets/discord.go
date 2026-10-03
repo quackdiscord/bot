@@ -146,7 +146,7 @@ func (c channels) CaptureTranscript(ctx context.Context, channelID string) (stri
 		}
 		page, err := c.session.ChannelMessages(channelID, messagePage, before, "", "", rest(ctx)...)
 		if err != nil {
-			return "", fmt.Errorf("read ticket messages: %w", err)
+			return "", channelError("read ticket messages", err)
 		}
 		messages = append(messages, page...)
 		if len(page) < messagePage {
@@ -179,7 +179,7 @@ func (c channels) ArchiveChannel(ctx context.Context, channelID string) error {
 	}
 	channel, err := c.session.Channel(channelID, rest(ctx)...)
 	if err != nil {
-		return fmt.Errorf("fetch ticket channel: %w", err)
+		return channelError("fetch ticket channel", err)
 	}
 	if channel.IsThread() {
 		archived, locked := true, true
@@ -308,6 +308,17 @@ func (c channels) botUserID(ctx context.Context) (string, error) {
 		return "", errors.New("discord bot identity is unavailable")
 	}
 	return user.ID, nil
+}
+
+// channelError wraps a failed REST call on a ticket channel, mapping
+// Discord's Unknown Channel to ErrChannelMissing so closing can carry on
+// without the channel.
+func channelError(action string, err error) error {
+	var restErr *discordgo.RESTError
+	if errors.As(err, &restErr) && restErr.Message != nil && restErr.Message.Code == discordgo.ErrCodeUnknownChannel {
+		return fmt.Errorf("%s: %w", action, ErrChannelMissing)
+	}
+	return fmt.Errorf("%s: %w", action, err)
 }
 
 // rest returns per-call options: the caller's context and no retries.

@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/config"
@@ -117,5 +118,29 @@ func TestIntentsFollowEnabledModules(t *testing.T) {
 	want := discordgo.IntentGuildMembers | discordgo.IntentGuildModeration | discordgo.IntentMessageContent
 	if got := intents(); got&want != want {
 		t.Fatalf("logging intents = %d", got)
+	}
+}
+
+// TestStopListSharesOneDeadline checks that every stop func sees the same
+// deadline, so shutdown cannot run longer than api.shutdown_timeout in total.
+func TestStopListSharesOneDeadline(t *testing.T) {
+	deadline := time.Now().Add(time.Minute)
+	var order []string
+	var stops stopList
+	for _, name := range []string{"first", "second"} {
+		stops.add(name, func(ctx context.Context) error {
+			got, ok := ctx.Deadline()
+			if !ok || !got.Equal(deadline) {
+				t.Errorf("%s deadline = %v, %t; want %v", name, got, ok, deadline)
+			}
+			order = append(order, name)
+			return nil
+		})
+	}
+	if err := stops.run(deadline); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(order, ",") != "second,first" {
+		t.Errorf("stop order = %v, want newest first", order)
 	}
 }

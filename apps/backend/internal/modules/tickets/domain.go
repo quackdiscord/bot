@@ -53,6 +53,12 @@ var (
 	// ErrInvalidTransition reports an operation the ticket's status does not
 	// allow.
 	ErrInvalidTransition = errors.New("invalid ticket transition")
+	// ErrChannelMissing reports that a ticket's Discord channel was deleted.
+	// Closing such a ticket still succeeds, without a transcript.
+	ErrChannelMissing = errors.New("ticket channel no longer exists")
+	// ErrDiscord wraps a Discord failure while closing a ticket, so HTTP
+	// callers can tell it apart from a bad request.
+	ErrDiscord = errors.New("ticket Discord request failed")
 )
 
 // Settings are a guild's ticket settings, stored as the module's config

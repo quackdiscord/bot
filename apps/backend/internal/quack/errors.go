@@ -68,9 +68,10 @@ var (
 	// ErrAppealAlreadyExists is returned by stores when a case already has an
 	// appeal.
 	ErrAppealAlreadyExists = errors.New("appeal already exists for case")
-	// ErrAppealStateConflict is returned by stores when an appeal changed
-	// since it was read.
-	ErrAppealStateConflict = errors.New("appeal state conflict")
+	// ErrAppealStateConflict is returned by stores when an appeal, or one of
+	// its notifications, changed since it was read. Services turn it into
+	// ErrAppealConflict for callers.
+	ErrAppealStateConflict = errors.New("appeal changed concurrently")
 	// ErrAppealCaseIneligible is returned by stores when the case was voided
 	// or no longer belongs to the appellant.
 	ErrAppealCaseIneligible = errors.New("case is not eligible for appeal")

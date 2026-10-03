@@ -112,7 +112,7 @@ func classify(operation string, err error, irreversible bool) error {
 	var rateLimit *discordgo.RateLimitError
 	if errors.As(err, &rateLimit) {
 		return quack.DiscordError{
-			Code:      operation + "_rate_limited",
+			Code:      operation + "_" + quack.DiscordFailureRateLimited,
 			Message:   "Discord rate limit reached",
 			Retryable: true,
 		}
@@ -132,11 +132,11 @@ func classify(operation string, err error, irreversible bool) error {
 	case status == http.StatusBadRequest:
 		code = "validation_failed"
 	case status == http.StatusUnauthorized || status == http.StatusForbidden:
-		code = "permission_or_hierarchy_denied"
+		code = quack.DiscordFailurePermissionDenied
 	case status == http.StatusNotFound:
 		code = "unknown_member_or_resource"
 	case status == http.StatusTooManyRequests:
-		code, retryable = "rate_limited", true
+		code, retryable = quack.DiscordFailureRateLimited, true
 	case status >= 500:
 		code, retryable, uncertain = "discord_server_error", !irreversible, irreversible
 	}

@@ -200,10 +200,11 @@ func (s *Server) writeGuildOps(w http.ResponseWriter, r *http.Request, guildID s
 }
 
 // validOpsKey reports whether the request carries the configured ops key.
-// With no key configured, nothing is valid.
+// With no key configured, nothing is valid. Both sides are trimmed, as for
+// the metrics key.
 func (s *Server) validOpsKey(r *http.Request) bool {
 	configured := strings.TrimSpace(s.cfg.API.OpsToken)
-	return configured != "" && secretsEqual(configured, r.Header.Get(opsKeyHeader))
+	return configured != "" && secretsEqual(configured, strings.TrimSpace(r.Header.Get(opsKeyHeader)))
 }
 
 // ping reports whether check succeeds and how long it took.

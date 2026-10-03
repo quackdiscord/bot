@@ -65,7 +65,7 @@ Secrets (`discord.token`, `discord.client_secret`, `api.ops_token`,
 | `api.read_timeout` | `15s` | Whole-request read limit. |
 | `api.write_timeout` | `30s` | Response write limit. |
 | `api.idle_timeout` | `1m` | Keep-alive idle limit. |
-| `api.shutdown_timeout` | `20s` | How long the HTTP server may drain on shutdown. The other components then get the same amount again, so a full stop can take up to twice this. |
+| `api.shutdown_timeout` | `20s` | How long a graceful shutdown may take in total: the HTTP drain and then every other component. |
 | `api.idempotency_ttl` | `24h` | How long a completed write can be replayed by its `Idempotency-Key`. |
 | `api.ops_token` | none | Enables `GET /ops/status`, and operator access to `GET /guilds/{discordGuildID}/ops/status`, for callers sending it in `X-Quack-Ops-Key`. Required in prod. |
 | `api.metrics_token` | none | Required in `X-Quack-Metrics-Key` to read `GET /metrics`; without it the endpoint is a 404. Required in prod. |

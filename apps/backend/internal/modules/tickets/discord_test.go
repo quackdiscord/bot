@@ -3,6 +3,7 @@ package tickets
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -114,5 +115,16 @@ func TestCreationHonorsPrivateThreadSetting(t *testing.T) {
 		if err != nil || id != "ticket" || !created {
 			t.Fatalf("threads=%v: created %q, %v", useThreads, id, err)
 		}
+	}
+}
+
+func TestChannelErrorRecognizesDeletedChannel(t *testing.T) {
+	unknown := &discordgo.RESTError{Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeUnknownChannel}}
+	if err := channelError("read", unknown); !errors.Is(err, ErrChannelMissing) {
+		t.Fatalf("unknown channel: got %v, want ErrChannelMissing", err)
+	}
+	other := &discordgo.RESTError{Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeMissingAccess}}
+	if err := channelError("read", other); errors.Is(err, ErrChannelMissing) || !errors.Is(err, other) {
+		t.Fatalf("missing access: got %v, want the original error", err)
 	}
 }

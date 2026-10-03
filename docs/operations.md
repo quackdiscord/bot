@@ -23,10 +23,9 @@ Settings are in [`configuration.md`](configuration.md), schema changes in
 - If Quack sits behind a proxy, list the proxy in `api.trusted_proxies`.
   Otherwise forwarded headers are ignored, and per-IP OAuth limits apply to
   the proxy's address.
-- On SIGTERM, the HTTP server drains for up to `api.shutdown_timeout`, then
-  the gateway, module pools, worker, and storage stop within another
-  `api.shutdown_timeout`. Set the platform's termination grace period above
-  twice that value.
+- On SIGTERM, the HTTP server drains, then the gateway, module pools,
+  worker, and storage stop, all within one `api.shutdown_timeout`. Set the
+  platform's termination grace period above that value.
 
 ## Health and monitoring
 

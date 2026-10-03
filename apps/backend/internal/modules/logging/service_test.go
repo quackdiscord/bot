@@ -7,7 +7,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/modules"
 	logmodule "github.com/quackdiscord/bot/internal/modules/logging"
 	"github.com/quackdiscord/bot/internal/testutil"
@@ -118,6 +120,46 @@ func TestPrivacyRedactionRetryAndAuditIsolation(t *testing.T) {
 		if strings.Contains(event.Action, "delivery") || event.ResourceType == "audit_log" {
 			t.Fatalf("a delivery reached the audit log: %+v", event)
 		}
+	}
+}
+
+// rateLimitedDelivery always answers with Discord's rate-limit error.
+type rateLimitedDelivery struct {
+	deliveryFake
+	retryAfter time.Duration
+}
+
+func (f *rateLimitedDelivery) SendStaffLog(context.Context, string, string, string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.attempts++
+	return &discordgo.RateLimitError{RateLimit: &discordgo.RateLimit{
+		TooManyRequests: &discordgo.TooManyRequests{RetryAfter: f.retryAfter},
+	}}
+}
+
+// TestRateLimitDelaysRetry checks that Discord's retry-after outranks the
+// short default backoff: with an hour to wait, the second attempt never
+// happens before the context ends.
+func TestRateLimitDelaysRetry(t *testing.T) {
+	db := testutil.NewSQLiteDB(t)
+	client := &rateLimitedDelivery{retryAfter: time.Hour}
+	service := logmodule.NewService(modules.NewRegistry(db), nil, client, nil)
+	settings := logmodule.Defaults()
+	settings.Channels = map[logmodule.EventType]string{logmodule.MemberJoin: "staff-log"}
+	settings.MaxDeliveryAttempts = 2
+	admin := modules.Actor{GuildID: "guild-a", DiscordUserID: "admin", CanManage: true}
+	if _, err := service.UpdateSettings(context.Background(), admin, true, settings); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	err := service.Handle(ctx, logmodule.Event{GuildID: "guild-a", Type: logmodule.MemberJoin})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Handle = %v, want the wait cut short by the context", err)
+	}
+	if client.attempts != 1 {
+		t.Fatalf("got %d attempts, want 1 before the retry-after elapsed", client.attempts)
 	}
 }
 

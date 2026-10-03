@@ -202,6 +202,31 @@ func TestCaseAddCreatesCaseAndResolvesStaffOnce(t *testing.T) {
 	}
 }
 
+// TestMessageTemplateExplainsCreateFailure checks that the template picker
+// answers a rejected case with the same specific message as /case add,
+// rather than failing the task with a generic error.
+func TestMessageTemplateExplainsCreateFailure(t *testing.T) {
+	h := newCaseHarness(t, uint64(discordgo.PermissionModerateMembers))
+	pick := interaction(discordgo.InteractionMessageComponent, 0, nil)
+	// The moderator cannot open a case against themselves.
+	pick.Data = discordgo.MessageComponentInteractionData{
+		CustomID: "case:message_template:v1:mod-1|channel-1|message-1",
+		Values:   []string{h.spamID},
+	}
+	result := h.cases.MessageTemplate(context.Background(), pick)
+	if result.Task == nil {
+		t.Fatalf("expected deferred creation, got %+v", result.Response)
+	}
+	responder := &fakeResponder{}
+	if err := result.Task(context.Background(), responder); err != nil {
+		t.Fatalf("task returned %v, want the failure shown to the moderator", err)
+	}
+	if responder.edit.Embeds == nil || len(*responder.edit.Embeds) != 1 ||
+		!strings.Contains((*responder.edit.Embeds)[0].Description, "do not have permission to create that case") {
+		t.Fatalf("edit = %+v, want the case error message", responder.edit.Embeds)
+	}
+}
+
 func TestCaseAddUsesLivePermissionsNotInteractionBits(t *testing.T) {
 	t.Run("stale denial", func(t *testing.T) {
 		h := newCaseHarness(t, uint64(discordgo.PermissionModerateMembers))
