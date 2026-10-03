@@ -4,17 +4,59 @@ import (
 	"context"
 	"errors"
 	"time"
-
-	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
-// OpsService assembles queue health and action capability data for operational endpoints.
+// opsFailureLimit is how many recent failures a status report lists.
+const opsFailureLimit = 10
+
+// OpsService reports the health of the action pipeline to operators.
 type OpsService struct {
-	store     OpsRepository
-	scheduler CaseWorkScheduler
+	store     OpsStore
+	scheduler Scheduler
 }
 
-// OpsStatusResponse is the transport-neutral representation returned for ops status response.
+// NewOpsService returns an OpsService. scheduler may be nil, in which case
+// queue stats are reported as zero.
+func NewOpsService(store OpsStore, scheduler Scheduler) *OpsService {
+	return &OpsService{store: store, scheduler: scheduler}
+}
+
+// ActionStatusCount is how many executions are in one status.
+type ActionStatusCount struct {
+	Status ActionExecutionStatus
+	Count  int64
+}
+
+// OldestActionExecution is the execution that has waited longest to run.
+type OldestActionExecution struct {
+	ID, CaseID  string
+	CaseNumber  uint64
+	ActionType  ActionType
+	Status      ActionExecutionStatus
+	CreatedAt   time.Time
+	NextRetryAt *time.Time
+}
+
+// RecentActionFailure is a recently failed execution.
+type RecentActionFailure struct {
+	ID, CaseID               string
+	CaseNumber               uint64
+	ActionType               ActionType
+	Status                   ActionExecutionStatus
+	LastErrorCode, LastError string
+	UpdatedAt                time.Time
+}
+
+// ActionQueueSnapshot summarizes stored executions.
+type ActionQueueSnapshot struct {
+	StatusCounts         []ActionStatusCount
+	OldestPendingOrRetry *OldestActionExecution
+	RecentFailures       []RecentActionFailure
+}
+
+// OpsStatusResponse is an operator status report. Queue describes the
+// in-process workers; Actions describes the stored backlog, so operators can
+// tell a slow queue from a stuck one.
 type OpsStatusResponse struct {
 	GeneratedAt time.Time       `json:"generated_at"`
 	Scope       string          `json:"scope"`
@@ -23,7 +65,7 @@ type OpsStatusResponse struct {
 	Actions     OpsActionStatus `json:"actions"`
 }
 
-// OpsActionStatus identifies the supported ops action status values stored and exchanged by Quack.
+// OpsActionStatus is the stored execution backlog.
 type OpsActionStatus struct {
 	Capabilities         []OpsActionCapability     `json:"capabilities"`
 	StatusCounts         map[string]int64          `json:"status_counts"`
@@ -31,51 +73,43 @@ type OpsActionStatus struct {
 	RecentFailures       []OpsRecentActionFailure  `json:"recent_failures"`
 }
 
-// OpsActionCapability groups the ops action capability state used to keep this package's responsibilities explicit.
+// OpsActionCapability says whether Quack can perform an action type.
 type OpsActionCapability struct {
-	ActionType model.ActionType `json:"action_type"`
-	Executable bool             `json:"executable"`
-	Status     string           `json:"status"`
+	ActionType ActionType `json:"action_type"`
+	Executable bool       `json:"executable"`
+	Status     string     `json:"status"`
 }
 
-// OpsOldestActionExecution groups the ops oldest action execution state used to keep this package's responsibilities explicit.
+// OpsOldestActionExecution is OldestActionExecution as JSON.
 type OpsOldestActionExecution struct {
-	ID          string                      `json:"id"`
-	CaseID      string                      `json:"case_id"`
-	CaseNumber  uint64                      `json:"case_number"`
-	ActionType  model.ActionType            `json:"action_type"`
-	Status      model.ActionExecutionStatus `json:"status"`
-	CreatedAt   time.Time                   `json:"created_at"`
-	NextRetryAt *time.Time                  `json:"next_retry_at,omitempty"`
+	ID          string                `json:"id"`
+	CaseID      string                `json:"case_id"`
+	CaseNumber  uint64                `json:"case_number"`
+	ActionType  ActionType            `json:"action_type"`
+	Status      ActionExecutionStatus `json:"status"`
+	CreatedAt   time.Time             `json:"created_at"`
+	NextRetryAt *time.Time            `json:"next_retry_at,omitempty"`
 }
 
-// OpsRecentActionFailure groups the ops recent action failure state used to keep this package's responsibilities explicit.
+// OpsRecentActionFailure is RecentActionFailure as JSON.
 type OpsRecentActionFailure struct {
-	ID            string                      `json:"id"`
-	CaseID        string                      `json:"case_id"`
-	CaseNumber    uint64                      `json:"case_number"`
-	ActionType    model.ActionType            `json:"action_type"`
-	Status        model.ActionExecutionStatus `json:"status"`
-	LastErrorCode string                      `json:"last_error_code,omitempty"`
-	LastError     string                      `json:"last_error,omitempty"`
-	UpdatedAt     time.Time                   `json:"updated_at"`
+	ID            string                `json:"id"`
+	CaseID        string                `json:"case_id"`
+	CaseNumber    uint64                `json:"case_number"`
+	ActionType    ActionType            `json:"action_type"`
+	Status        ActionExecutionStatus `json:"status"`
+	LastErrorCode string                `json:"last_error_code,omitempty"`
+	LastError     string                `json:"last_error,omitempty"`
+	UpdatedAt     time.Time             `json:"updated_at"`
 }
 
-// NewOpsService binds durable action health to an optional in-process queue snapshot.
-func NewOpsService(store OpsRepository, scheduler ...CaseWorkScheduler) *OpsService {
-	service := &OpsService{store: store}
-	if len(scheduler) > 0 {
-		service.scheduler = scheduler[0]
-	}
-	return service
-}
-
-// GlobalStatus returns process-wide queue and action health for privileged operators.
+// GlobalStatus reports on every guild.
 func (s *OpsService) GlobalStatus(ctx context.Context) (*OpsStatusResponse, error) {
 	return s.status(ctx, "", "global")
 }
 
-// GuildStatus returns the same operational view restricted to one guild's persisted actions.
+// GuildStatus reports on one guild's executions. Queue stats are still
+// process-wide.
 func (s *OpsService) GuildStatus(ctx context.Context, guildID string) (*OpsStatusResponse, error) {
 	if guildID == "" {
 		return nil, errors.New("guild id is required")
@@ -83,34 +117,36 @@ func (s *OpsService) GuildStatus(ctx context.Context, guildID string) (*OpsStatu
 	return s.status(ctx, guildID, "guild")
 }
 
-// status combines durable action state with transient worker statistics so operators can distinguish backlog from queue health.
 func (s *OpsService) status(ctx context.Context, guildID, scope string) (*OpsStatusResponse, error) {
-	if s == nil || s.store == nil {
+	if s.store == nil {
 		return nil, errors.New("ops service is not configured")
 	}
-	snapshot, err := s.store.ActionQueueSnapshot(ctx, guildID, 10)
+	snapshot, err := s.store.ActionQueueSnapshot(ctx, guildID, opsFailureLimit)
 	if err != nil {
 		return nil, err
 	}
-
-	queueStats := QueueStats{}
+	var queue QueueStats
 	if s.scheduler != nil {
-		queueStats = s.scheduler.Stats()
+		queue = s.scheduler.Stats()
 	}
-
 	return &OpsStatusResponse{
 		GeneratedAt: time.Now().UTC(),
 		Scope:       scope,
 		GuildID:     guildID,
-		Queue:       queueStats,
+		Queue:       queue,
 		Actions:     opsActionStatus(snapshot),
 	}, nil
 }
 
-// opsActionStatus maps the repository snapshot into the stable operations response and always includes current action capabilities.
-func opsActionStatus(snapshot *model.ActionQueueSnapshot) OpsActionStatus {
+func opsActionStatus(snapshot *ActionQueueSnapshot) OpsActionStatus {
 	status := OpsActionStatus{
-		Capabilities: actionCapabilities(),
+		Capabilities: []OpsActionCapability{
+			{ActionType: ActionTimeoutUser, Executable: true, Status: "implemented"},
+			{ActionType: ActionKickUser, Executable: true, Status: "implemented"},
+			{ActionType: ActionBanUser, Executable: true, Status: "implemented"},
+			{ActionType: ActionRemoveTimeout, Executable: true, Status: "staff_confirmed_reversal"},
+			{ActionType: ActionUnbanUser, Executable: true, Status: "staff_confirmed_reversal"},
+		},
 		StatusCounts: map[string]int64{},
 	}
 	if snapshot == nil {
@@ -119,8 +155,7 @@ func opsActionStatus(snapshot *model.ActionQueueSnapshot) OpsActionStatus {
 	for _, row := range snapshot.StatusCounts {
 		status.StatusCounts[string(row.Status)] = row.Count
 	}
-	if snapshot.OldestPendingOrRetry != nil {
-		oldest := snapshot.OldestPendingOrRetry
+	if oldest := snapshot.OldestPendingOrRetry; oldest != nil {
 		status.OldestPendingOrRetry = &OpsOldestActionExecution{
 			ID:          oldest.ID,
 			CaseID:      oldest.CaseID,
@@ -145,15 +180,4 @@ func opsActionStatus(snapshot *model.ActionQueueSnapshot) OpsActionStatus {
 		})
 	}
 	return status
-}
-
-// actionCapabilities encapsulates the action capabilities rule so callers share one consistent package implementation.
-func actionCapabilities() []OpsActionCapability {
-	return []OpsActionCapability{
-		{ActionType: model.ActionTimeoutUser, Executable: true, Status: "implemented"},
-		{ActionType: model.ActionKickUser, Executable: true, Status: "implemented"},
-		{ActionType: model.ActionBanUser, Executable: true, Status: "implemented"},
-		{ActionType: model.ActionRemoveTimeout, Executable: true, Status: "staff_confirmed_reversal"},
-		{ActionType: model.ActionUnbanUser, Executable: true, Status: "staff_confirmed_reversal"},
-	}
 }

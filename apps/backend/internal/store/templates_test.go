@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/quackdiscord/bot/internal/quack/model"
+	"github.com/quackdiscord/bot/internal/quack"
 	storage "github.com/quackdiscord/bot/internal/store"
 	"github.com/quackdiscord/bot/internal/testutil"
 )
@@ -15,17 +15,17 @@ func TestCaseTemplateStorageCreateListGetExpanded(t *testing.T) {
 	ctx := context.Background()
 	store, guildID := templateTestStore(t)
 
-	created, err := store.CreateCaseTemplate(ctx, storage.CreateCaseTemplateParams{
+	created, err := store.CreateCaseTemplate(ctx, quack.CreateCaseTemplateParams{
 		Template: templateModel(guildID, "spam"),
-		Levels: []storage.ExpandedCaseTemplateLevel{
+		Levels: []quack.ExpandedCaseTemplateLevel{
 			{
-				Level: model.CaseTemplateLevel{Position: 2, Name: "Second", TriggerCaseCount: 3},
-				Actions: []model.CaseTemplateLevelAction{
-					{ActionType: model.ActionTimeoutUser, ConfigJSON: `{"duration_seconds":3600}`},
+				Level: quack.CaseTemplateLevel{Position: 2, Name: "Second", TriggerCaseCount: 3},
+				Actions: []quack.CaseTemplateLevelAction{
+					{ActionType: quack.ActionTimeoutUser, ConfigJSON: `{"duration_seconds":3600}`},
 				},
 			},
 			{
-				Level: model.CaseTemplateLevel{Position: 1, Name: "Default", IsDefault: true, NotifyUser: true},
+				Level: quack.CaseTemplateLevel{Position: 1, Name: "Default", IsDefault: true, NotifyUser: true},
 			},
 		},
 	})
@@ -56,7 +56,7 @@ func TestCaseTemplateStorageUpdateReplacesChildrenAndIncrementsVersion(t *testin
 	ctx := context.Background()
 	store, guildID := templateTestStore(t)
 
-	created, err := store.CreateCaseTemplate(ctx, storage.CreateCaseTemplateParams{
+	created, err := store.CreateCaseTemplate(ctx, quack.CreateCaseTemplateParams{
 		Template: templateModel(guildID, "spam"),
 		Levels:   templateLevels(),
 	})
@@ -67,15 +67,15 @@ func TestCaseTemplateStorageUpdateReplacesChildrenAndIncrementsVersion(t *testin
 	update := templateModel(guildID, "spam-updated")
 	update.Name = "Spam Updated"
 	update.UpdatedByDiscordUserID = "moderator-2"
-	updated, err := store.UpdateCaseTemplate(ctx, storage.UpdateCaseTemplateParams{
+	updated, err := store.UpdateCaseTemplate(ctx, quack.UpdateCaseTemplateParams{
 		GuildID:    guildID,
 		TemplateID: created.Template.ID,
 		Template:   update,
-		Levels: []storage.ExpandedCaseTemplateLevel{
+		Levels: []quack.ExpandedCaseTemplateLevel{
 			{
-				Level: model.CaseTemplateLevel{Position: 1, Name: "Default", IsDefault: true},
-				Actions: []model.CaseTemplateLevelAction{
-					{ActionType: model.ActionTimeoutUser, ConfigJSON: `{"duration_seconds":3600}`},
+				Level: quack.CaseTemplateLevel{Position: 1, Name: "Default", IsDefault: true},
+				Actions: []quack.CaseTemplateLevelAction{
+					{ActionType: quack.ActionTimeoutUser, ConfigJSON: `{"duration_seconds":3600}`},
 				},
 			},
 		},
@@ -86,7 +86,7 @@ func TestCaseTemplateStorageUpdateReplacesChildrenAndIncrementsVersion(t *testin
 	if updated.Template.Version != created.Template.Version+1 {
 		t.Fatalf("expected version increment, got %d then %d", created.Template.Version, updated.Template.Version)
 	}
-	if len(updated.Levels) != 1 || len(updated.Levels[0].Actions) != 1 || updated.Levels[0].Actions[0].ActionType != model.ActionTimeoutUser {
+	if len(updated.Levels) != 1 || len(updated.Levels[0].Actions) != 1 || updated.Levels[0].Actions[0].ActionType != quack.ActionTimeoutUser {
 		t.Fatalf("expected replaced levels and actions, got %+v", updated.Levels)
 	}
 }
@@ -95,7 +95,7 @@ func TestCaseTemplateStorageArchiveHidesFromListButDetailStillWorks(t *testing.T
 	ctx := context.Background()
 	store, guildID := templateTestStore(t)
 
-	created, err := store.CreateCaseTemplate(ctx, storage.CreateCaseTemplateParams{
+	created, err := store.CreateCaseTemplate(ctx, quack.CreateCaseTemplateParams{
 		Template: templateModel(guildID, "spam"),
 		Levels:   templateLevels(),
 	})
@@ -132,7 +132,7 @@ func TestCaseTemplateStorageListOmitsQuarantinedTemplates(t *testing.T) {
 	ctx := context.Background()
 	store, guildID := templateTestStore(t)
 
-	created, err := store.CreateCaseTemplate(ctx, storage.CreateCaseTemplateParams{
+	created, err := store.CreateCaseTemplate(ctx, quack.CreateCaseTemplateParams{
 		Template: templateModel(guildID, "legacy-policy"),
 		Levels:   templateLevels(),
 	})
@@ -157,7 +157,7 @@ func TestCaseTemplateStorageListOmitsQuarantinedTemplates(t *testing.T) {
 	}
 
 	detail, err := store.GetCaseTemplateExpanded(ctx, guildID, created.Template.ID)
-	if detail != nil || !errors.Is(err, model.ErrTemplateCompatibilityReviewRequired) {
+	if detail != nil || !errors.Is(err, quack.ErrTemplateCompatibilityReviewRequired) {
 		t.Fatalf("expected detail compatibility conflict, detail=%+v err=%v", detail, err)
 	}
 }
@@ -166,7 +166,7 @@ func TestCaseTemplateStorageSlugUniquePerGuild(t *testing.T) {
 	ctx := context.Background()
 	store, guildID := templateTestStore(t)
 
-	_, err := store.CreateCaseTemplate(ctx, storage.CreateCaseTemplateParams{
+	_, err := store.CreateCaseTemplate(ctx, quack.CreateCaseTemplateParams{
 		Template: templateModel(guildID, "spam"),
 		Levels:   templateLevels(),
 	})
@@ -174,7 +174,7 @@ func TestCaseTemplateStorageSlugUniquePerGuild(t *testing.T) {
 		t.Fatalf("create template: %v", err)
 	}
 
-	_, err = store.CreateCaseTemplate(ctx, storage.CreateCaseTemplateParams{
+	_, err = store.CreateCaseTemplate(ctx, quack.CreateCaseTemplateParams{
 		Template: templateModel(guildID, "spam"),
 		Levels:   templateLevels(),
 	})
@@ -183,16 +183,16 @@ func TestCaseTemplateStorageSlugUniquePerGuild(t *testing.T) {
 	}
 }
 
-func templateLevels() []storage.ExpandedCaseTemplateLevel {
-	return []storage.ExpandedCaseTemplateLevel{
+func templateLevels() []quack.ExpandedCaseTemplateLevel {
+	return []quack.ExpandedCaseTemplateLevel{
 		{
-			Level: model.CaseTemplateLevel{
+			Level: quack.CaseTemplateLevel{
 				Position:  1,
 				Name:      "Default",
 				IsDefault: true,
 			},
-			Actions: []model.CaseTemplateLevelAction{
-				{ActionType: model.ActionTimeoutUser, ConfigJSON: `{"duration_seconds":3600}`},
+			Actions: []quack.CaseTemplateLevelAction{
+				{ActionType: quack.ActionTimeoutUser, ConfigJSON: `{"duration_seconds":3600}`},
 			},
 		},
 	}
@@ -207,7 +207,7 @@ func templateTestStore(t *testing.T) (*storage.Store, string) {
 		t.Fatalf("migrate schema: %v", err)
 	}
 
-	guild, err := store.UpsertGuild(ctx, storage.UpsertGuildParams{
+	guild, err := store.UpsertGuild(ctx, quack.UpsertGuildParams{
 		DiscordGuildID:     "guild-1",
 		Name:               "Guild",
 		OwnerDiscordUserID: "owner-1",
@@ -219,8 +219,8 @@ func templateTestStore(t *testing.T) (*storage.Store, string) {
 	return store, guild.ID
 }
 
-func templateModel(guildID, slug string) model.CaseTemplate {
-	return model.CaseTemplate{
+func templateModel(guildID, slug string) quack.CaseTemplate {
+	return quack.CaseTemplate{
 		GuildID:                guildID,
 		Slug:                   slug,
 		Name:                   "Spam",

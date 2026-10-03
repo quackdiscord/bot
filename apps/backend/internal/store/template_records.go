@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/quackdiscord/bot/internal/quack/model"
+	"github.com/quackdiscord/bot/internal/quack"
 	"gorm.io/gorm"
 )
 
 // getCaseTemplateExpanded retrieves case template expanded without exposing the underlying adapter implementation.
-func getCaseTemplateExpanded(db *gorm.DB, guildID, templateID string) (*ExpandedCaseTemplate, error) {
+func getCaseTemplateExpanded(db *gorm.DB, guildID, templateID string) (*quack.ExpandedCaseTemplate, error) {
 	var templateRecord CaseTemplateRecord
 	if err := db.Where("id = ? AND guild_id = ?", templateID, guildID).First(&templateRecord).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -25,14 +25,14 @@ func getCaseTemplateExpanded(db *gorm.DB, guildID, templateID string) (*Expanded
 		return nil, fmt.Errorf("get case template compatibility state: %w", compatibilityResult.Error)
 	}
 	if compatibilityResult.RowsAffected > 0 {
-		return nil, &model.TemplateCompatibilityReviewError{
+		return nil, &quack.TemplateCompatibilityReviewError{
 			TemplateID: templateRecord.ID,
 			Reason:     compatibility.Reason,
 		}
 	}
 
 	template := caseTemplateModelFromRecord(templateRecord)
-	var contextFields []model.CaseTemplateContextField
+	var contextFields []quack.CaseTemplateContextField
 	if err := db.Where("template_id = ?", template.ID).Order("position ASC").Find(&contextFields).Error; err != nil {
 		return nil, fmt.Errorf("get case template context fields: %w", err)
 	}
@@ -41,30 +41,30 @@ func getCaseTemplateExpanded(db *gorm.DB, guildID, templateID string) (*Expanded
 		return nil, fmt.Errorf("get case template levels: %w", err)
 	}
 
-	expandedLevels := make([]ExpandedCaseTemplateLevel, 0, len(levelRecords))
+	expandedLevels := make([]quack.ExpandedCaseTemplateLevel, 0, len(levelRecords))
 	for _, levelRecord := range levelRecords {
 		level := caseTemplateLevelModelFromRecord(levelRecord)
 		var actionRecords []CaseTemplateLevelActionRecord
 		if err := db.Where("level_id = ?", level.ID).Order("position ASC").Find(&actionRecords).Error; err != nil {
 			return nil, fmt.Errorf("get case template level actions: %w", err)
 		}
-		actions := make([]model.CaseTemplateLevelAction, 0, len(actionRecords))
+		actions := make([]quack.CaseTemplateLevelAction, 0, len(actionRecords))
 		for _, actionRecord := range actionRecords {
 			actions = append(actions, caseTemplateLevelActionModelFromRecord(actionRecord))
 		}
-		expandedLevels = append(expandedLevels, ExpandedCaseTemplateLevel{
+		expandedLevels = append(expandedLevels, quack.ExpandedCaseTemplateLevel{
 			Level:   level,
 			Actions: actions,
 		})
 	}
 
-	return &ExpandedCaseTemplate{
+	return &quack.ExpandedCaseTemplate{
 		Template: template, ContextFields: contextFields, Levels: expandedLevels,
 	}, nil
 }
 
 // createTemplateContextFields persists validated definitions in their stable display order.
-func createTemplateContextFields(tx *gorm.DB, templateID string, fields []model.CaseTemplateContextField, now time.Time) error {
+func createTemplateContextFields(tx *gorm.DB, templateID string, fields []quack.CaseTemplateContextField, now time.Time) error {
 	for i := range fields {
 		field := fields[i]
 		field.TemplateID = templateID
@@ -79,7 +79,7 @@ func createTemplateContextFields(tx *gorm.DB, templateID string, fields []model.
 }
 
 // createTemplateLevels creates template levels while preserving validation, authorization, and persistence invariants.
-func createTemplateLevels(tx *gorm.DB, templateID string, levels []ExpandedCaseTemplateLevel, now time.Time) error {
+func createTemplateLevels(tx *gorm.DB, templateID string, levels []quack.ExpandedCaseTemplateLevel, now time.Time) error {
 	for i := range levels {
 		level := levels[i].Level
 		level.TemplateID = templateID
@@ -108,7 +108,7 @@ func createTemplateLevels(tx *gorm.DB, templateID string, levels []ExpandedCaseT
 }
 
 // caseTemplateRecordFromModel maps the live template model into the compatibility storage shape.
-func caseTemplateRecordFromModel(template model.CaseTemplate) CaseTemplateRecord {
+func caseTemplateRecordFromModel(template quack.CaseTemplate) CaseTemplateRecord {
 	return CaseTemplateRecord{
 		ULIDModelRecord:        ulidRecordFromModel(template.ULIDModel),
 		GuildID:                template.GuildID,
@@ -127,8 +127,8 @@ func caseTemplateRecordFromModel(template model.CaseTemplate) CaseTemplateRecord
 }
 
 // caseTemplateModelFromRecord omits retired compatibility columns from live behavior.
-func caseTemplateModelFromRecord(record CaseTemplateRecord) model.CaseTemplate {
-	return model.CaseTemplate{
+func caseTemplateModelFromRecord(record CaseTemplateRecord) quack.CaseTemplate {
+	return quack.CaseTemplate{
 		ULIDModel:              ulidModelFromRecord(record.ULIDModelRecord),
 		GuildID:                record.GuildID,
 		Slug:                   record.Slug,
@@ -144,7 +144,7 @@ func caseTemplateModelFromRecord(record CaseTemplateRecord) model.CaseTemplate {
 }
 
 // caseTemplateLevelRecordFromModel stores live level state with inert compatibility defaults.
-func caseTemplateLevelRecordFromModel(level model.CaseTemplateLevel) CaseTemplateLevelRecord {
+func caseTemplateLevelRecordFromModel(level quack.CaseTemplateLevel) CaseTemplateLevelRecord {
 	return CaseTemplateLevelRecord{
 		ULIDModelRecord:  ulidRecordFromModel(level.ULIDModel),
 		TemplateID:       level.TemplateID,
@@ -158,8 +158,8 @@ func caseTemplateLevelRecordFromModel(level model.CaseTemplateLevel) CaseTemplat
 }
 
 // caseTemplateLevelModelFromRecord omits retired compatibility columns from live behavior.
-func caseTemplateLevelModelFromRecord(record CaseTemplateLevelRecord) model.CaseTemplateLevel {
-	return model.CaseTemplateLevel{
+func caseTemplateLevelModelFromRecord(record CaseTemplateLevelRecord) quack.CaseTemplateLevel {
+	return quack.CaseTemplateLevel{
 		ULIDModel:        ulidModelFromRecord(record.ULIDModelRecord),
 		TemplateID:       record.TemplateID,
 		Position:         record.Position,
@@ -171,7 +171,7 @@ func caseTemplateLevelModelFromRecord(record CaseTemplateLevelRecord) model.Case
 }
 
 // caseTemplateLevelActionRecordFromModel stores one live action with inert compatibility defaults.
-func caseTemplateLevelActionRecordFromModel(action model.CaseTemplateLevelAction) CaseTemplateLevelActionRecord {
+func caseTemplateLevelActionRecordFromModel(action quack.CaseTemplateLevelAction) CaseTemplateLevelActionRecord {
 	return CaseTemplateLevelActionRecord{
 		ULIDModelRecord:  ulidRecordFromModel(action.ULIDModel),
 		LevelID:          action.LevelID,
@@ -185,8 +185,8 @@ func caseTemplateLevelActionRecordFromModel(action model.CaseTemplateLevelAction
 }
 
 // caseTemplateLevelActionModelFromRecord omits retired compatibility columns from live behavior.
-func caseTemplateLevelActionModelFromRecord(record CaseTemplateLevelActionRecord) model.CaseTemplateLevelAction {
-	return model.CaseTemplateLevelAction{
+func caseTemplateLevelActionModelFromRecord(record CaseTemplateLevelActionRecord) quack.CaseTemplateLevelAction {
+	return quack.CaseTemplateLevelAction{
 		ULIDModel:  ulidModelFromRecord(record.ULIDModelRecord),
 		LevelID:    record.LevelID,
 		ActionType: record.ActionType,
@@ -196,11 +196,11 @@ func caseTemplateLevelActionModelFromRecord(record CaseTemplateLevelActionRecord
 }
 
 // ulidRecordFromModel maps shared identifier and timestamp fields into storage.
-func ulidRecordFromModel(value model.ULIDModel) ULIDModelRecord {
+func ulidRecordFromModel(value quack.ULIDModel) ULIDModelRecord {
 	return ULIDModelRecord{ID: value.ID, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt}
 }
 
 // ulidModelFromRecord maps shared identifier and timestamp fields into the domain.
-func ulidModelFromRecord(value ULIDModelRecord) model.ULIDModel {
-	return model.ULIDModel{ID: value.ID, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt}
+func ulidModelFromRecord(value ULIDModelRecord) quack.ULIDModel {
+	return quack.ULIDModel{ID: value.ID, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt}
 }

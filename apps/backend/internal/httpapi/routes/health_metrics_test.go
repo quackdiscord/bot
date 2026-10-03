@@ -25,7 +25,7 @@ func (d readyDiscord) Status() (bool, string, int64) { return d.connected, "quac
 
 func TestLivenessDoesNotDependOnExternalServices(t *testing.T) {
 	router := gin.New()
-	SetupRoutes(router, quack.New(nil))
+	SetupRoutes(router, testDeps(nil, nil, nil))
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/livez", nil))
 	if response.Code != http.StatusOK {
@@ -39,7 +39,7 @@ func TestReadinessCoversDependenciesQueueMigrationsAndActions(t *testing.T) {
 	if err := store.Migrate(); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	services := quack.NewWithConfigDependencies(config.Default(), store, nil, nil, readyScheduler{})
+	services := testDeps(store, nil, readyScheduler{})
 	router := gin.New()
 	SetupRoutes(router, services, readyDiscord{connected: true})
 	response := httptest.NewRecorder()
@@ -66,7 +66,8 @@ func TestMetricsRequireTokenAndExposeOnlyAggregateNames(t *testing.T) {
 	}
 	cfg := config.Default()
 	cfg.API.MetricsToken = "metrics-secret"
-	services := quack.NewWithConfigDependencies(cfg, store, nil, nil, readyScheduler{})
+	services := testDeps(store, nil, readyScheduler{})
+	services.Config = cfg
 	router := gin.New()
 	SetupRoutes(router, services)
 	denied := httptest.NewRecorder()

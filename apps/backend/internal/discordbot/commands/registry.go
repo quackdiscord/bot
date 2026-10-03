@@ -96,8 +96,21 @@ func (r *Registry) LookupCommand(name string) (ui.Handler, bool) {
 	return spec.Handler, true
 }
 
+// Options configures command registration and synchronization.
+type Options struct {
+	// AppID is the Discord application ID. It defaults to the session user.
+	AppID string
+	// GuildID, when set, registers commands in one guild instead of globally.
+	GuildID string
+	// Prune deletes registered commands Quack no longer defines.
+	Prune bool
+	// Store caches command hashes so unchanged commands are not re-synced.
+	// If it also exposes Redis(), interactions are deduplicated there.
+	Store CommandHashStore
+}
+
 // Register explicitly wires register so runtime behavior does not depend on init-time registration.
-func Register(session *discordgo.Session, services *quack.Services, componentRegistrars ...ComponentRegistrar) error {
+func Register(session *discordgo.Session, services *quack.Services, opts Options, componentRegistrars ...ComponentRegistrar) error {
 	if session == nil {
 		return errors.New("discord session is not configured")
 	}
@@ -113,7 +126,7 @@ func Register(session *discordgo.Session, services *quack.Services, componentReg
 		return err
 	}
 	dispatcher := interactions.NewDispatcher(services, registry)
-	if provider, ok := services.Store.(interface{ Redis() *redis.Client }); ok {
+	if provider, ok := opts.Store.(interface{ Redis() *redis.Client }); ok {
 		dispatcher.Deduper = interactions.NewRedisInteractionDeduper(provider.Redis(), 15*time.Minute)
 	}
 	for _, register := range componentRegistrars {
@@ -126,7 +139,7 @@ func Register(session *discordgo.Session, services *quack.Services, componentReg
 	}
 	session.AddHandler(dispatcher.Handle)
 
-	appID := strings.TrimSpace(services.Config.Discord.AppID)
+	appID := strings.TrimSpace(opts.AppID)
 	if appID == "" && session.State != nil && session.State.User != nil {
 		appID = session.State.User.ID
 	}
@@ -136,12 +149,10 @@ func Register(session *discordgo.Session, services *quack.Services, componentReg
 
 	syncer := CommandSyncer{
 		Client:       sessionCommandClient{session: session},
-		Cache:        newRedisCommandCache(services.Store),
+		Cache:        newRedisCommandCache(opts.Store),
 		AppID:        appID,
-		PruneEnabled: services.Config.Discord.CommandPrune,
-		GuildID: strings.TrimSpace(
-			services.Config.Discord.CommandGuildID,
-		),
+		PruneEnabled: opts.Prune,
+		GuildID:      strings.TrimSpace(opts.GuildID),
 	}
 	return syncer.Sync(context.Background(), registry.Specs())
 }

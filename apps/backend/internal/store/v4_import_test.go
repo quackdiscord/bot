@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 	"github.com/quackdiscord/bot/internal/v4import"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -46,7 +45,7 @@ func TestV4ImportDryRunIdempotencyIsolationCollisionAndRollback(t *testing.T) {
 		t.Fatalf("unexpected dry-run report: %+v", dry)
 	}
 	var count int64
-	_ = db.Model(&model.Case{}).Count(&count).Error
+	_ = db.Model(&quack.Case{}).Count(&count).Error
 	if count != 0 {
 		t.Fatalf("dry run wrote %d cases", count)
 	}
@@ -58,7 +57,7 @@ func TestV4ImportDryRunIdempotencyIsolationCollisionAndRollback(t *testing.T) {
 	if report.Created != 4 {
 		t.Fatalf("expected four created cases, got %+v", report)
 	}
-	var cases []model.Case
+	var cases []quack.Case
 	if err := db.Order("case_number").Find(&cases).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -66,22 +65,22 @@ func TestV4ImportDryRunIdempotencyIsolationCollisionAndRollback(t *testing.T) {
 		t.Fatalf("expected four cases, got %d", len(cases))
 	}
 	for _, item := range cases {
-		if item.Source != model.CaseSourceV4Import || item.TemplateID != nil || !strings.Contains(item.MetadataJSON, `"historical":true`) {
+		if item.Source != quack.CaseSourceV4Import || item.TemplateID != nil || !strings.Contains(item.MetadataJSON, `"historical":true`) {
 			t.Fatalf("case is not historical-only: %+v", item)
 		}
 		var actions, notifications int64
-		_ = db.Model(&model.CaseActionExecution{}).Where("case_id = ?", item.ID).Count(&actions).Error
-		_ = db.Model(&model.CaseNotification{}).Where("case_id = ?", item.ID).Count(&notifications).Error
+		_ = db.Model(&quack.CaseActionExecution{}).Where("case_id = ?", item.ID).Count(&actions).Error
+		_ = db.Model(&quack.CaseNotification{}).Where("case_id = ?", item.ID).Count(&notifications).Error
 		if actions != 0 || notifications != 0 {
 			t.Fatalf("import created side effects for %s", item.ID)
 		}
 	}
-	member, err := repositories.ListCasesFiltered(context.Background(), model.ListCasesParams{GuildID: importGuildID, TargetDiscordUserID: "member-departed"})
+	member, err := repositories.ListCasesFiltered(context.Background(), quack.ListCasesParams{GuildID: importGuildID, TargetDiscordUserID: "member-departed"})
 	if err != nil || member.Total != 1 {
 		t.Fatalf("member-owned historical projection unavailable: result=%+v err=%v", member, err)
 	}
-	service := quack.NewCaseService(repositories)
-	staffContext := &quack.GuildStaffContext{Guild: &model.Guild{ULIDModel: model.ULIDModel{ID: importGuildID}}, Staff: &model.StaffMember{DiscordUserID: "operator"}, Permissions: map[model.PermissionAction]bool{model.PermissionActionCaseRead: true}}
+	service := quack.NewCaseService(repositories, nil, nil, nil)
+	staffContext := &quack.GuildStaffContext{Guild: &quack.Guild{ULIDModel: quack.ULIDModel{ID: importGuildID}}, Staff: &quack.StaffMember{DiscordUserID: "operator"}, Permissions: map[quack.PermissionAction]bool{quack.PermissionActionCaseRead: true}}
 	staffHistory, err := service.List(context.Background(), staffContext, quack.CaseListInput{})
 	if err != nil || staffHistory.Total != 4 {
 		t.Fatalf("authorized staff history unavailable: result=%+v err=%v", staffHistory, err)
@@ -110,7 +109,7 @@ func TestV4ImportDryRunIdempotencyIsolationCollisionAndRollback(t *testing.T) {
 	if err := importer.Rollback(context.Background(), importGuildID, report.BatchID, "operator"); err != nil {
 		t.Fatalf("rollback import: %v", err)
 	}
-	_ = db.Model(&model.Case{}).Count(&count).Error
+	_ = db.Model(&quack.Case{}).Count(&count).Error
 	if count != 0 {
 		t.Fatalf("rollback left %d cases", count)
 	}
@@ -128,19 +127,19 @@ func TestFinalConstraintsPreserveHistoryAndFlagExpiredActions(t *testing.T) {
 	now := time.Now().UTC()
 	seedImportGuild(t, db)
 	caseID := "01J40000000000000000000011"
-	item := model.Case{ULIDModel: model.ULIDModel{ID: caseID, CreatedAt: now, UpdatedAt: now}, GuildID: importGuildID, CaseNumber: 1, TemplateSnapshotJSON: "{}", TargetDiscordUserID: "member", ModeratorDiscordUserID: "mod", Reason: "preserve", Validity: model.CaseValidityValid, Source: model.CaseSourceDiscord, MetadataJSON: "{}", ContextValuesJSON: "[]"}
+	item := quack.Case{ULIDModel: quack.ULIDModel{ID: caseID, CreatedAt: now, UpdatedAt: now}, GuildID: importGuildID, CaseNumber: 1, TemplateSnapshotJSON: "{}", TargetDiscordUserID: "member", ModeratorDiscordUserID: "mod", Reason: "preserve", Validity: quack.CaseValidityValid, Source: quack.CaseSourceDiscord, MetadataJSON: "{}", ContextValuesJSON: "[]"}
 	if err := db.Create(&item).Error; err != nil {
 		t.Fatal(err)
 	}
 	expired := now.Add(-time.Minute)
-	execution := model.CaseActionExecution{ULIDModel: model.ULIDModel{ID: "01J40000000000000000000012", CreatedAt: now, UpdatedAt: now}, CaseID: caseID, Position: 0, ActionType: model.ActionTimeoutUser, Status: model.ActionExecutionRunning, IdempotencyKey: "preserved-action", ConfigSnapshotJSON: "{}", LeaseExpiresAt: &expired}
+	execution := quack.CaseActionExecution{ULIDModel: quack.ULIDModel{ID: "01J40000000000000000000012", CreatedAt: now, UpdatedAt: now}, CaseID: caseID, Position: 0, ActionType: quack.ActionTimeoutUser, Status: quack.ActionExecutionRunning, IdempotencyKey: "preserved-action", ConfigSnapshotJSON: "{}", LeaseExpiresAt: &expired}
 	if err := db.Create(&execution).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := applyFinalStorageConstraints(db); err != nil {
 		t.Fatalf("apply 0410: %v", err)
 	}
-	var preserved model.Case
+	var preserved quack.Case
 	if err := db.First(&preserved, "id = ?", caseID).Error; err != nil || preserved.Reason != "preserve" {
 		t.Fatalf("history was not preserved: %+v %v", preserved, err)
 	}
@@ -163,11 +162,11 @@ func TestFinalConstraintsPreserveHistoryAndFlagExpiredActions(t *testing.T) {
 	if err := db.Create(&secondDefault).Error; err == nil {
 		t.Fatal("expected one-default-level constraint")
 	}
-	firstAction := CaseTemplateLevelActionRecord{ULIDModelRecord: ULIDModelRecord{ID: "01J40000000000000000000016", CreatedAt: now, UpdatedAt: now}, LevelID: firstLevel.ID, Position: 1, ActionType: model.ActionTimeoutUser, ConfigJSON: "{}", Enabled: true}
+	firstAction := CaseTemplateLevelActionRecord{ULIDModelRecord: ULIDModelRecord{ID: "01J40000000000000000000016", CreatedAt: now, UpdatedAt: now}, LevelID: firstLevel.ID, Position: 1, ActionType: quack.ActionTimeoutUser, ConfigJSON: "{}", Enabled: true}
 	if err := db.Create(&firstAction).Error; err != nil {
 		t.Fatal(err)
 	}
-	secondAction := CaseTemplateLevelActionRecord{ULIDModelRecord: ULIDModelRecord{ID: "01J40000000000000000000017", CreatedAt: now, UpdatedAt: now}, LevelID: firstLevel.ID, Position: 2, ActionType: model.ActionBanUser, ConfigJSON: "{}", Enabled: true}
+	secondAction := CaseTemplateLevelActionRecord{ULIDModelRecord: ULIDModelRecord{ID: "01J40000000000000000000017", CreatedAt: now, UpdatedAt: now}, LevelID: firstLevel.ID, Position: 2, ActionType: quack.ActionBanUser, ConfigJSON: "{}", Enabled: true}
 	if err := db.Create(&secondAction).Error; err == nil {
 		t.Fatal("expected one-enforcement-action constraint")
 	}
@@ -220,7 +219,7 @@ func TestMySQLV4ImportFinalConstraintsAndRestoreSafety(t *testing.T) {
 		}
 	}
 	var caseCount, sourceCount, batchCount int64
-	_ = db.Model(&model.Case{}).Where("guild_id = ? AND source = ?", importGuildID, model.CaseSourceV4Import).Count(&caseCount).Error
+	_ = db.Model(&quack.Case{}).Where("guild_id = ? AND source = ?", importGuildID, quack.CaseSourceV4Import).Count(&caseCount).Error
 	_ = db.Model(&V4ImportSourceRecord{}).Where("guild_id = ?", importGuildID).Count(&sourceCount).Error
 	_ = db.Model(&V4ImportBatchRecord{}).Where("guild_id = ?", importGuildID).Count(&batchCount).Error
 	if caseCount != 4 || sourceCount != 4 || batchCount != 1 {
@@ -231,7 +230,7 @@ func TestMySQLV4ImportFinalConstraintsAndRestoreSafety(t *testing.T) {
 func seedImportGuild(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	now := time.Now().UTC()
-	guild := model.Guild{ULIDModel: model.ULIDModel{ID: importGuildID, CreatedAt: now, UpdatedAt: now}, DiscordGuildID: "discord-import-guild", Name: "Import guild", OwnerDiscordUserID: "owner", IsActive: true}
+	guild := quack.Guild{ULIDModel: quack.ULIDModel{ID: importGuildID, CreatedAt: now, UpdatedAt: now}, DiscordGuildID: "discord-import-guild", Name: "Import guild", OwnerDiscordUserID: "owner", IsActive: true}
 	if err := db.Create(&guild).Error; err != nil {
 		t.Fatal(err)
 	}

@@ -12,9 +12,9 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/gin-gonic/gin"
+	"github.com/quackdiscord/bot/internal/config"
 	"github.com/quackdiscord/bot/internal/httpapi/middleware"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 	storage "github.com/quackdiscord/bot/internal/store"
 	"github.com/quackdiscord/bot/internal/testutil"
 )
@@ -23,7 +23,7 @@ func TestSetupRoutesStatus(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	router := gin.New()
-	SetupRoutes(router, quack.New(nil))
+	SetupRoutes(router, testDeps(nil, nil, nil))
 
 	request := httptest.NewRequest(http.MethodGet, "/status", nil)
 	response := httptest.NewRecorder()
@@ -53,7 +53,7 @@ func TestSetupRoutesStatus(t *testing.T) {
 func TestSetupRoutesMountsCoreModerationRegistrarsInProductionRouter(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	SetupRoutes(router, quack.New(nil))
+	SetupRoutes(router, testDeps(nil, nil, nil))
 
 	routes := map[string]bool{}
 	for _, route := range router.Routes() {
@@ -95,7 +95,7 @@ func TestRequestContextMiddlewareEchoesRequestID(t *testing.T) {
 
 	router := gin.New()
 	router.Use(middleware.RequestContext)
-	SetupRoutes(router, quack.New(nil))
+	SetupRoutes(router, testDeps(nil, nil, nil))
 
 	request := httptest.NewRequest(http.MethodGet, "/status", nil)
 	request.Header.Set("X-Request-ID", "req-test-1")
@@ -120,7 +120,7 @@ func TestOpsStatusRouteRequiresKey(t *testing.T) {
 		t.Fatalf("migrate schema: %v", err)
 	}
 	router := gin.New()
-	services := quack.New(store)
+	services := testDeps(store, nil, nil)
 	services.Config.API.OpsToken = "secret"
 	SetupRoutes(router, services)
 
@@ -176,7 +176,7 @@ func TestOpsStatusDisabledWhenNoKeyConfigured(t *testing.T) {
 		t.Fatalf("migrate schema: %v", err)
 	}
 	router := gin.New()
-	SetupRoutes(router, quack.New(store))
+	SetupRoutes(router, testDeps(store, nil, nil))
 
 	request := httptest.NewRequest(http.MethodGet, "/ops/status", nil)
 	response := httptest.NewRecorder()
@@ -211,11 +211,11 @@ func TestGuildOpsStatusAllowsAdminOrOpsKey(t *testing.T) {
 	if err := store.Migrate(); err != nil {
 		t.Fatalf("migrate schema: %v", err)
 	}
-	if _, err := store.UpsertGuild(context.Background(), storage.UpsertGuildParams{DiscordGuildID: "guild-1", Name: "Guild", OwnerDiscordUserID: "owner-1"}); err != nil {
+	if _, err := store.UpsertGuild(context.Background(), quack.UpsertGuildParams{DiscordGuildID: "guild-1", Name: "Guild", OwnerDiscordUserID: "owner-1"}); err != nil {
 		t.Fatalf("upsert guild: %v", err)
 	}
 	keyRouter := gin.New()
-	services := quack.New(store)
+	services := testDeps(store, nil, nil)
 	services.Config.API.OpsToken = "secret"
 	SetupRoutes(keyRouter, services)
 	keyRequest := httptest.NewRequest(http.MethodGet, "/guilds/guild-1/ops/status", nil)
@@ -236,13 +236,13 @@ func TestGuildMeRouteAuthenticated(t *testing.T) {
 		t.Fatalf("migrate schema: %v", err)
 	}
 
-	services := quack.NewWithDiscordClient(store, routeFakeDiscordClient{
+	services := testDeps(store, routeFakeDiscordClient{
 		userGuilds: []quack.DiscordUserGuild{{
 			ID:          "guild-1",
 			Permissions: uint64(discordgo.PermissionModerateMembers),
 		}},
 		botGuild: &quack.DiscordBotGuild{ID: "guild-1", Name: "Guild", Icon: "icon", OwnerID: "owner-1"},
-	})
+	}, nil)
 
 	session := routeTestSession("user-1")
 	if err := store.SaveSession(context.Background(), session, time.Hour); err != nil {
@@ -291,10 +291,10 @@ func TestGuildMeRouteAuthenticated(t *testing.T) {
 	if body.Staff.IsAdmin || !body.Staff.IsModerator {
 		t.Fatalf("unexpected staff role payload: %+v", body.Staff)
 	}
-	if body.Permissions[string(model.PermissionActionCaseCreate)] != true {
+	if body.Permissions[string(quack.PermissionActionCaseCreate)] != true {
 		t.Fatalf("expected case.create permission")
 	}
-	if body.Permissions[string(model.PermissionActionCaseTemplateWrite)] != false {
+	if body.Permissions[string(quack.PermissionActionCaseTemplateWrite)] != false {
 		t.Fatalf("did not expect case_template.write permission")
 	}
 }
@@ -304,7 +304,7 @@ func TestGuildMeRouteUnauthenticated(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	router := gin.New()
-	SetupRoutes(router, quack.New(nil))
+	SetupRoutes(router, testDeps(nil, nil, nil))
 
 	request := httptest.NewRequest(http.MethodGet, "/guilds/guild-1/me", nil)
 	response := httptest.NewRecorder()
@@ -325,7 +325,7 @@ func TestListUserGuildsRouteAuthenticated(t *testing.T) {
 		t.Fatalf("migrate schema: %v", err)
 	}
 
-	services := quack.NewWithDiscordClient(store, routeFakeDiscordClient{
+	services := testDeps(store, routeFakeDiscordClient{
 		userGuilds: []quack.DiscordUserGuild{
 			{ID: "guild-1", Name: "Guild One", Owner: true},
 			{ID: "guild-2", Name: "Guild Two", Permissions: uint64(discordgo.PermissionManageGuild)},
@@ -333,7 +333,7 @@ func TestListUserGuildsRouteAuthenticated(t *testing.T) {
 			{ID: "guild-4", Name: "Guild Four", Permissions: uint64(discordgo.PermissionModerateMembers)},
 		},
 		botGuilds: []quack.DiscordBotGuild{{ID: "guild-2", Name: "Guild Two"}},
-	})
+	}, nil)
 
 	session := routeTestSession("user-1")
 	if err := store.SaveSession(context.Background(), session, time.Hour); err != nil {
@@ -385,7 +385,7 @@ func TestListUserGuildsRouteUnauthenticated(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	router := gin.New()
-	SetupRoutes(router, quack.New(nil))
+	SetupRoutes(router, testDeps(nil, nil, nil))
 
 	request := httptest.NewRequest(http.MethodGet, "/guilds", nil)
 	response := httptest.NewRecorder()
@@ -553,7 +553,7 @@ func TestGuildSettingsRoutesReadWriteAcknowledgeAndAuditDenied(t *testing.T) {
 	}
 	foundFailure := false
 	for _, audit := range managerAudits {
-		if audit.Action == "guild_settings.update" && audit.Result == model.AuditResultFailure {
+		if audit.Action == "guild_settings.update" && audit.Result == quack.AuditResultFailure {
 			foundFailure = true
 		}
 	}
@@ -585,7 +585,7 @@ func TestGuildSettingsRoutesReadWriteAcknowledgeAndAuditDenied(t *testing.T) {
 	}
 	foundDenied := false
 	for _, audit := range audits {
-		if audit.Action == "authorization.denied" && audit.ResourceID == string(model.PermissionActionGuildSettingsWrite) && audit.Result == model.AuditResultDenied {
+		if audit.Action == "authorization.denied" && audit.ResourceID == string(quack.PermissionActionGuildSettingsWrite) && audit.Result == quack.AuditResultDenied {
 			foundDenied = true
 		}
 	}
@@ -604,7 +604,7 @@ func TestTemplateRouteRejectsQuarantinedLegacyPolicyExplicitly(t *testing.T) {
 			t.Fatalf("drop final constraint %s for compatibility fixture: %v", index, err)
 		}
 	}
-	guild, err := repositories.UpsertGuild(context.Background(), storage.UpsertGuildParams{
+	guild, err := repositories.UpsertGuild(context.Background(), quack.UpsertGuildParams{
 		DiscordGuildID:     "guild-1",
 		Name:               "Guild",
 		OwnerDiscordUserID: "owner-1",
@@ -612,8 +612,8 @@ func TestTemplateRouteRejectsQuarantinedLegacyPolicyExplicitly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("upsert compatibility guild: %v", err)
 	}
-	created, err := repositories.CreateCaseTemplate(context.Background(), storage.CreateCaseTemplateParams{
-		Template: model.CaseTemplate{
+	created, err := repositories.CreateCaseTemplate(context.Background(), quack.CreateCaseTemplateParams{
+		Template: quack.CaseTemplate{
 			GuildID:                guild.ID,
 			Slug:                   "legacy-policy",
 			Name:                   "Legacy policy",
@@ -621,14 +621,14 @@ func TestTemplateRouteRejectsQuarantinedLegacyPolicyExplicitly(t *testing.T) {
 			CreatedByDiscordUserID: "admin-1",
 			UpdatedByDiscordUserID: "admin-1",
 		},
-		Levels: []storage.ExpandedCaseTemplateLevel{
+		Levels: []quack.ExpandedCaseTemplateLevel{
 			{
-				Level: model.CaseTemplateLevel{Position: 1, Name: "Legacy default one", IsDefault: true},
-				Actions: []model.CaseTemplateLevelAction{
-					{ActionType: model.ActionTimeoutUser, ConfigJSON: `{"duration_seconds":3600}`},
+				Level: quack.CaseTemplateLevel{Position: 1, Name: "Legacy default one", IsDefault: true},
+				Actions: []quack.CaseTemplateLevelAction{
+					{ActionType: quack.ActionTimeoutUser, ConfigJSON: `{"duration_seconds":3600}`},
 				},
 			},
-			{Level: model.CaseTemplateLevel{Position: 2, Name: "Legacy default two", IsDefault: true}},
+			{Level: quack.CaseTemplateLevel{Position: 2, Name: "Legacy default two", IsDefault: true}},
 		},
 	})
 	if err != nil {
@@ -643,7 +643,7 @@ func TestTemplateRouteRejectsQuarantinedLegacyPolicyExplicitly(t *testing.T) {
 		ULIDModelRecord:  storage.ULIDModelRecord{ID: "route-compat-action0000000", CreatedAt: now, UpdatedAt: now},
 		LevelID:          firstLevel.ID,
 		Position:         2,
-		ActionType:       model.ActionKickUser,
+		ActionType:       quack.ActionKickUser,
 		ConfigJSON:       `{}`,
 		IdempotencyScope: "case",
 		Enabled:          true,
@@ -689,7 +689,7 @@ func TestCaseRouteRequiresAuth(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	router := gin.New()
-	SetupRoutes(router, quack.New(nil))
+	SetupRoutes(router, testDeps(nil, nil, nil))
 
 	request := httptest.NewRequest(http.MethodPost, "/guilds/guild-1/cases", bytes.NewBufferString(`{}`))
 	request.Header.Set("Content-Type", "application/json")
@@ -991,9 +991,9 @@ func (f routeFakeDiscordClient) GuildAuthorization(ctx context.Context, guildID,
 	return snapshot, nil
 }
 
-func routeTestSession(discordUserID string) *model.AuthSession {
+func routeTestSession(discordUserID string) *quack.AuthSession {
 	now := time.Now().UTC()
-	return &model.AuthSession{
+	return &quack.AuthSession{
 		ID:               "session-1",
 		DiscordUserID:    discordUserID,
 		Username:         "user",
@@ -1022,19 +1022,19 @@ func newTemplateRouteHarnessWithStore(t *testing.T, permissionBits uint64) (*gin
 	if err := store.Migrate(); err != nil {
 		t.Fatalf("migrate schema: %v", err)
 	}
-	if _, err := store.BootstrapGuild(context.Background(), model.BootstrapGuildParams{
+	if _, err := store.BootstrapGuild(context.Background(), quack.BootstrapGuildParams{Starter: quack.StarterTemplate(),
 		DiscordGuildID: "guild-1", Name: "Guild", OwnerDiscordUserID: "owner-1",
 	}); err != nil {
 		t.Fatalf("bootstrap route guild: %v", err)
 	}
 
-	services := quack.NewWithDiscordClient(store, routeFakeDiscordClient{
+	services := testDeps(store, routeFakeDiscordClient{
 		userGuilds: []quack.DiscordUserGuild{{
 			ID:          "guild-1",
 			Permissions: permissionBits,
 		}},
 		botGuild: &quack.DiscordBotGuild{ID: "guild-1", Name: "Guild", OwnerID: "owner-1"},
-	})
+	}, nil)
 
 	session := routeTestSession("user-1")
 	if err := store.SaveSession(context.Background(), session, time.Hour); err != nil {
@@ -1058,7 +1058,7 @@ func newCaseRouteHarness(t *testing.T, permissionBits uint64) (*gin.Engine, stri
 		t.Fatalf("migrate schema: %v", err)
 	}
 
-	guild, err := store.UpsertGuild(context.Background(), storage.UpsertGuildParams{
+	guild, err := store.UpsertGuild(context.Background(), quack.UpsertGuildParams{
 		DiscordGuildID:     "guild-1",
 		Name:               "Guild",
 		OwnerDiscordUserID: "owner-1",
@@ -1066,8 +1066,8 @@ func newCaseRouteHarness(t *testing.T, permissionBits uint64) (*gin.Engine, stri
 	if err != nil {
 		t.Fatalf("upsert guild: %v", err)
 	}
-	template, err := store.CreateCaseTemplate(context.Background(), storage.CreateCaseTemplateParams{
-		Template: model.CaseTemplate{
+	template, err := store.CreateCaseTemplate(context.Background(), quack.CreateCaseTemplateParams{
+		Template: quack.CaseTemplate{
 			GuildID:                guild.ID,
 			Slug:                   "spam",
 			Name:                   "Spam",
@@ -1076,9 +1076,9 @@ func newCaseRouteHarness(t *testing.T, permissionBits uint64) (*gin.Engine, stri
 			CreatedByDiscordUserID: "admin-1",
 			UpdatedByDiscordUserID: "admin-1",
 		},
-		Levels: []storage.ExpandedCaseTemplateLevel{
+		Levels: []quack.ExpandedCaseTemplateLevel{
 			{
-				Level: model.CaseTemplateLevel{Position: 1, Name: "Default", IsDefault: true},
+				Level: quack.CaseTemplateLevel{Position: 1, Name: "Default", IsDefault: true},
 			},
 		},
 	})
@@ -1086,13 +1086,13 @@ func newCaseRouteHarness(t *testing.T, permissionBits uint64) (*gin.Engine, stri
 		t.Fatalf("create template: %v", err)
 	}
 
-	services := quack.NewWithDiscordClient(store, routeFakeDiscordClient{
+	services := testDeps(store, routeFakeDiscordClient{
 		userGuilds: []quack.DiscordUserGuild{{
 			ID:          "guild-1",
 			Permissions: permissionBits,
 		}},
 		botGuild: &quack.DiscordBotGuild{ID: "guild-1", Name: "Guild", OwnerID: "owner-1"},
-	})
+	}, nil)
 
 	session := routeTestSession("user-1")
 	if err := store.SaveSession(context.Background(), session, time.Hour); err != nil {
@@ -1128,4 +1128,17 @@ func caseRoutePayload(templateID, targetDiscordUserID string) string {
 		"target_discord_user_id": "` + targetDiscordUserID + `",
 		"metadata": {"source": "test"}
 	}`
+}
+
+// testDeps builds route dependencies with the default config. store,
+// discord, and scheduler may each be nil.
+func testDeps(store *storage.Store, discord quack.GuildDirectory, scheduler quack.Scheduler) *Deps {
+	deps := &Deps{Config: config.Default()}
+	core := quack.Deps{Guilds: discord, Scheduler: scheduler}
+	if store != nil {
+		deps.Store = store
+		core.Store = store
+	}
+	deps.Services = quack.New(core)
+	return deps
 }

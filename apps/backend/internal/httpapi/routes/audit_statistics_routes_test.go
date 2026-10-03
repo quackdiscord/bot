@@ -6,14 +6,13 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/quackdiscord/bot/internal/quack"
 )
 
 func TestAuditStatisticsRegistrarMountsAuthenticatedGuildRoute(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	group := router.Group("/guilds")
-	RegisterAuditStatisticsStaffRoutes(group, quack.New(nil))
+	RegisterAuditStatisticsStaffRoutes(group, testDeps(nil, nil, nil))
 	found := false
 	for _, route := range router.Routes() {
 		if route.Method == http.MethodGet && route.Path == "/guilds/:discordGuildID/statistics" {

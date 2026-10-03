@@ -6,14 +6,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/quackdiscord/bot/internal/quack/idutil"
-	"github.com/quackdiscord/bot/internal/quack/model"
+	"github.com/quackdiscord/bot/internal/quack"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
 // ListFailedCaseActions returns the active staff-review queue with stable newest-first ordering.
-func (s *Store) ListFailedCaseActions(ctx context.Context, filter model.FailedCaseActionFilter) (*model.FailedCaseActionResult, error) {
+func (s *Store) ListFailedCaseActions(ctx context.Context, filter quack.FailedCaseActionFilter) (*quack.FailedCaseActionResult, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
@@ -28,28 +27,28 @@ func (s *Store) ListFailedCaseActions(ctx context.Context, filter model.FailedCa
 	if offset < 0 {
 		offset = 0
 	}
-	query := s.db.WithContext(ctx).Model(&model.CaseActionExecution{}).Where("status = ? AND dismissed_at IS NULL AND case_id IN (SELECT id FROM cases WHERE guild_id = ?)", model.ActionExecutionFailed, filter.GuildID)
+	query := s.db.WithContext(ctx).Model(&quack.CaseActionExecution{}).Where("status = ? AND dismissed_at IS NULL AND case_id IN (SELECT id FROM cases WHERE guild_id = ?)", quack.ActionExecutionFailed, filter.GuildID)
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
 		return nil, err
 	}
-	var items []model.CaseActionExecution
+	var items []quack.CaseActionExecution
 	if err := query.Order("updated_at DESC, id DESC").Limit(limit).Offset(offset).Find(&items).Error; err != nil {
 		return nil, err
 	}
-	return &model.FailedCaseActionResult{Executions: items, Total: total}, nil
+	return &quack.FailedCaseActionResult{Executions: items, Total: total}, nil
 }
 
 // RetryCaseAction requeues the same immutable action after live authorization has been performed by the service.
-func (s *Store) RetryCaseAction(ctx context.Context, params model.RetryCaseActionParams) (*model.CaseActionExecution, error) {
-	return s.controlCaseAction(ctx, params.GuildID, params.ExecutionID, func(tx *gorm.DB, item *model.CaseActionExecution, now time.Time) error {
-		if item.Status == model.ActionExecutionPending || item.Status == model.ActionExecutionRetrying {
+func (s *Store) RetryCaseAction(ctx context.Context, params quack.RetryCaseActionParams) (*quack.CaseActionExecution, error) {
+	return s.controlCaseAction(ctx, params.GuildID, params.ExecutionID, func(tx *gorm.DB, item *quack.CaseActionExecution, now time.Time) error {
+		if item.Status == quack.ActionExecutionPending || item.Status == quack.ActionExecutionRetrying {
 			return nil
 		}
-		if item.Status != model.ActionExecutionFailed {
+		if item.Status != quack.ActionExecutionFailed {
 			return errors.New("action is not failed")
 		}
-		item.Status = model.ActionExecutionPending
+		item.Status = quack.ActionExecutionPending
 		item.NextRetryAt = nil
 		item.StartedAt = nil
 		item.FinishedAt = nil
@@ -62,7 +61,7 @@ func (s *Store) RetryCaseAction(ctx context.Context, params model.RetryCaseActio
 		if err := tx.Select("*").Save(item).Error; err != nil {
 			return err
 		}
-		event := model.CaseEvent{CaseID: item.CaseID, EventType: model.CaseEventActionRetried, ActorDiscordUserID: params.ActorDiscordUserID, ActorType: "staff", Visibility: model.EventVisibilityStaff, Body: "Action retry requested", MetadataJSON: marshalJSONObject(map[string]any{"execution_id": item.ID})}
+		event := quack.CaseEvent{CaseID: item.CaseID, EventType: quack.CaseEventActionRetried, ActorDiscordUserID: params.ActorDiscordUserID, ActorType: "staff", Visibility: quack.EventVisibilityStaff, Body: "Action retry requested", MetadataJSON: marshalJSONObject(map[string]any{"execution_id": item.ID})}
 		if err := appendCaseEvent(tx, &event, now); err != nil {
 			return err
 		}
@@ -71,12 +70,12 @@ func (s *Store) RetryCaseAction(ctx context.Context, params model.RetryCaseActio
 }
 
 // DismissCaseAction removes a failed action from the active queue without deleting its attempts.
-func (s *Store) DismissCaseAction(ctx context.Context, params model.DismissCaseActionParams) (*model.CaseActionExecution, error) {
-	return s.controlCaseAction(ctx, params.GuildID, params.ExecutionID, func(tx *gorm.DB, item *model.CaseActionExecution, now time.Time) error {
+func (s *Store) DismissCaseAction(ctx context.Context, params quack.DismissCaseActionParams) (*quack.CaseActionExecution, error) {
+	return s.controlCaseAction(ctx, params.GuildID, params.ExecutionID, func(tx *gorm.DB, item *quack.CaseActionExecution, now time.Time) error {
 		if item.DismissedAt != nil {
 			return nil
 		}
-		if item.Status != model.ActionExecutionFailed {
+		if item.Status != quack.ActionExecutionFailed {
 			return errors.New("action is not failed")
 		}
 		item.DismissedAt = &now
@@ -84,7 +83,7 @@ func (s *Store) DismissCaseAction(ctx context.Context, params model.DismissCaseA
 		if err := tx.Select("*").Save(item).Error; err != nil {
 			return err
 		}
-		event := model.CaseEvent{CaseID: item.CaseID, EventType: model.CaseEventActionDismissed, ActorDiscordUserID: params.ActorDiscordUserID, ActorType: "staff", Visibility: model.EventVisibilityStaff, Body: "Action failure dismissed", MetadataJSON: marshalJSONObject(map[string]any{"execution_id": item.ID})}
+		event := quack.CaseEvent{CaseID: item.CaseID, EventType: quack.CaseEventActionDismissed, ActorDiscordUserID: params.ActorDiscordUserID, ActorType: "staff", Visibility: quack.EventVisibilityStaff, Body: "Action failure dismissed", MetadataJSON: marshalJSONObject(map[string]any{"execution_id": item.ID})}
 		if err := appendCaseEvent(tx, &event, now); err != nil {
 			return err
 		}
@@ -93,12 +92,12 @@ func (s *Store) DismissCaseAction(ctx context.Context, params model.DismissCaseA
 }
 
 // controlCaseAction serializes one guild-scoped action control mutation.
-func (s *Store) controlCaseAction(ctx context.Context, guildID, executionID string, mutate func(*gorm.DB, *model.CaseActionExecution, time.Time) error, audit *model.AuditLogEntry) (*model.CaseActionExecution, error) {
+func (s *Store) controlCaseAction(ctx context.Context, guildID, executionID string, mutate func(*gorm.DB, *quack.CaseActionExecution, time.Time) error, audit *quack.AuditLogEntry) (*quack.CaseActionExecution, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
 	now := time.Now().UTC()
-	var item model.CaseActionExecution
+	var item quack.CaseActionExecution
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND case_id IN (SELECT id FROM cases WHERE guild_id = ?)", executionID, guildID).First(&item)
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -119,7 +118,7 @@ func (s *Store) controlCaseAction(ctx context.Context, guildID, executionID stri
 }
 
 // createOptionalActionControlAudit appends caller-provided audit evidence inside the control transaction.
-func createOptionalActionControlAudit(tx *gorm.DB, audit *model.AuditLogEntry, resourceID string, now time.Time) error {
+func createOptionalActionControlAudit(tx *gorm.DB, audit *quack.AuditLogEntry, resourceID string, now time.Time) error {
 	if audit == nil {
 		return nil
 	}
@@ -128,15 +127,17 @@ func createOptionalActionControlAudit(tx *gorm.DB, audit *model.AuditLogEntry, r
 	return createAuditLogEntry(tx, &entry, now)
 }
 
-// QueueCaseReversal appends one explicit reversal execution linked to the original succeeded enforcement.
-func (s *Store) QueueCaseReversal(ctx context.Context, params model.QueueCaseReversalParams) (*model.CaseActionExecution, error) {
+// QueueCaseReversal appends a reversal execution for a succeeded action.
+// The service has already decided the reversal is allowed; this only checks
+// that the original execution belongs to the case.
+func (s *Store) QueueCaseReversal(ctx context.Context, params quack.QueueCaseReversalParams) (*quack.CaseActionExecution, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
 	now := time.Now().UTC()
-	var reversal model.CaseActionExecution
+	var reversal quack.CaseActionExecution
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var original model.CaseActionExecution
+		var original quack.CaseActionExecution
 		result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND case_id = ? AND case_id IN (SELECT id FROM cases WHERE guild_id = ?)", params.OriginalExecutionID, params.CaseID, params.GuildID).First(&original)
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return gorm.ErrRecordNotFound
@@ -144,29 +145,13 @@ func (s *Store) QueueCaseReversal(ctx context.Context, params model.QueueCaseRev
 		if result.Error != nil {
 			return result.Error
 		}
-		if original.Status != model.ActionExecutionSucceeded {
-			return errors.New("only a succeeded action can be reversed")
-		}
-		valid := (original.ActionType == model.ActionTimeoutUser && params.ActionType == model.ActionRemoveTimeout) || (original.ActionType == model.ActionBanUser && params.ActionType == model.ActionUnbanUser)
-		if !valid {
-			return errors.New("reversal does not match original action")
-		}
-		if params.AppealID != nil {
-			var count int64
-			if err := tx.Model(&model.Appeal{}).Where("id = ? AND case_id = ? AND status = ?", *params.AppealID, params.CaseID, model.AppealStatusAccepted).Count(&count).Error; err != nil {
-				return err
-			}
-			if count != 1 {
-				return errors.New("reversal appeal is not accepted for this case")
-			}
-		}
 		var maxPosition int
-		if err := tx.Model(&model.CaseActionExecution{}).Where("case_id = ?", params.CaseID).Select("COALESCE(MAX(position), -1)").Scan(&maxPosition).Error; err != nil {
+		if err := tx.Model(&quack.CaseActionExecution{}).Where("case_id = ?", params.CaseID).Select("COALESCE(MAX(position), -1)").Scan(&maxPosition).Error; err != nil {
 			return fmt.Errorf("find reversal position: %w", err)
 		}
 		originalID := original.ID
-		reversal = model.CaseActionExecution{CaseID: params.CaseID, Position: maxPosition + 1, ActionType: params.ActionType, Status: model.ActionExecutionPending, IdempotencyKey: fmt.Sprintf("case:%s:reversal:%s:%s", params.CaseID, original.ID, params.ActionType), ConfigSnapshotJSON: "{}", SafeForRetry: false, Irreversible: true, ReversalOfExecutionID: &originalID, ReversalAppealID: params.AppealID}
-		var existing model.CaseActionExecution
+		reversal = quack.CaseActionExecution{CaseID: params.CaseID, Position: maxPosition + 1, ActionType: params.ActionType, Status: quack.ActionExecutionPending, IdempotencyKey: fmt.Sprintf("case:%s:reversal:%s:%s", params.CaseID, original.ID, params.ActionType), ConfigSnapshotJSON: "{}", SafeForRetry: false, ReversalOfExecutionID: &originalID, ReversalAppealID: params.AppealID}
+		var existing quack.CaseActionExecution
 		existingResult := tx.Where("idempotency_key = ?", reversal.IdempotencyKey).First(&existing)
 		if existingResult.Error == nil {
 			reversal = existing
@@ -180,7 +165,7 @@ func (s *Store) QueueCaseReversal(ctx context.Context, params model.QueueCaseRev
 		if err := tx.Select("*").Create(&reversal).Error; err != nil {
 			return fmt.Errorf("queue reversal: %w", err)
 		}
-		event := model.CaseEvent{CaseID: params.CaseID, EventType: model.CaseEventReversalQueued, ActorDiscordUserID: params.ActorDiscordUserID, ActorType: "staff", Visibility: model.EventVisibilityStaff, Body: "Action reversal queued", MetadataJSON: marshalJSONObject(map[string]any{"original_execution_id": original.ID, "reversal_execution_id": reversal.ID})}
+		event := quack.CaseEvent{CaseID: params.CaseID, EventType: quack.CaseEventReversalQueued, ActorDiscordUserID: params.ActorDiscordUserID, ActorType: "staff", Visibility: quack.EventVisibilityStaff, Body: "Action reversal queued", MetadataJSON: marshalJSONObject(map[string]any{"original_execution_id": original.ID, "reversal_execution_id": reversal.ID})}
 		if err := appendCaseEvent(tx, &event, now); err != nil {
 			return err
 		}
@@ -202,43 +187,40 @@ func (s *Store) PrepareCaseNotification(ctx context.Context, caseID, channelID, 
 	}
 	updates := map[string]any{"prepared_channel_discord_id": channelID, "updated_at": time.Now().UTC()}
 	if channelID != "" {
-		updates["status"] = model.NotificationPrepared
+		updates["status"] = quack.NotificationPrepared
 	} else {
 		updates["last_error_code"] = "dm_prepare_failed"
 		updates["last_error"] = errorMessage
 	}
-	return s.db.WithContext(ctx).Model(&model.CaseNotification{}).Where("case_id = ? AND status = ?", caseID, model.NotificationPending).Updates(updates).Error
+	return s.db.WithContext(ctx).Model(&quack.CaseNotification{}).Where("case_id = ? AND status = ?", caseID, quack.NotificationPending).Updates(updates).Error
 }
 
 // ClaimCaseNotification claims at most one delivery after enforcement reaches a terminal outcome.
-func (s *Store) ClaimCaseNotification(ctx context.Context, params model.ClaimCaseNotificationParams) (*model.CaseNotification, error) {
+func (s *Store) ClaimCaseNotification(ctx context.Context, params quack.ClaimCaseNotificationParams) (*quack.CaseNotification, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
 	now := time.Now().UTC()
-	var claimed *model.CaseNotification
+	var claimed *quack.CaseNotification
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var active int64
-		if err := tx.Model(&model.CaseActionExecution{}).Where("case_id = ? AND status IN ?", params.CaseID, []model.ActionExecutionStatus{model.ActionExecutionPending, model.ActionExecutionRunning, model.ActionExecutionRetrying}).Count(&active).Error; err != nil {
+		if err := tx.Model(&quack.CaseActionExecution{}).Where("case_id = ? AND status IN ?", params.CaseID, []quack.ActionExecutionStatus{quack.ActionExecutionPending, quack.ActionExecutionRunning, quack.ActionExecutionRetrying}).Count(&active).Error; err != nil {
 			return err
 		}
 		if active > 0 {
 			return nil
 		}
-		var item model.CaseNotification
-		result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("case_id = ? AND (status IN ? OR (status = ? AND lease_expires_at <= ?))", params.CaseID, []model.NotificationStatus{model.NotificationPending, model.NotificationPrepared}, model.NotificationClaimed, now).First(&item)
+		var item quack.CaseNotification
+		result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("case_id = ? AND (status IN ? OR (status = ? AND lease_expires_at <= ?))", params.CaseID, []quack.NotificationStatus{quack.NotificationPending, quack.NotificationPrepared}, quack.NotificationClaimed, now).First(&item)
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil
 		}
 		if result.Error != nil {
 			return result.Error
 		}
-		token, err := idutil.NewULID()
-		if err != nil {
-			return err
-		}
+		token := quack.NewID()
 		expires := now.Add(2 * time.Minute)
-		item.Status = model.NotificationClaimed
+		item.Status = quack.NotificationClaimed
 		item.AttemptCount++
 		item.LeaseToken = token
 		item.LeaseExpiresAt = &expires
@@ -257,7 +239,7 @@ func (s *Store) BeginCaseNotificationDelivery(ctx context.Context, notificationI
 	if s == nil || s.db == nil {
 		return errors.New("database not connected")
 	}
-	result := s.db.WithContext(ctx).Model(&model.CaseNotification{}).Where("id = ? AND lease_token = ? AND status = ?", notificationID, leaseToken, model.NotificationClaimed).Updates(map[string]any{"status": model.NotificationSending, "updated_at": time.Now().UTC()})
+	result := s.db.WithContext(ctx).Model(&quack.CaseNotification{}).Where("id = ? AND lease_token = ? AND status = ?", notificationID, leaseToken, quack.NotificationClaimed).Updates(map[string]any{"status": quack.NotificationSending, "updated_at": time.Now().UTC()})
 	if result.Error != nil {
 		return result.Error
 	}
@@ -268,14 +250,14 @@ func (s *Store) BeginCaseNotificationDelivery(ctx context.Context, notificationI
 }
 
 // CompleteCaseNotification applies a fenced terminal result; stale workers cannot overwrite a later decision.
-func (s *Store) CompleteCaseNotification(ctx context.Context, params model.CompleteCaseNotificationParams) error {
+func (s *Store) CompleteCaseNotification(ctx context.Context, params quack.CompleteCaseNotificationParams) error {
 	if s == nil || s.db == nil {
 		return errors.New("database not connected")
 	}
 	now := time.Now().UTC()
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var item model.CaseNotification
-		result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND lease_token = ? AND status = ?", params.NotificationID, params.LeaseToken, model.NotificationSending).First(&item)
+		var item quack.CaseNotification
+		result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND lease_token = ? AND status = ?", params.NotificationID, params.LeaseToken, quack.NotificationSending).First(&item)
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return errors.New("case notification lease is stale")
 		}
@@ -291,26 +273,26 @@ func (s *Store) CompleteCaseNotification(ctx context.Context, params model.Compl
 		item.LeaseToken = ""
 		item.LeaseExpiresAt = nil
 		item.UpdatedAt = now
-		if params.Status == model.NotificationSent {
+		if params.Status == quack.NotificationSent {
 			item.SentAt = &now
 		}
 		if err := tx.Select("*").Save(&item).Error; err != nil {
 			return err
 		}
-		event := model.CaseEvent{CaseID: item.CaseID, EventType: params.EventType, ActorType: "system", Visibility: model.EventVisibilityPublic, Body: "Member notification delivery updated", MetadataJSON: marshalJSONObject(map[string]any{"status": params.Status})}
+		event := quack.CaseEvent{CaseID: item.CaseID, EventType: params.EventType, ActorType: "system", Visibility: quack.EventVisibilityPublic, Body: "Member notification delivery updated", MetadataJSON: marshalJSONObject(map[string]any{"status": params.Status})}
 		if err := appendCaseEvent(tx, &event, now); err != nil {
 			return err
 		}
-		var caseModel model.Case
+		var caseModel quack.Case
 		if err := tx.Where("id = ?", item.CaseID).First(&caseModel).Error; err != nil {
 			return err
 		}
-		auditResult := model.AuditResultSuccess
+		auditResult := quack.AuditResultSuccess
 		action := "case_notification.sent"
-		if params.Status != model.NotificationSent {
-			auditResult = model.AuditResultFailure
+		if params.Status != quack.NotificationSent {
+			auditResult = quack.AuditResultFailure
 			action = "case_notification.failed"
 		}
-		return createAuditLogEntry(tx, &model.AuditLogEntry{GuildID: caseModel.GuildID, Source: model.AuditSourceSystem, Action: action, ResourceType: "case_notification", ResourceID: item.ID, Result: auditResult, FailureReason: params.ErrorMessage, CorrelationID: caseModel.CorrelationID, MetadataJSON: marshalJSONObject(map[string]any{"case_id": caseModel.ID, "status": params.Status})}, now)
+		return createAuditLogEntry(tx, &quack.AuditLogEntry{GuildID: caseModel.GuildID, Source: quack.AuditSourceSystem, Action: action, ResourceType: "case_notification", ResourceID: item.ID, Result: auditResult, FailureReason: params.ErrorMessage, CorrelationID: caseModel.CorrelationID, MetadataJSON: marshalJSONObject(map[string]any{"case_id": caseModel.ID, "status": params.Status})}, now)
 	})
 }

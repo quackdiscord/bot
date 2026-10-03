@@ -6,20 +6,20 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/quackdiscord/bot/internal/quack/model"
+	"github.com/quackdiscord/bot/internal/quack"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
 // CompleteCaseAction persists the terminal or retry outcome for case action.
-func (s *Store) CompleteCaseAction(ctx context.Context, params CompleteCaseActionParams) error {
+func (s *Store) CompleteCaseAction(ctx context.Context, params quack.CompleteCaseActionParams) error {
 	if s == nil || s.db == nil {
 		return errors.New("database not connected")
 	}
 
 	now := time.Now().UTC()
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var execution model.CaseActionExecution
+		var execution quack.CaseActionExecution
 		query := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", params.ExecutionID)
 		if params.LeaseToken != "" {
 			query = query.Where("lease_token = ?", params.LeaseToken)
@@ -52,10 +52,10 @@ func (s *Store) CompleteCaseAction(ctx context.Context, params CompleteCaseActio
 		if attemptNumber == 0 {
 			attemptNumber = execution.AttemptCount
 		}
-		var attempt model.CaseActionAttempt
+		var attempt quack.CaseActionAttempt
 		attemptResult := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("execution_id = ? AND attempt_number = ?", execution.ID, attemptNumber).First(&attempt)
 		if errors.Is(attemptResult.Error, gorm.ErrRecordNotFound) {
-			attempt = model.CaseActionAttempt{ExecutionID: execution.ID, AttemptNumber: attemptNumber, StartedAt: startedAt, WorkerID: params.WorkerID}
+			attempt = quack.CaseActionAttempt{ExecutionID: execution.ID, AttemptNumber: attemptNumber, StartedAt: startedAt, WorkerID: params.WorkerID}
 			if err := prepareULIDModel(&attempt.ULIDModel, now); err != nil {
 				return err
 			}
@@ -82,7 +82,7 @@ func (s *Store) CompleteCaseAction(ctx context.Context, params CompleteCaseActio
 		execution.LeaseToken = ""
 		execution.LeaseExpiresAt = nil
 		execution.UpdatedAt = now
-		if params.ExecutionStatus == model.ActionExecutionRetrying {
+		if params.ExecutionStatus == quack.ActionExecutionRetrying {
 			execution.FinishedAt = nil
 		}
 		if err := tx.Select("*").Save(&execution).Error; err != nil {
@@ -90,11 +90,11 @@ func (s *Store) CompleteCaseAction(ctx context.Context, params CompleteCaseActio
 		}
 
 		if params.EventType != "" {
-			event := model.CaseEvent{
+			event := quack.CaseEvent{
 				CaseID:       execution.CaseID,
 				EventType:    params.EventType,
 				ActorType:    "system",
-				Visibility:   model.EventVisibilityPublic,
+				Visibility:   quack.EventVisibilityPublic,
 				Body:         params.EventBody,
 				MetadataJSON: params.EventMetadataJSON,
 			}
@@ -114,44 +114,9 @@ func (s *Store) CompleteCaseAction(ctx context.Context, params CompleteCaseActio
 	})
 }
 
-// SkipCaseActions marks case actions as skipped when policy prevents further execution.
-func (s *Store) SkipCaseActions(ctx context.Context, params SkipCaseActionsParams) error {
-	if s == nil || s.db == nil {
-		return errors.New("database not connected")
-	}
-
-	now := time.Now().UTC()
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var executions []model.CaseActionExecution
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("case_id = ? AND position > ? AND status IN ?", params.CaseID, params.AfterPosition, []model.ActionExecutionStatus{model.ActionExecutionPending, model.ActionExecutionRetrying}).
-			Order("position ASC").
-			Find(&executions).Error; err != nil {
-			return fmt.Errorf("list case actions to skip: %w", err)
-		}
-
-		for i := range executions {
-			executions[i].Status = model.ActionExecutionSkipped
-			executions[i].LastErrorCode = "blocked_by_previous_action"
-			executions[i].LastError = params.Reason
-			executions[i].FinishedAt = &now
-			executions[i].NextRetryAt = nil
-			executions[i].UpdatedAt = now
-			if err := tx.Select("*").Save(&executions[i]).Error; err != nil {
-				return fmt.Errorf("skip case action execution: %w", err)
-			}
-			if err := createSkippedCaseActionAudit(tx, executions[i], params, now); err != nil {
-				return err
-			}
-		}
-
-		return nil
-	})
-}
-
 // createCaseActionAudit creates case action audit while preserving validation, authorization, and persistence invariants.
-func createCaseActionAudit(tx *gorm.DB, execution model.CaseActionExecution, params CompleteCaseActionParams, now time.Time) error {
-	var caseModel model.Case
+func createCaseActionAudit(tx *gorm.DB, execution quack.CaseActionExecution, params quack.CompleteCaseActionParams, now time.Time) error {
+	var caseModel quack.Case
 	result := tx.Where("id = ?", execution.CaseID).Limit(1).Find(&caseModel)
 	if result.Error != nil {
 		return fmt.Errorf("get case for action audit: %w", result.Error)
@@ -161,19 +126,19 @@ func createCaseActionAudit(tx *gorm.DB, execution model.CaseActionExecution, par
 	}
 
 	action := "case_action.succeeded"
-	resultValue := model.AuditResultSuccess
+	resultValue := quack.AuditResultSuccess
 	switch params.ExecutionStatus {
-	case model.ActionExecutionRetrying:
+	case quack.ActionExecutionRetrying:
 		action = "case_action.retrying"
-		resultValue = model.AuditResultFailure
-	case model.ActionExecutionFailed:
+		resultValue = quack.AuditResultFailure
+	case quack.ActionExecutionFailed:
 		action = "case_action.failed"
-		resultValue = model.AuditResultFailure
+		resultValue = quack.AuditResultFailure
 	}
 
-	return createAuditLogEntry(tx, &model.AuditLogEntry{
+	return createAuditLogEntry(tx, &quack.AuditLogEntry{
 		GuildID:       caseModel.GuildID,
-		Source:        model.AuditSourceSystem,
+		Source:        quack.AuditSourceSystem,
 		Action:        action,
 		ResourceType:  "case_action_execution",
 		ResourceID:    execution.ID,
@@ -186,37 +151,7 @@ func createCaseActionAudit(tx *gorm.DB, execution model.CaseActionExecution, par
 			"case_number":    caseModel.CaseNumber,
 			"action_type":    execution.ActionType,
 			"attempt_number": params.AttemptNumber,
-			"retrying":       params.ExecutionStatus == model.ActionExecutionRetrying,
-		}),
-	}, now)
-}
-
-// createSkippedCaseActionAudit creates skipped case action audit while preserving validation, authorization, and persistence invariants.
-func createSkippedCaseActionAudit(tx *gorm.DB, execution model.CaseActionExecution, params SkipCaseActionsParams, now time.Time) error {
-	var caseModel model.Case
-	result := tx.Where("id = ?", execution.CaseID).Limit(1).Find(&caseModel)
-	if result.Error != nil {
-		return fmt.Errorf("get case for skipped action audit: %w", result.Error)
-	}
-	if result.RowsAffected == 0 {
-		return nil
-	}
-
-	return createAuditLogEntry(tx, &model.AuditLogEntry{
-		GuildID:       caseModel.GuildID,
-		Source:        model.AuditSourceSystem,
-		Action:        "case_action.skipped",
-		ResourceType:  "case_action_execution",
-		ResourceID:    execution.ID,
-		Result:        model.AuditResultFailure,
-		FailureReason: params.Reason,
-		CorrelationID: firstNonEmpty(params.CorrelationID, execution.CorrelationID, caseModel.CorrelationID),
-		RequestID:     params.RequestID,
-		MetadataJSON: marshalJSONObject(map[string]any{
-			"case_id":                caseModel.ID,
-			"case_number":            caseModel.CaseNumber,
-			"action_type":            execution.ActionType,
-			"blocked_after_position": params.AfterPosition,
+			"retrying":       params.ExecutionStatus == quack.ActionExecutionRetrying,
 		}),
 	}, now)
 }

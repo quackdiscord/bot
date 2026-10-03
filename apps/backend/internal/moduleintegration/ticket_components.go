@@ -10,7 +10,6 @@ import (
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/modules/tickets"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 // ticketActor resolves the current Discord member into module authority.
@@ -33,8 +32,8 @@ func (r *Runtime) ticketActor(ctx ui.Context) (tickets.Actor, error) {
 	}
 	return tickets.Actor{
 		GuildID: guildContext.Guild.ID, DiscordUserID: userID,
-		CanManage:   guildContext.Can(model.PermissionActionGuildSettingsWrite),
-		CanModerate: guildContext.Can(model.PermissionActionTicketResolve),
+		CanManage:   guildContext.Can(quack.PermissionActionGuildSettingsWrite),
+		CanModerate: guildContext.Can(quack.PermissionActionTicketResolve),
 	}, nil
 }
 
@@ -192,7 +191,7 @@ func ticketComponentID(ctx ui.Context) (string, error) {
 // Gateway cache and channel-level overrides never grant guild staff authority.
 func (r *Runtime) ticketTask(ctx ui.Context, task func(context.Context, ui.Responder, tickets.Actor) error) ui.HandlerResult {
 	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
-		taskCtx = quack.ContextWithAuditSource(taskCtx, model.AuditSourceDiscord)
+		taskCtx = quack.ContextWithAuditSource(taskCtx, quack.AuditSourceDiscord)
 		current := ctx
 		current.Context = taskCtx
 		actor, err := r.ticketActor(current)

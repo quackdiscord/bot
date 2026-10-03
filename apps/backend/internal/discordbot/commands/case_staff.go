@@ -7,7 +7,6 @@ import (
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/discordbot/ui/views"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 // handleCaseStaffSubcommand provides privacy-safe Discord case browsing and recovery controls.
@@ -72,7 +71,7 @@ func handleCaseStaffSubcommand(ctx ui.Context, data discordgo.ApplicationCommand
 			if confirm := selected.GetOption("confirm"); confirm == nil || !confirm.BoolValue() {
 				err = quack.ErrCaseValidation
 			} else {
-				_, err = ctx.Services.Actions.Reverse(taskCtx, guildContext, optionStringValue(selected.GetOption("case")), optionStringValue(selected.GetOption("execution")), model.ActionType(optionStringValue(selected.GetOption("action"))))
+				_, err = ctx.Services.Actions.Reverse(taskCtx, guildContext, optionStringValue(selected.GetOption("case")), optionStringValue(selected.GetOption("execution")), quack.ActionType(optionStringValue(selected.GetOption("action"))))
 				response = ui.Content("**Reversal queued**\nThe original action and reversal remain visible in history.", false)
 			}
 		default:

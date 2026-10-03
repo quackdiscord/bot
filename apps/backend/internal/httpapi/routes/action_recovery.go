@@ -9,7 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/quackdiscord/bot/internal/httpapi/middleware"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 // failedActionResponse is the public recovery-queue projection of an action
@@ -18,8 +17,8 @@ import (
 type failedActionResponse struct {
 	ID            string                      `json:"id"`
 	CaseID        string                      `json:"case_id"`
-	ActionType    model.ActionType            `json:"action_type"`
-	Status        model.ActionExecutionStatus `json:"status"`
+	ActionType    quack.ActionType            `json:"action_type"`
+	Status        quack.ActionExecutionStatus `json:"status"`
 	AttemptCount  uint8                       `json:"attempt_count"`
 	MaxRetries    uint8                       `json:"max_retries"`
 	SafeForRetry  bool                        `json:"safe_for_retry"`
@@ -53,7 +52,7 @@ type failedActionEnvelope struct {
 // @Failure 400 {object} map[string]interface{}
 // @Failure 403 {object} map[string]interface{}
 // @Router /guilds/{discordGuildID}/action-failures [get]
-func listFailedActions(c *gin.Context, services *quack.Services) {
+func listFailedActions(c *gin.Context, services *Deps) {
 	limit, offset, err := parsePageInts(c.Query("limit"), c.Query("offset"))
 	if err != nil {
 		apierror.Write(c, http.StatusBadRequest, apierror.CodeValidation, "invalid pagination")
@@ -79,7 +78,7 @@ func listFailedActions(c *gin.Context, services *quack.Services) {
 // @Failure 403 {object} map[string]interface{}
 // @Failure 404 {object} map[string]interface{}
 // @Router /guilds/{discordGuildID}/action-failures/{executionID}/retry [post]
-func retryFailedAction(c *gin.Context, services *quack.Services) {
+func retryFailedAction(c *gin.Context, services *Deps) {
 	result, err := services.Actions.Retry(c.Request.Context(), middleware.GetGuildContext(c), c.Param("executionID"))
 	if err != nil {
 		writeCaseError(c, err)
@@ -102,7 +101,7 @@ func retryFailedAction(c *gin.Context, services *quack.Services) {
 // @Failure 403 {object} map[string]interface{}
 // @Failure 404 {object} map[string]interface{}
 // @Router /guilds/{discordGuildID}/action-failures/{executionID}/dismiss [post]
-func dismissFailedAction(c *gin.Context, services *quack.Services) {
+func dismissFailedAction(c *gin.Context, services *Deps) {
 	result, err := services.Actions.Dismiss(c.Request.Context(), middleware.GetGuildContext(c), c.Param("executionID"))
 	if err != nil {
 		writeCaseError(c, err)
@@ -115,7 +114,7 @@ func dismissFailedAction(c *gin.Context, services *quack.Services) {
 
 // failedActionListResponseFromModel converts the domain pagination result to
 // the documented HTTP shape and guarantees a JSON array for an empty queue.
-func failedActionListResponseFromModel(result *model.FailedCaseActionResult) failedActionListResponse {
+func failedActionListResponseFromModel(result *quack.FailedCaseActionResult) failedActionListResponse {
 	response := failedActionListResponse{
 		Executions: make([]failedActionResponse, 0),
 	}
@@ -133,7 +132,7 @@ func failedActionListResponseFromModel(result *model.FailedCaseActionResult) fai
 
 // failedActionResponseFromModel selects only fields needed for staff recovery
 // and applies the API's snake_case JSON naming.
-func failedActionResponseFromModel(execution model.CaseActionExecution) failedActionResponse {
+func failedActionResponseFromModel(execution quack.CaseActionExecution) failedActionResponse {
 	return failedActionResponse{
 		ID:            execution.ID,
 		CaseID:        execution.CaseID,
@@ -151,7 +150,7 @@ func failedActionResponseFromModel(execution model.CaseActionExecution) failedAc
 
 type reverseActionRequest struct {
 	OriginalExecutionID string           `json:"original_execution_id"`
-	ActionType          model.ActionType `json:"action_type"`
+	ActionType          quack.ActionType `json:"action_type"`
 	AppealID            *string          `json:"appeal_id"`
 	Confirm             bool             `json:"confirm"`
 }
@@ -171,7 +170,7 @@ type reverseActionRequest struct {
 // @Failure 403 {object} map[string]interface{}
 // @Failure 404 {object} map[string]interface{}
 // @Router /guilds/{discordGuildID}/cases/{caseRef}/reversals [post]
-func reverseCaseAction(c *gin.Context, services *quack.Services) {
+func reverseCaseAction(c *gin.Context, services *Deps) {
 	var input reverseActionRequest
 	if err := decodeStrictJSON(c, &input); err != nil || !input.Confirm {
 		apierror.Write(c, http.StatusBadRequest, apierror.CodeValidation, "confirmed reversal payload is required")

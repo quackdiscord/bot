@@ -7,14 +7,14 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-	"github.com/quackdiscord/bot/internal/quack/model"
+	"github.com/quackdiscord/bot/internal/quack"
 	"github.com/redis/go-redis/v9"
 )
 
 func TestOAuthStateConsumeIsSingleUseAndExpires(t *testing.T) {
 	server, adapter := authStoreHarness(t)
 	ctx := context.Background()
-	payload := &model.OAuthState{RedirectTo: "/cases", ResponseMode: "json", CreatedAt: time.Now().UTC()}
+	payload := &quack.OAuthState{RedirectTo: "/cases", ResponseMode: "json", CreatedAt: time.Now().UTC()}
 	if err := adapter.SaveOAuthState(ctx, "state-secret", payload, time.Minute); err != nil {
 		t.Fatalf("save state: %v", err)
 	}
@@ -40,14 +40,14 @@ func TestSessionRoundTripExpiryAndUserRevocation(t *testing.T) {
 	server, adapter := authStoreHarness(t)
 	ctx := context.Background()
 	now := time.Now().UTC()
-	first := &model.AuthSession{
+	first := &quack.AuthSession{
 		ID: "session-one", DiscordUserID: "user-1", Username: "user", AccessToken: "access-secret",
 		RefreshToken: "refresh-secret", CSRFToken: "csrf-secret", TokenExpiresAt: now.Add(time.Hour),
 		SessionExpiresAt: now.Add(time.Hour), CreatedAt: now, LastSeenAt: now,
 	}
 	second := *first
 	second.ID = "session-two"
-	for _, session := range []*model.AuthSession{first, &second} {
+	for _, session := range []*quack.AuthSession{first, &second} {
 		if err := adapter.SaveSession(ctx, session, time.Hour); err != nil {
 			t.Fatalf("save session: %v", err)
 		}
@@ -83,7 +83,7 @@ func TestSessionRoundTripExpiryAndUserRevocation(t *testing.T) {
 func TestAuthStoreUnavailableBehavior(t *testing.T) {
 	adapter := New(nil, nil)
 	ctx := context.Background()
-	if err := adapter.SaveSession(ctx, &model.AuthSession{ID: "id", DiscordUserID: "user"}, time.Minute); err == nil {
+	if err := adapter.SaveSession(ctx, &quack.AuthSession{ID: "id", DiscordUserID: "user"}, time.Minute); err == nil {
 		t.Fatal("expected unavailable SaveSession error")
 	}
 	if _, err := adapter.GetSession(ctx, "id"); err == nil {
@@ -107,7 +107,7 @@ func TestSessionRefreshCannotResurrectRevocation(t *testing.T) {
 	for _, all := range []bool{false, true} {
 		_, adapter := authStoreHarness(t)
 		ctx := context.Background()
-		session := &model.AuthSession{ID: "session", DiscordUserID: "user"}
+		session := &quack.AuthSession{ID: "session", DiscordUserID: "user"}
 		if err := adapter.SaveSession(ctx, session, time.Hour); err != nil {
 			t.Fatal(err)
 		}

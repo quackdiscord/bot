@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/quackdiscord/bot/internal/quack/actionmods"
+	"github.com/quackdiscord/bot/internal/quack"
 )
 
 func TestDiscordActionClassificationRedactsAndProtectsIrreversibleOutcomes(t *testing.T) {
@@ -22,7 +22,7 @@ func TestDiscordActionClassificationRedactsAndProtectsIrreversibleOutcomes(t *te
 		t.Run(test.name, func(t *testing.T) {
 			source := &discordgo.RESTError{Response: &http.Response{StatusCode: test.status}}
 			err := classifyDiscordOperation("ban", source, test.irreversible)
-			var classified actionmods.DiscordError
+			var classified quack.DiscordError
 			if !errors.As(err, &classified) {
 				t.Fatalf("not classified: %v", err)
 			}

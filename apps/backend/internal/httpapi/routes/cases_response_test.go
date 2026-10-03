@@ -5,18 +5,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/quackdiscord/bot/internal/quack/model"
+	"github.com/quackdiscord/bot/internal/quack"
 )
 
 func TestFailedActionListResponseUsesPublicSnakeCaseShape(t *testing.T) {
 	now := time.Date(2026, time.July, 19, 12, 0, 0, 0, time.UTC)
-	result := &model.FailedCaseActionResult{
-		Executions: []model.CaseActionExecution{
+	result := &quack.FailedCaseActionResult{
+		Executions: []quack.CaseActionExecution{
 			{
-				ULIDModel:      model.ULIDModel{ID: "execution-1", CreatedAt: now, UpdatedAt: now},
+				ULIDModel:      quack.ULIDModel{ID: "execution-1", CreatedAt: now, UpdatedAt: now},
 				CaseID:         "case-1",
-				ActionType:     model.ActionBanUser,
-				Status:         model.ActionExecutionFailed,
+				ActionType:     quack.ActionBanUser,
+				Status:         quack.ActionExecutionFailed,
 				AttemptCount:   2,
 				MaxRetries:     3,
 				SafeForRetry:   true,
@@ -46,7 +46,7 @@ func TestFailedActionListResponseUsesPublicSnakeCaseShape(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected execution object, got %T", executions[0])
 	}
-	if action["id"] != "execution-1" || action["case_id"] != "case-1" || action["action_type"] != string(model.ActionBanUser) {
+	if action["id"] != "execution-1" || action["case_id"] != "case-1" || action["action_type"] != string(quack.ActionBanUser) {
 		t.Fatalf("unexpected public action fields: %+v", action)
 	}
 	for _, internalField := range []string{"CaseID", "IdempotencyKey", "LeaseToken", "idempotency_key", "lease_token"} {
@@ -57,7 +57,7 @@ func TestFailedActionListResponseUsesPublicSnakeCaseShape(t *testing.T) {
 }
 
 func TestFailedActionListResponseUsesEmptyArray(t *testing.T) {
-	body, err := json.Marshal(failedActionListResponseFromModel(&model.FailedCaseActionResult{}))
+	body, err := json.Marshal(failedActionListResponseFromModel(&quack.FailedCaseActionResult{}))
 	if err != nil {
 		t.Fatalf("marshal empty failed action response: %v", err)
 	}

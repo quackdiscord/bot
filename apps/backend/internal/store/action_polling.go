@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/quackdiscord/bot/internal/quack/model"
+	"github.com/quackdiscord/bot/internal/quack"
 )
 
 // ListExecutableCaseIDs returns a bounded guild-fair executable-case batch.
@@ -61,10 +61,10 @@ SELECT case_id, guild_id
           case_id ASC
  LIMIT ?`
 	if err := s.db.WithContext(ctx).Raw(query,
-		model.ActionExecutionPending,
-		model.ActionExecutionRetrying,
+		quack.ActionExecutionPending,
+		quack.ActionExecutionRetrying,
 		now,
-		model.ActionExecutionRunning,
+		quack.ActionExecutionRunning,
 		now,
 		s.executableGuildCursor,
 		limit,

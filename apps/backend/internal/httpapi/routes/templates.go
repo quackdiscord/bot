@@ -30,7 +30,7 @@ type templateChangeHandler interface {
 // @Failure 403 {object} map[string]interface{}
 // @Failure 500 {object} map[string]interface{}
 // @Router /guilds/{discordGuildID}/templates [get]
-func listTemplates(c *gin.Context, services *quack.Services) {
+func listTemplates(c *gin.Context, services *Deps) {
 	guildContext := middleware.GetGuildContext(c)
 	templates, err := services.Templates.List(c.Request.Context(), guildContext)
 	if err != nil {
@@ -54,7 +54,7 @@ func listTemplates(c *gin.Context, services *quack.Services) {
 // @Failure 400 {object} map[string]interface{}
 // @Failure 403 {object} map[string]interface{}
 // @Router /guilds/{discordGuildID}/templates [post]
-func createTemplate(c *gin.Context, services *quack.Services) {
+func createTemplate(c *gin.Context, services *Deps) {
 	var input quack.TemplateInput
 	if err := bindTemplateInput(c, &input); err != nil {
 		apierror.Write(c, http.StatusBadRequest, apierror.CodeValidation, "invalid template payload")
@@ -81,7 +81,7 @@ func createTemplate(c *gin.Context, services *quack.Services) {
 // @Failure 403 {object} map[string]interface{}
 // @Failure 404 {object} map[string]interface{}
 // @Router /guilds/{discordGuildID}/templates/{templateID} [get]
-func getTemplate(c *gin.Context, services *quack.Services) {
+func getTemplate(c *gin.Context, services *Deps) {
 	template, err := services.Templates.Get(c.Request.Context(), middleware.GetGuildContext(c), c.Param("templateID"))
 	if err != nil {
 		writeTemplateError(c, err)
@@ -107,7 +107,7 @@ func getTemplate(c *gin.Context, services *quack.Services) {
 // @Failure 404 {object} map[string]interface{}
 // @Failure 409 {object} map[string]interface{}
 // @Router /guilds/{discordGuildID}/templates/{templateID} [patch]
-func updateTemplate(c *gin.Context, services *quack.Services, changes templateChangeHandler) {
+func updateTemplate(c *gin.Context, services *Deps, changes templateChangeHandler) {
 	var input quack.TemplateInput
 	if err := bindTemplateInput(c, &input); err != nil {
 		apierror.Write(c, http.StatusBadRequest, apierror.CodeValidation, "invalid template payload")
@@ -157,7 +157,7 @@ func bindTemplateInput(c *gin.Context, input *quack.TemplateInput) error {
 // @Failure 403 {object} map[string]interface{}
 // @Failure 404 {object} map[string]interface{}
 // @Router /guilds/{discordGuildID}/templates/{templateID} [delete]
-func archiveTemplate(c *gin.Context, services *quack.Services, changes templateChangeHandler) {
+func archiveTemplate(c *gin.Context, services *Deps, changes templateChangeHandler) {
 	template, err := services.Templates.Archive(c.Request.Context(), middleware.GetGuildContext(c), c.Param("templateID"))
 	if err != nil {
 		writeTemplateError(c, err)
@@ -185,7 +185,7 @@ func archiveTemplate(c *gin.Context, services *quack.Services, changes templateC
 // @Failure 403 {object} map[string]interface{}
 // @Failure 404 {object} map[string]interface{}
 // @Router /guilds/{discordGuildID}/templates/{templateID}/restore [post]
-func restoreTemplate(c *gin.Context, services *quack.Services) {
+func restoreTemplate(c *gin.Context, services *Deps) {
 	template, err := services.Templates.Restore(c.Request.Context(), middleware.GetGuildContext(c), c.Param("templateID"))
 	if err != nil {
 		writeTemplateError(c, err)
@@ -205,7 +205,7 @@ func restoreTemplate(c *gin.Context, services *quack.Services) {
 // @Failure 403 {object} map[string]interface{}
 // @Failure 404 {object} map[string]interface{}
 // @Router /guilds/{discordGuildID}/templates/{templateID}/export [get]
-func exportTemplate(c *gin.Context, services *quack.Services) {
+func exportTemplate(c *gin.Context, services *Deps) {
 	policy, err := services.Templates.Export(c.Request.Context(), middleware.GetGuildContext(c), c.Param("templateID"))
 	if err != nil {
 		writeTemplateError(c, err)
@@ -227,7 +227,7 @@ func exportTemplate(c *gin.Context, services *quack.Services) {
 // @Failure 400 {object} map[string]interface{}
 // @Failure 403 {object} map[string]interface{}
 // @Router /guilds/{discordGuildID}/templates/import [post]
-func importTemplate(c *gin.Context, services *quack.Services) {
+func importTemplate(c *gin.Context, services *Deps) {
 	var input quack.TemplateImportInput
 	if err := decodeStrictJSON(c, &input); err != nil {
 		apierror.Write(c, http.StatusBadRequest, apierror.CodeValidation, "invalid import payload")

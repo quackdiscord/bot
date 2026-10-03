@@ -7,7 +7,6 @@ import (
 	"github.com/quackdiscord/bot/internal/httpapi/apierror"
 	"github.com/quackdiscord/bot/internal/httpapi/middleware"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 // requestAppealInformation asks the member for more appeal context.
@@ -143,7 +142,7 @@ func transitionAppeal(c *gin.Context, appeals *quack.AppealService, transition s
 
 type appealReversalRequest struct {
 	OriginalExecutionID string           `json:"original_execution_id"`
-	ActionType          model.ActionType `json:"action_type"`
+	ActionType          quack.ActionType `json:"action_type"`
 	Confirm             bool             `json:"confirm"`
 }
 
@@ -163,7 +162,7 @@ type appealReversalRequest struct {
 // @Failure 404 {object} apierror.Response
 // @Failure 409 {object} apierror.Response
 // @Router /guilds/{discordGuildID}/appeals/{appealID}/reversals [post]
-func reverseAcceptedAppeal(c *gin.Context, services *quack.Services, appeals *quack.AppealService) {
+func reverseAcceptedAppeal(c *gin.Context, services *Deps, appeals *quack.AppealService) {
 	var input appealReversalRequest
 	if err := decodeStrictJSON(c, &input); err != nil || !input.Confirm {
 		apierror.Write(c, http.StatusBadRequest, apierror.CodeValidation, "confirmed reversal payload is required")
@@ -174,7 +173,7 @@ func reverseAcceptedAppeal(c *gin.Context, services *quack.Services, appeals *qu
 		writeAppealError(c, err)
 		return
 	}
-	if appeal.Status != model.AppealStatusAccepted {
+	if appeal.Status != quack.AppealStatusAccepted {
 		writeAppealError(c, quack.ErrAppealConflict)
 		return
 	}

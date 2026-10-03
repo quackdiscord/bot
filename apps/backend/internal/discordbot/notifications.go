@@ -6,7 +6,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordbot/ui/views"
-	"github.com/quackdiscord/bot/internal/quack/actionmods"
+	"github.com/quackdiscord/bot/internal/quack"
 )
 
 // SendDM sends dm through the configured external gateway.
@@ -15,7 +15,7 @@ func (b *Bot) SendDM(ctx context.Context, userID, message string) (map[string]an
 		return nil, err
 	}
 	if b == nil || b.Session == nil {
-		return nil, actionmods.DiscordError{Code: "discord_session_unavailable", Message: "discord session is unavailable", Retryable: true}
+		return nil, quack.DiscordError{Code: "discord_session_unavailable", Message: "discord session is unavailable", Retryable: true}
 	}
 	channel, err := b.Session.UserChannelCreate(userID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 	if err != nil {
@@ -38,7 +38,7 @@ func (b *Bot) PrepareDM(ctx context.Context, userID string) (string, error) {
 		return "", err
 	}
 	if b == nil || b.Session == nil {
-		return "", actionmods.DiscordError{Code: "discord_session_unavailable", Message: "Discord is unavailable", Retryable: true}
+		return "", quack.DiscordError{Code: "discord_session_unavailable", Message: "Discord is unavailable", Retryable: true}
 	}
 	channel, err := b.Session.UserChannelCreate(userID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 	if err != nil {
@@ -70,7 +70,7 @@ func (b *Bot) SendCaseNotification(ctx context.Context, userID, channelID, messa
 		return nil, err
 	}
 	if b == nil || b.Session == nil {
-		return nil, actionmods.DiscordError{Code: "discord_session_unavailable", Message: "Discord is unavailable", Retryable: true}
+		return nil, quack.DiscordError{Code: "discord_session_unavailable", Message: "Discord is unavailable", Retryable: true}
 	}
 	if strings.TrimSpace(channelID) == "" {
 		channel, err := b.Session.UserChannelCreate(userID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))

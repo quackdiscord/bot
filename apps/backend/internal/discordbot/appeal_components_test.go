@@ -20,7 +20,7 @@ func TestRegisterAppealComponentsRequiresCompleteDependencies(t *testing.T) {
 
 func TestRegisterAppealComponentsExposesReversalHandler(t *testing.T) {
 	registry := interactions.NewComponentRegistry()
-	services := quack.New(nil)
+	services := quack.New(quack.Deps{})
 	if err := RegisterAppealComponents(registry, services, quack.NewAppealService(nil)); err != nil {
 		t.Fatalf("register appeal component: %v", err)
 	}

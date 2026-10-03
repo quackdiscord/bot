@@ -9,7 +9,6 @@ import (
 	"github.com/quackdiscord/bot/internal/discordbot/interactions"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 // RegisterAppealComponents exposes explicit accepted-appeal reversal controls without owning the central registry.
@@ -33,8 +32,8 @@ func appealReversalHandler(services *quack.Services, appeals *quack.AppealServic
 		if len(parts) != 3 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
 			return ui.Immediate(ui.Error("This reversal control is invalid."))
 		}
-		actionType := model.ActionType(parts[2])
-		if actionType != model.ActionRemoveTimeout && actionType != model.ActionUnbanUser {
+		actionType := quack.ActionType(parts[2])
+		if actionType != quack.ActionRemoveTimeout && actionType != quack.ActionUnbanUser {
 			return ui.Immediate(ui.Error("This reversal type is invalid."))
 		}
 		appealID, executionID := parts[0], parts[1]
@@ -51,7 +50,7 @@ func appealReversalHandler(services *quack.Services, appeals *quack.AppealServic
 				return nil
 			}
 			appeal, err := appeals.GetStaff(taskCtx, guildContext, appealID)
-			if err != nil || appeal.Status != model.AppealStatusAccepted {
+			if err != nil || appeal.Status != quack.AppealStatusAccepted {
 				_, _ = responder.EditOriginal(ui.ErrorEdit("This appeal is not eligible for reversal."))
 				return nil
 			}

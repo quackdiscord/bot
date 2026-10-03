@@ -13,25 +13,24 @@ import (
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/modules/tickets"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
 // ticketAuthorityStore keeps the regression independent of gateway state and
 // supplies only the durable attribution writes performed by live resolution.
-type ticketAuthorityStore struct{ quack.GuildRepository }
+type ticketAuthorityStore struct{ quack.GuildStore }
 
-func (ticketAuthorityStore) UpsertGuild(context.Context, model.UpsertGuildParams) (*model.Guild, error) {
-	return &model.Guild{ULIDModel: model.ULIDModel{ID: "internal-guild"}, DiscordGuildID: "guild"}, nil
+func (ticketAuthorityStore) UpsertGuild(context.Context, quack.UpsertGuildParams) (*quack.Guild, error) {
+	return &quack.Guild{ULIDModel: quack.ULIDModel{ID: "internal-guild"}, DiscordGuildID: "guild"}, nil
 }
-func (ticketAuthorityStore) UpsertStaffMember(context.Context, model.UpsertStaffMemberParams) (*model.StaffMember, error) {
-	return &model.StaffMember{DiscordUserID: "member"}, nil
+func (ticketAuthorityStore) UpsertStaffMember(context.Context, quack.UpsertStaffMemberParams) (*quack.StaffMember, error) {
+	return &quack.StaffMember{DiscordUserID: "member"}, nil
 }
 
 // ticketAuthorityDiscord exposes a demotion which has not reached gateway cache.
 type ticketAuthorityDiscord struct {
-	quack.DiscordClient
+	quack.GuildDirectory
 	calls int
 }
 
@@ -101,13 +100,13 @@ func TestTicketThreadRepairPreservesCurrentStaffAndRemovesFormerStaff(t *testing
 	}
 }
 
-type appealDestinationStore struct{ quack.Repository }
+type appealDestinationStore struct{}
 
-func (appealDestinationStore) GetGuildSettings(context.Context, string) (*model.GuildSettings, error) {
-	return &model.GuildSettings{AuditMirrorChannelDiscordID: "channel"}, nil
+func (appealDestinationStore) GetGuildSettings(context.Context, string) (*quack.GuildSettings, error) {
+	return &quack.GuildSettings{AuditMirrorChannelDiscordID: "channel"}, nil
 }
-func (appealDestinationStore) GetGuildByID(context.Context, string) (*model.Guild, error) {
-	return &model.Guild{DiscordGuildID: "discord-guild"}, nil
+func (appealDestinationStore) GetGuildByID(context.Context, string) (*quack.Guild, error) {
+	return &quack.Guild{DiscordGuildID: "discord-guild"}, nil
 }
 
 type rejectingAppealDestination struct{ guildID, channelID string }
@@ -133,10 +132,10 @@ func TestTicketCreationHonorsPrivateThreadSetting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Guild{}); err != nil {
+	if err := db.AutoMigrate(&quack.Guild{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Create(&model.Guild{ULIDModel: model.ULIDModel{ID: "internal-guild"}, DiscordGuildID: "guild", IsActive: true}).Error; err != nil {
+	if err := db.Create(&quack.Guild{ULIDModel: quack.ULIDModel{ID: "internal-guild"}, DiscordGuildID: "guild", IsActive: true}).Error; err != nil {
 		t.Fatal(err)
 	}
 	session, err := discordgo.New("Bot test")

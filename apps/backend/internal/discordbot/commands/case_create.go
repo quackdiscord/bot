@@ -8,7 +8,6 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 // caseCommandCreateResult captures the outcome of case command create result for the caller.
@@ -36,7 +35,7 @@ func createCaseFromInteraction(ctx context.Context, services *quack.Services, in
 	if err != nil {
 		return nil, err
 	}
-	if err := services.Guilds.Authorize(ctx, guildContext, model.PermissionActionCaseCreate, model.AuditSourceDiscord); err != nil {
+	if err := services.Guilds.Authorize(ctx, guildContext, quack.PermissionActionCaseCreate, quack.AuditSourceDiscord); err != nil {
 		return nil, err
 	}
 
@@ -50,7 +49,7 @@ func createCaseFromInteraction(ctx context.Context, services *quack.Services, in
 	created, err := services.Cases.Create(ctx, guildContext, quack.CaseInput{
 		TemplateID:              templateID,
 		TargetDiscordUserID:     optionStringValue(userOption),
-		Source:                  model.CaseSourceDiscord,
+		Source:                  quack.CaseSourceDiscord,
 		ContextChannelDiscordID: interaction.ChannelID,
 		ContextValues:           contextValues, EvidenceLinks: evidenceLinksFromOption(add.GetOption("message_link")), IdempotencyKey: interaction.ID,
 	})
@@ -71,7 +70,7 @@ func mergeMessageLinkContext(values []quack.CaseContextValueInput, option *disco
 		existing[value.Key] = struct{}{}
 	}
 	for _, field := range template.ContextFields {
-		if field.FieldType == model.ContextFieldMessageLink {
+		if field.FieldType == quack.ContextFieldMessageLink {
 			if _, ok := existing[field.Key]; !ok {
 				raw, _ := json.Marshal(strings.TrimSpace(option.StringValue()))
 				values = append(values, quack.CaseContextValueInput{Key: field.Key, Value: raw})

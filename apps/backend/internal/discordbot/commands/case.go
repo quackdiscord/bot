@@ -11,7 +11,6 @@ import (
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/discordbot/ui/views"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 // HandleMessageCaseInteraction derives the target from the selected live message and applies the sole active policy, or directs staff to explicit template selection.
@@ -49,7 +48,7 @@ func HandleMessageCaseInteraction(ctx ui.Context) ui.HandlerResult {
 		return ui.Immediate(ui.Ephemeral(ui.Message{Content: "Choose the template that matches this message.", Components: []discordgo.MessageComponent{ui.Row(selectMenu)}, Ephemeral: true}))
 	}
 	template := templates[0]
-	if len(template.ContextFields) > 1 || (len(template.ContextFields) == 1 && template.ContextFields[0].FieldType != model.ContextFieldMessageLink) {
+	if len(template.ContextFields) > 1 || (len(template.ContextFields) == 1 && template.ContextFields[0].FieldType != quack.ContextFieldMessageLink) {
 		return ui.Immediate(ui.Error("Use `/case add` to complete this template's visible context."))
 	}
 	link := fmt.Sprintf("https://discord.com/channels/%s/%s/%s", interaction.GuildID, message.ChannelID, message.ID)
@@ -59,7 +58,7 @@ func HandleMessageCaseInteraction(ctx ui.Context) ui.HandlerResult {
 		values = append(values, quack.CaseContextValueInput{Key: template.ContextFields[0].Key, Value: raw})
 	}
 	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
-		created, createErr := ctx.Services.Cases.Create(taskCtx, guildContext, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: message.Author.ID, Source: model.CaseSourceDiscord, ContextChannelDiscordID: message.ChannelID, ContextMessageDiscordID: message.ID, ContextValues: values, EvidenceLinks: []string{link}, IdempotencyKey: interaction.ID})
+		created, createErr := ctx.Services.Cases.Create(taskCtx, guildContext, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: message.Author.ID, Source: quack.CaseSourceDiscord, ContextChannelDiscordID: message.ChannelID, ContextMessageDiscordID: message.ID, ContextValues: values, EvidenceLinks: []string{link}, IdempotencyKey: interaction.ID})
 		if createErr != nil {
 			_, editErr := responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(createErr)))
 			return editErr
@@ -148,5 +147,5 @@ func validateCaseInteraction(ctx context.Context, services *quack.Services, inte
 	if err != nil {
 		return err
 	}
-	return services.Guilds.Authorize(ctx, guildContext, model.PermissionActionCaseCreate, model.AuditSourceDiscord)
+	return services.Guilds.Authorize(ctx, guildContext, quack.PermissionActionCaseCreate, quack.AuditSourceDiscord)
 }

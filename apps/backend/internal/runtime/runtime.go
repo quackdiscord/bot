@@ -70,7 +70,16 @@ func Run(ctx context.Context, cfg config.Config) (runErr error) {
 			slog.Info("Quack stopped cleanly")
 		}
 	}()
-	services := quack.NewWithConfigDependencies(cfg, repositories, bot, bot, queue)
+	services := quack.New(quack.Deps{
+		Store:            repositories,
+		Guilds:           bot,
+		Enforcer:         bot,
+		Messenger:        bot,
+		Evidence:         bot,
+		Channels:         bot,
+		Scheduler:        queue,
+		DashboardBaseURL: quack.DashboardBaseURL(cfg.API.CORSOrigins),
+	})
 	moduleRuntime, err = moduleintegration.New(ctx, repositories, bot.Session, services, bot)
 	if err != nil {
 		return fmt.Errorf("compose optional modules: %w", err)
@@ -86,7 +95,13 @@ func Run(ctx context.Context, cfg config.Config) (runErr error) {
 	if err := moduleRuntime.RegisterGatewayHandlers(bot.Session); err != nil {
 		return fmt.Errorf("register optional module gateway handlers: %w", err)
 	}
-	if err := commands.Register(bot.Session, services, moduleRuntime.RegisterComponents); err != nil {
+	commandOptions := commands.Options{
+		AppID:   cfg.Discord.AppID,
+		GuildID: cfg.Discord.CommandGuildID,
+		Prune:   cfg.Discord.CommandPrune,
+		Store:   repositories,
+	}
+	if err := commands.Register(bot.Session, services, commandOptions, moduleRuntime.RegisterComponents); err != nil {
 		return fmt.Errorf("register Discord commands and components: %w", err)
 	}
 	if err := bot.Open(); err != nil {
@@ -97,7 +112,7 @@ func Run(ctx context.Context, cfg config.Config) (runErr error) {
 	queueStarted = true
 	slog.InfoContext(ctx, "Action workers started", "workers", cfg.Queue.Workers, "capacity", cfg.Queue.Size)
 
-	return httpapi.Run(ctx, cfg, services, moduleRuntime, bot)
+	return httpapi.Run(ctx, cfg, services, repositories, moduleRuntime, bot)
 }
 
 // closeDiscord bounds adapter close even if an upstream websocket library stalls.

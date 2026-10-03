@@ -23,7 +23,7 @@ import (
 // @Failure 403 {object} map[string]interface{}
 // @Failure 404 {object} map[string]interface{}
 // @Router /guilds/{discordGuildID}/settings [get]
-func getGuildSettings(c *gin.Context, services *quack.Services) {
+func getGuildSettings(c *gin.Context, services *Deps) {
 	settings, err := services.Settings.Get(c.Request.Context(), middleware.GetGuildContext(c))
 	if err != nil {
 		writeGuildSettingsError(c, err)
@@ -46,7 +46,7 @@ func getGuildSettings(c *gin.Context, services *quack.Services) {
 // @Failure 403 {object} map[string]interface{}
 // @Failure 404 {object} map[string]interface{}
 // @Router /guilds/{discordGuildID}/settings [patch]
-func updateGuildSettings(c *gin.Context, services *quack.Services) {
+func updateGuildSettings(c *gin.Context, services *Deps) {
 	var input quack.GuildSettingsInput
 	if err := bindGuildSettingsInput(c, &input); err != nil {
 		writeGuildSettingsError(c, services.Settings.RejectUpdatePayload(c.Request.Context(), middleware.GetGuildContext(c), err))
@@ -71,7 +71,7 @@ func updateGuildSettings(c *gin.Context, services *quack.Services) {
 // @Failure 403 {object} map[string]interface{}
 // @Failure 404 {object} map[string]interface{}
 // @Router /guilds/{discordGuildID}/settings/starter-policy-notice/acknowledge [post]
-func acknowledgeStarterPolicyNotice(c *gin.Context, services *quack.Services) {
+func acknowledgeStarterPolicyNotice(c *gin.Context, services *Deps) {
 	settings, err := services.Settings.AcknowledgeStarterPolicyNotice(c.Request.Context(), middleware.GetGuildContext(c))
 	if err != nil {
 		writeGuildSettingsError(c, err)

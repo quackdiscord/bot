@@ -7,7 +7,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/quackdiscord/bot/internal/httpapi/middleware"
-	"github.com/quackdiscord/bot/internal/quack"
 )
 
 // listMemberOwnedCases uses the authenticated Discord identity rather than current guild membership.
@@ -21,7 +20,7 @@ import (
 // @Success 200 {object} quack.MemberCaseListResponse
 // @Failure 401 {object} map[string]interface{}
 // @Router /members/me/guilds/{guildID}/cases [get]
-func listMemberOwnedCases(c *gin.Context, services *quack.Services) {
+func listMemberOwnedCases(c *gin.Context, services *Deps) {
 	session := middleware.GetAuthSession(c)
 	if session == nil {
 		apierror.Write(c, http.StatusUnauthorized, apierror.CodeAuthentication, "authentication required")
@@ -45,7 +44,7 @@ func listMemberOwnedCases(c *gin.Context, services *quack.Services) {
 // @Failure 401 {object} map[string]interface{}
 // @Failure 404 {object} map[string]interface{}
 // @Router /members/me/cases/{caseID} [get]
-func getMemberOwnedCase(c *gin.Context, services *quack.Services) {
+func getMemberOwnedCase(c *gin.Context, services *Deps) {
 	session := middleware.GetAuthSession(c)
 	if session == nil {
 		apierror.Write(c, http.StatusUnauthorized, apierror.CodeAuthentication, "authentication required")

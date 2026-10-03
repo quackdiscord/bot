@@ -13,7 +13,6 @@ import (
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/discordbot/ui/views"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 func handleContextModal(ctx ui.Context) ui.HandlerResult {
@@ -53,7 +52,7 @@ func handleContextModal(ctx ui.Context) ui.HandlerResult {
 		if resolveTemplateErr != nil || template == nil {
 			return quack.ErrCaseTemplateNotAvailable
 		}
-		created, createErr := ctx.Services.Cases.Create(taskCtx, guildContext, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: draft.TargetDiscordUserID, Source: model.CaseSourceDiscord, ContextChannelDiscordID: draft.ContextChannelDiscordID, ContextMessageDiscordID: draft.ContextMessageDiscordID, ContextValues: orderedValues, EvidenceLinks: draft.EvidenceLinks, IdempotencyKey: draft.Token})
+		created, createErr := ctx.Services.Cases.Create(taskCtx, guildContext, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: draft.TargetDiscordUserID, Source: quack.CaseSourceDiscord, ContextChannelDiscordID: draft.ContextChannelDiscordID, ContextMessageDiscordID: draft.ContextMessageDiscordID, ContextValues: orderedValues, EvidenceLinks: draft.EvidenceLinks, IdempotencyKey: draft.Token})
 		if createErr != nil {
 			_, editErr := responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(createErr)))
 			return editErr
@@ -104,7 +103,7 @@ func handleMessageTemplateComponent(ctx ui.Context) ui.HandlerResult {
 		return ui.Immediate(modal)
 	}
 	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
-		created, createErr := ctx.Services.Cases.Create(taskCtx, guildContext, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: parts[0], Source: model.CaseSourceDiscord, ContextChannelDiscordID: parts[1], ContextMessageDiscordID: parts[2], ContextValues: values, EvidenceLinks: []string{link}, IdempotencyKey: ctx.Interaction.ID})
+		created, createErr := ctx.Services.Cases.Create(taskCtx, guildContext, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: parts[0], Source: quack.CaseSourceDiscord, ContextChannelDiscordID: parts[1], ContextMessageDiscordID: parts[2], ContextValues: values, EvidenceLinks: []string{link}, IdempotencyKey: ctx.Interaction.ID})
 		if createErr != nil {
 			return createErr
 		}
@@ -129,13 +128,13 @@ func contextValuesFromModalFields(data discordgo.ModalSubmitInteractionData, fie
 		}
 		var raw json.RawMessage
 		switch field.FieldType {
-		case model.ContextFieldBoolean:
+		case quack.ContextFieldBoolean:
 			parsed, err := strconv.ParseBool(strings.ToLower(value))
 			if err != nil {
 				return nil, nil, fmt.Errorf("%s must be true or false", field.Label)
 			}
 			raw, _ = json.Marshal(parsed)
-		case model.ContextFieldNumber:
+		case quack.ContextFieldNumber:
 			if _, err := strconv.ParseFloat(value, 64); err != nil {
 				return nil, nil, fmt.Errorf("%s must be a number", field.Label)
 			}
@@ -143,7 +142,7 @@ func contextValuesFromModalFields(data discordgo.ModalSubmitInteractionData, fie
 		default:
 			raw, _ = json.Marshal(value)
 		}
-		if field.FieldType == model.ContextFieldMessageLink {
+		if field.FieldType == quack.ContextFieldMessageLink {
 			evidence = append(evidence, value)
 		}
 		values = append(values, quack.CaseContextValueInput{Key: field.Key, Value: raw})
@@ -154,7 +153,7 @@ func contextValuesFromModalFields(data discordgo.ModalSubmitInteractionData, fie
 func messageLinkContext(template *quack.TemplateResponse, link string) []quack.CaseContextValueInput {
 	values := []quack.CaseContextValueInput{}
 	for _, field := range template.ContextFields {
-		if field.FieldType != model.ContextFieldMessageLink {
+		if field.FieldType != quack.ContextFieldMessageLink {
 			continue
 		}
 		raw, _ := json.Marshal(link)
@@ -214,12 +213,12 @@ func contextDraftModal(draft caseContextDraft) (*discordgo.InteractionResponse, 
 	for _, field := range fields {
 		style := discordgo.TextInputShort
 		maxLength := 1000
-		if field.FieldType == model.ContextFieldLongText {
+		if field.FieldType == quack.ContextFieldLongText {
 			style = discordgo.TextInputParagraph
 			maxLength = 4000
 		}
 		placeholder := "Enter a value"
-		if field.FieldType == model.ContextFieldBoolean {
+		if field.FieldType == quack.ContextFieldBoolean {
 			placeholder = "true or false"
 		}
 		value := ""

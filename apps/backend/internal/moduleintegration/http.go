@@ -15,12 +15,11 @@ import (
 	"github.com/quackdiscord/bot/internal/modules/honeypot"
 	"github.com/quackdiscord/bot/internal/modules/tickets"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 // RegisterHTTP mounts both optional-module route registrars beneath one live,
 // authenticated guild context and applies QP-B's shared safety primitives.
-func (r *Runtime) RegisterHTTP(group *gin.RouterGroup, services *quack.Services, primitives httpplatform.Primitives) error {
+func (r *Runtime) RegisterHTTP(group *gin.RouterGroup, services *quack.Services, cfg config.Config, primitives httpplatform.Primitives) error {
 	if r == nil || r.Tickets == nil || r.Logging == nil || r.Honeypot == nil {
 		return errors.New("optional module HTTP runtime is not configured")
 	}
@@ -30,8 +29,8 @@ func (r *Runtime) RegisterHTTP(group *gin.RouterGroup, services *quack.Services,
 
 	modulesGroup := group.Group("/:discordGuildID/modules")
 	modulesGroup.Use(middleware.RequireGuildContext(services, ""))
-	modulesGroup.Use(moduleRateLimit(primitives, services.Config))
-	modulesGroup.Use(moduleIdempotency(primitives, services.Config, r.Tickets))
+	modulesGroup.Use(moduleRateLimit(primitives, cfg))
+	modulesGroup.Use(moduleIdempotency(primitives, cfg, r.Tickets))
 	// Normalize feature errors before the idempotency layer persists a response;
 	// the global envelope remains the final process-wide safety boundary.
 	modulesGroup.Use(middleware.ErrorEnvelope)
@@ -49,7 +48,7 @@ func resolveHoneypotActor(c *gin.Context) (honeypot.Actor, error) {
 	}
 	return honeypot.Actor{
 		GuildID: guildContext.Guild.ID, DiscordUserID: guildContext.ActorDiscordUserID,
-		CanManage: guildContext.Can(model.PermissionActionGuildSettingsWrite),
+		CanManage: guildContext.Can(quack.PermissionActionGuildSettingsWrite),
 	}, nil
 }
 
@@ -72,10 +71,10 @@ func moduleIdempotency(primitives httpplatform.Primitives, cfg config.Config, ti
 		switch c.Request.Method {
 		case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
 			guild := middleware.GetGuildContext(c)
-			action := model.PermissionActionGuildSettingsWrite
+			action := quack.PermissionActionGuildSettingsWrite
 			path := c.FullPath()
 			if strings.Contains(path, "/tickets/") && (strings.HasSuffix(path, "/resolve") || strings.HasSuffix(path, "/reopen")) {
-				action = model.PermissionActionTicketResolve
+				action = quack.PermissionActionTicketResolve
 			}
 			allowed := guild != nil && guild.Can(action)
 			if strings.HasSuffix(path, "/tickets/:ticketID/cancel") && len(ticketServices) > 0 && ticketServices[0] != nil {
@@ -119,8 +118,8 @@ func resolveTicketActor(c *gin.Context) (tickets.Actor, error) {
 	}
 	return tickets.Actor{
 		GuildID: guildContext.Guild.ID, DiscordUserID: guildContext.ActorDiscordUserID,
-		CanManage:   guildContext.Can(model.PermissionActionGuildSettingsWrite),
-		CanModerate: guildContext.Can(model.PermissionActionTicketResolve),
+		CanManage:   guildContext.Can(quack.PermissionActionGuildSettingsWrite),
+		CanModerate: guildContext.Can(quack.PermissionActionTicketResolve),
 	}, nil
 }
 
@@ -132,6 +131,6 @@ func resolveLoggingActor(c *gin.Context) (generallogging.Actor, error) {
 	}
 	return generallogging.Actor{
 		GuildID: guildContext.Guild.ID, DiscordUserID: guildContext.ActorDiscordUserID,
-		CanManage: guildContext.Can(model.PermissionActionGuildSettingsWrite),
+		CanManage: guildContext.Can(quack.PermissionActionGuildSettingsWrite),
 	}, nil
 }

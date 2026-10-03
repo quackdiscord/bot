@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/quackdiscord/bot/internal/quack/model"
+	"github.com/quackdiscord/bot/internal/quack"
 	r "github.com/redis/go-redis/v9"
 )
 
@@ -46,7 +46,7 @@ return #sessions
 `)
 
 // SaveOAuthState stores short-lived OAuth state so the callback can reject unsolicited or replayed login attempts.
-func (s *Store) SaveOAuthState(ctx context.Context, state string, payload *model.OAuthState, ttl time.Duration) error {
+func (s *Store) SaveOAuthState(ctx context.Context, state string, payload *quack.OAuthState, ttl time.Duration) error {
 	if s == nil || s.redis == nil {
 		return errors.New("redis not connected")
 	}
@@ -64,7 +64,7 @@ func (s *Store) SaveOAuthState(ctx context.Context, state string, payload *model
 }
 
 // ConsumeOAuthState atomically reads and deletes OAuth state so one authorization response cannot be replayed.
-func (s *Store) ConsumeOAuthState(ctx context.Context, state string) (*model.OAuthState, error) {
+func (s *Store) ConsumeOAuthState(ctx context.Context, state string) (*quack.OAuthState, error) {
 	if s == nil || s.redis == nil {
 		return nil, errors.New("redis not connected")
 	}
@@ -78,7 +78,7 @@ func (s *Store) ConsumeOAuthState(ctx context.Context, state string) (*model.OAu
 		return nil, fmt.Errorf("read oauth state: %w", err)
 	}
 
-	var payload model.OAuthState
+	var payload quack.OAuthState
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return nil, fmt.Errorf("unmarshal oauth state: %w", err)
 	}
@@ -87,7 +87,7 @@ func (s *Store) ConsumeOAuthState(ctx context.Context, state string) (*model.OAu
 }
 
 // SaveSession persists the complete authentication session with its configured expiry.
-func (s *Store) SaveSession(ctx context.Context, session *model.AuthSession, ttl time.Duration) error {
+func (s *Store) SaveSession(ctx context.Context, session *quack.AuthSession, ttl time.Duration) error {
 	if s == nil || s.redis == nil {
 		return errors.New("redis not connected")
 	}
@@ -116,7 +116,7 @@ func (s *Store) SaveSession(ctx context.Context, session *model.AuthSession, ttl
 }
 
 // GetSession loads a session by ID and treats a missing Redis key as an unauthenticated request rather than a storage failure.
-func (s *Store) GetSession(ctx context.Context, sessionID string) (*model.AuthSession, error) {
+func (s *Store) GetSession(ctx context.Context, sessionID string) (*quack.AuthSession, error) {
 	if s == nil || s.redis == nil {
 		return nil, errors.New("redis not connected")
 	}
@@ -186,7 +186,7 @@ return 1
 `)
 
 // RefreshSession extends a live session without recreating one revoked by concurrent logout.
-func (s *Store) RefreshSession(ctx context.Context, session *model.AuthSession, ttl time.Duration) (bool, error) {
+func (s *Store) RefreshSession(ctx context.Context, session *quack.AuthSession, ttl time.Duration) (bool, error) {
 	if s == nil || s.redis == nil {
 		return false, errors.New("redis not connected")
 	}
@@ -205,7 +205,7 @@ func (s *Store) RefreshSession(ctx context.Context, session *model.AuthSession, 
 }
 
 // authSessionRecordFromModel maps a domain session into its private Redis representation.
-func authSessionRecordFromModel(session *model.AuthSession) authSessionRecord {
+func authSessionRecordFromModel(session *quack.AuthSession) authSessionRecord {
 	return authSessionRecord{
 		ID: session.ID, DiscordUserID: session.DiscordUserID, Username: session.Username,
 		GlobalName: session.GlobalName, Avatar: session.Avatar, AccessToken: session.AccessToken,
@@ -216,8 +216,8 @@ func authSessionRecordFromModel(session *model.AuthSession) authSessionRecord {
 }
 
 // model maps a private Redis session record back to the domain boundary.
-func (record authSessionRecord) model() *model.AuthSession {
-	return &model.AuthSession{
+func (record authSessionRecord) model() *quack.AuthSession {
+	return &quack.AuthSession{
 		ID: record.ID, DiscordUserID: record.DiscordUserID, Username: record.Username,
 		GlobalName: record.GlobalName, Avatar: record.Avatar, AccessToken: record.AccessToken,
 		RefreshToken: record.RefreshToken, CSRFToken: record.CSRFToken, TokenType: record.TokenType,

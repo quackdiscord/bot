@@ -11,7 +11,6 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 // resolveInteractionGuildContext resolves interaction guild context from authoritative request and repository data.
@@ -50,7 +49,7 @@ func resolveTemplate(ctx context.Context, services *quack.Services, guildContext
 // handleTemplateAutocomplete handles template autocomplete and translates it into the package's application or response contract.
 func handleTemplateAutocomplete(ctx context.Context, services *quack.Services, interaction *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	guildContext, err := resolveInteractionGuildContext(ctx, services, interaction)
-	if err != nil || services.Guilds.Authorize(ctx, guildContext, model.PermissionActionCaseCreate, model.AuditSourceDiscord) != nil {
+	if err != nil || services.Guilds.Authorize(ctx, guildContext, quack.PermissionActionCaseCreate, quack.AuditSourceDiscord) != nil {
 		return autocompleteResponse(nil)
 	}
 

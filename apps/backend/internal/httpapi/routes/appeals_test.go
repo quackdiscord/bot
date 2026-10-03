@@ -15,7 +15,6 @@ import (
 	"github.com/quackdiscord/bot/internal/httpapi/middleware"
 	httpplatform "github.com/quackdiscord/bot/internal/httpapi/platform"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -28,11 +27,11 @@ func TestAppealMemberRoutesReplayOriginalSubmission(t *testing.T) {
 	appeals := quack.NewAppealService(repository)
 	cfg := config.Default()
 	cfg.Limits.MemberRead.Max = 20
-	services := &quack.Services{Config: cfg, Cases: quack.NewCaseService(nil)}
+	services := &Deps{Services: &quack.Services{Cases: quack.NewCaseService(nil, nil, nil, nil)}, Config: cfg}
 	router := gin.New()
 	group := router.Group("/members/me")
 	group.Use(func(c *gin.Context) {
-		c.Set(middleware.ContextSessionKey, &model.AuthSession{DiscordUserID: "target"})
+		c.Set(middleware.ContextSessionKey, &quack.AuthSession{DiscordUserID: "target"})
 		c.Next()
 	})
 	primitives := httpplatform.Primitives{RateLimits: httpplatform.NewRateLimiter(client, "test:appeal:rate:"), Idempotency: httpplatform.NewIdempotencyStore(client, "test:appeal:idempotency:")}
@@ -62,11 +61,11 @@ func TestAppealMemberRoutesReplayOriginalSubmission(t *testing.T) {
 func TestAppealMemberRoutesFailClosedWithoutRedis(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repository := newAppealRouteRepository()
-	services := &quack.Services{Config: config.Default(), Cases: quack.NewCaseService(nil)}
+	services := &Deps{Services: &quack.Services{Cases: quack.NewCaseService(nil, nil, nil, nil)}, Config: config.Default()}
 	router := gin.New()
 	group := router.Group("/members/me")
 	group.Use(func(c *gin.Context) {
-		c.Set(middleware.ContextSessionKey, &model.AuthSession{DiscordUserID: "target"})
+		c.Set(middleware.ContextSessionKey, &quack.AuthSession{DiscordUserID: "target"})
 		c.Next()
 	})
 	primitives := httpplatform.Primitives{RateLimits: httpplatform.NewRateLimiter(nil, ""), Idempotency: httpplatform.NewIdempotencyStore(nil, "")}
@@ -83,25 +82,25 @@ func TestAppealMemberRoutesFailClosedWithoutRedis(t *testing.T) {
 
 type appealRouteRepository struct {
 	mu          sync.Mutex
-	caseModel   model.Case
-	appeal      *model.Appeal
-	events      []model.AppealEvent
+	caseModel   quack.Case
+	appeal      *quack.Appeal
+	events      []quack.AppealEvent
 	createCount int
 }
 
 func newAppealRouteRepository() *appealRouteRepository {
-	return &appealRouteRepository{caseModel: model.Case{ULIDModel: model.ULIDModel{ID: "case-1", CreatedAt: time.Now().UTC()}, GuildID: "guild-1", CaseNumber: 1, TargetDiscordUserID: "target", Reason: "Official reason", Validity: model.CaseValidityValid, TemplateSnapshotJSON: `{"template":{"appealable":true}}`}}
+	return &appealRouteRepository{caseModel: quack.Case{ULIDModel: quack.ULIDModel{ID: "case-1", CreatedAt: time.Now().UTC()}, GuildID: "guild-1", CaseNumber: 1, TargetDiscordUserID: "target", Reason: "Official reason", Validity: quack.CaseValidityValid, TemplateSnapshotJSON: `{"template":{"appealable":true}}`}}
 }
 
-func (r *appealRouteRepository) GetGuildAppealSettings(context.Context, string) (*model.GuildAppealSettings, error) {
+func (r *appealRouteRepository) GetGuildAppealSettings(context.Context, string) (*quack.GuildAppealSettings, error) {
 	return nil, nil
 }
 
-func (r *appealRouteRepository) UpdateGuildAppealSettings(context.Context, model.UpdateGuildAppealSettingsParams) (*model.GuildAppealSettings, error) {
+func (r *appealRouteRepository) UpdateGuildAppealSettings(context.Context, quack.UpdateGuildAppealSettingsParams) (*quack.GuildAppealSettings, error) {
 	return nil, nil
 }
 
-func (r *appealRouteRepository) CreateAppeal(_ context.Context, params model.CreateAppealParams) (*model.Appeal, error) {
+func (r *appealRouteRepository) CreateAppeal(_ context.Context, params quack.CreateAppealParams) (*quack.Appeal, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.createCount++
@@ -114,43 +113,43 @@ func (r *appealRouteRepository) CreateAppeal(_ context.Context, params model.Cre
 	event.AppealID = item.ID
 	event.CreatedAt = item.CreatedAt
 	r.appeal = &item
-	r.events = []model.AppealEvent{event}
+	r.events = []quack.AppealEvent{event}
 	return &item, nil
 }
 
-func (r *appealRouteRepository) GetAppealByID(context.Context, string) (*model.Appeal, error) {
+func (r *appealRouteRepository) GetAppealByID(context.Context, string) (*quack.Appeal, error) {
 	return r.appeal, nil
 }
 
-func (r *appealRouteRepository) GetAppealByCaseID(context.Context, string) (*model.Appeal, error) {
+func (r *appealRouteRepository) GetAppealByCaseID(context.Context, string) (*quack.Appeal, error) {
 	return r.appeal, nil
 }
 
-func (r *appealRouteRepository) ListAppeals(context.Context, model.AppealListParams) (*model.AppealListResult, error) {
-	return &model.AppealListResult{}, nil
+func (r *appealRouteRepository) ListAppeals(context.Context, quack.AppealListParams) (*quack.AppealListResult, error) {
+	return &quack.AppealListResult{}, nil
 }
 
-func (r *appealRouteRepository) ListAppealEvents(context.Context, string) ([]model.AppealEvent, error) {
-	return append([]model.AppealEvent(nil), r.events...), nil
+func (r *appealRouteRepository) ListAppealEvents(context.Context, string) ([]quack.AppealEvent, error) {
+	return append([]quack.AppealEvent(nil), r.events...), nil
 }
 
-func (r *appealRouteRepository) AppendAppealInformation(context.Context, model.AppendAppealInformationParams) (*model.Appeal, error) {
+func (r *appealRouteRepository) AppendAppealInformation(context.Context, quack.AppendAppealInformationParams) (*quack.Appeal, error) {
 	return r.appeal, nil
 }
 
-func (r *appealRouteRepository) TransitionAppeal(context.Context, model.TransitionAppealParams) (*model.Appeal, error) {
+func (r *appealRouteRepository) TransitionAppeal(context.Context, quack.TransitionAppealParams) (*quack.Appeal, error) {
 	return r.appeal, nil
 }
 
-func (r *appealRouteRepository) ClaimPendingAppealNotifications(context.Context, int) ([]model.AppealNotification, error) {
+func (r *appealRouteRepository) ClaimPendingAppealNotifications(context.Context, int) ([]quack.AppealNotification, error) {
 	return nil, nil
 }
 
-func (r *appealRouteRepository) CompleteAppealNotification(context.Context, model.CompleteAppealNotificationParams) error {
+func (r *appealRouteRepository) CompleteAppealNotification(context.Context, quack.CompleteAppealNotificationParams) error {
 	return nil
 }
 
-func (r *appealRouteRepository) GetCaseByID(_ context.Context, id string) (*model.Case, error) {
+func (r *appealRouteRepository) GetCaseByID(_ context.Context, id string) (*quack.Case, error) {
 	if id != r.caseModel.ID {
 		return nil, nil
 	}
@@ -158,10 +157,10 @@ func (r *appealRouteRepository) GetCaseByID(_ context.Context, id string) (*mode
 	return &item, nil
 }
 
-func (r *appealRouteRepository) ListCaseActionExecutions(context.Context, string) ([]model.CaseActionExecution, error) {
+func (r *appealRouteRepository) ListCaseActionExecutions(context.Context, string) ([]quack.CaseActionExecution, error) {
 	return nil, nil
 }
 
-func (r *appealRouteRepository) CreateAuditLogEntry(context.Context, *model.AuditLogEntry) error {
+func (r *appealRouteRepository) CreateAuditLogEntry(context.Context, *quack.AuditLogEntry) error {
 	return nil
 }

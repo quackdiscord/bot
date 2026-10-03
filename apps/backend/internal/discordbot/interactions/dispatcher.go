@@ -14,7 +14,6 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 // CommandLookup groups the command lookup state used to keep this package's responsibilities explicit.
@@ -119,7 +118,7 @@ func (d *Dispatcher) execute(session *discordgo.Session, interaction *discordgo.
 	if interaction != nil && !d.interactionDeduper().Claim(interaction.ID) {
 		return
 	}
-	ctx := quack.ContextWithAuditSource(interactionTraceContext(interaction), model.AuditSourceDiscord)
+	ctx := quack.ContextWithAuditSource(interactionTraceContext(interaction), quack.AuditSourceDiscord)
 	result := d.safeHandle(ctx, session, interaction, name, handler)
 	if result.Response == nil {
 		return

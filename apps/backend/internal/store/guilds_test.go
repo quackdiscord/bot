@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"github.com/quackdiscord/bot/internal/quack"
 	"testing"
 
 	storage "github.com/quackdiscord/bot/internal/store"
@@ -13,7 +14,7 @@ func TestStaffUpsertRefreshesActivity(t *testing.T) {
 	store := testutil.NewSQLiteStore(t)
 	migrateStore(t, store)
 
-	guild, err := store.UpsertGuild(ctx, storage.UpsertGuildParams{
+	guild, err := store.UpsertGuild(ctx, quack.UpsertGuildParams{
 		DiscordGuildID:     "100",
 		Name:               "Quack Test",
 		OwnerDiscordUserID: "200",
@@ -22,7 +23,7 @@ func TestStaffUpsertRefreshesActivity(t *testing.T) {
 		t.Fatalf("upsert guild: %v", err)
 	}
 
-	staff, err := store.UpsertStaffMember(ctx, storage.UpsertStaffMemberParams{
+	staff, err := store.UpsertStaffMember(ctx, quack.UpsertStaffMemberParams{
 		GuildID:                guild.ID,
 		DiscordUserID:          "300",
 		LastSeenPermissionBits: 1,
@@ -35,7 +36,7 @@ func TestStaffUpsertRefreshesActivity(t *testing.T) {
 		t.Fatalf("expected last active time to be set")
 	}
 
-	updated, err := store.UpsertStaffMember(ctx, storage.UpsertStaffMemberParams{
+	updated, err := store.UpsertStaffMember(ctx, quack.UpsertStaffMemberParams{
 		GuildID:                guild.ID,
 		DiscordUserID:          "300",
 		LastSeenPermissionBits: 64,

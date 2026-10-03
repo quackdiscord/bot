@@ -14,7 +14,6 @@ import (
 	"github.com/quackdiscord/bot/internal/config"
 	"github.com/quackdiscord/bot/internal/httpapi/apierror"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 const (
@@ -22,9 +21,16 @@ const (
 	ContextUserIDKey  = "auth_user_id"
 )
 
+// SessionStore loads, refreshes, and deletes dashboard sessions.
+type SessionStore interface {
+	GetSession(ctx context.Context, sessionID string) (*quack.AuthSession, error)
+	RefreshSession(ctx context.Context, session *quack.AuthSession, ttl time.Duration) (bool, error)
+	DeleteSession(ctx context.Context, sessionID string) error
+}
+
 // RequireAuth is a middleware function that requires a valid authentication session
 // Accepts bearer token or auth cookie
-func RequireAuth(s quack.Repository, auth config.Auth) gin.HandlerFunc {
+func RequireAuth(s SessionStore, auth config.Auth) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		sessionID := ExtractSessionID(c, auth.SessionCookieName)
 		if sessionID == "" {
@@ -121,13 +127,13 @@ func expireAuthCookies(c *gin.Context, auth config.Auth) {
 }
 
 // GetAuthSession retrieves the auth session from Gin context
-func GetAuthSession(c *gin.Context) *model.AuthSession {
+func GetAuthSession(c *gin.Context) *quack.AuthSession {
 	v, ok := c.Get(ContextSessionKey)
 	if !ok {
 		return nil
 	}
 
-	session, ok := v.(*model.AuthSession)
+	session, ok := v.(*quack.AuthSession)
 	if !ok {
 		return nil
 	}

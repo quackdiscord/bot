@@ -13,8 +13,6 @@ import (
 	"github.com/quackdiscord/bot/internal/httpapi/middleware"
 	httpplatform "github.com/quackdiscord/bot/internal/httpapi/platform"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/idutil"
-	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 const (
@@ -53,7 +51,7 @@ type discordUserResponse struct {
 }
 
 // setupAuthRoutes explicitly wires setup auth routes so runtime behavior does not depend on init-time registration.
-func setupAuthRoutes(r *gin.Engine, services *quack.Services) {
+func setupAuthRoutes(r *gin.Engine, services *Deps) {
 	auth := r.Group("/auth")
 	primitives := httpplatform.FromRepository(services.Store)
 	oauthLimit := httpplatform.RateLimit{
@@ -82,7 +80,7 @@ func setupAuthRoutes(r *gin.Engine, services *quack.Services) {
 // @Success 302 {string} string
 // @Failure 503 {object} apierror.Response
 // @Router /auth/discord/login [get]
-func discordLogin(c *gin.Context, services *quack.Services) {
+func discordLogin(c *gin.Context, services *Deps) {
 	if err := validateDiscordOAuthConfig(services.Config); err != nil {
 		apierror.Write(c, http.StatusServiceUnavailable, apierror.CodeDependency, "Discord sign-in is unavailable")
 		return
@@ -93,15 +91,11 @@ func discordLogin(c *gin.Context, services *quack.Services) {
 		mode = "redirect"
 	}
 
-	stateID, err := idutil.NewULID()
-	if err != nil {
-		apierror.Write(c, http.StatusInternalServerError, apierror.CodeInternal, "could not start Discord sign-in")
-		return
-	}
+	stateID := quack.NewID()
 
 	redirectTo := sanitizeRedirectTarget(c.Query("redirect_to"), services.Config.Auth.PostLoginRedirect)
 	stateTTL := services.Config.Auth.StateTTL
-	statePayload := &model.OAuthState{
+	statePayload := &quack.OAuthState{
 		RedirectTo:   redirectTo,
 		ResponseMode: mode,
 		CreatedAt:    time.Now().UTC(),
@@ -139,7 +133,7 @@ func discordLogin(c *gin.Context, services *quack.Services) {
 // @Failure 401 {object} apierror.Response
 // @Failure 503 {object} apierror.Response
 // @Router /auth/discord/callback [get]
-func discordCallback(c *gin.Context, services *quack.Services) {
+func discordCallback(c *gin.Context, services *Deps) {
 	if err := validateDiscordOAuthConfig(services.Config); err != nil {
 		apierror.Write(c, http.StatusServiceUnavailable, apierror.CodeDependency, "Discord sign-in is unavailable")
 		return
@@ -191,11 +185,7 @@ func discordCallback(c *gin.Context, services *quack.Services) {
 		return
 	}
 
-	sessionID, err := idutil.NewULID()
-	if err != nil {
-		apierror.Write(c, http.StatusInternalServerError, apierror.CodeInternal, "could not create authentication session")
-		return
-	}
+	sessionID := quack.NewID()
 	csrfToken, err := middleware.NewCSRFToken()
 	if err != nil {
 		apierror.Write(c, http.StatusInternalServerError, apierror.CodeInternal, "could not create authentication session")
@@ -204,7 +194,7 @@ func discordCallback(c *gin.Context, services *quack.Services) {
 
 	now := time.Now().UTC()
 	sessionTTL := services.Config.Auth.SessionTTL
-	session := &model.AuthSession{
+	session := &quack.AuthSession{
 		ID:               sessionID,
 		DiscordUserID:    user.ID,
 		Username:         user.Username,
@@ -285,7 +275,7 @@ func authMe(c *gin.Context) {
 // @Success 204
 // @Failure 503 {object} apierror.Response
 // @Router /auth/logout [post]
-func authLogout(c *gin.Context, services *quack.Services) {
+func authLogout(c *gin.Context, services *Deps) {
 	session := middleware.GetAuthSession(c)
 	if session != nil {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
@@ -309,7 +299,7 @@ func authLogout(c *gin.Context, services *quack.Services) {
 // @Failure 401 {object} apierror.Response
 // @Failure 503 {object} apierror.Response
 // @Router /auth/logout-all [post]
-func authLogoutAll(c *gin.Context, services *quack.Services) {
+func authLogoutAll(c *gin.Context, services *Deps) {
 	session := middleware.GetAuthSession(c)
 	if session == nil {
 		apierror.Write(c, http.StatusUnauthorized, apierror.CodeAuthentication, "authentication required")

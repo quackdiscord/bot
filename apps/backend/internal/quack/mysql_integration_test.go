@@ -10,9 +10,7 @@ import (
 	"time"
 
 	mysqlconfig "github.com/go-sql-driver/mysql"
-	"github.com/quackdiscord/bot/internal/config"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 	"github.com/quackdiscord/bot/internal/store"
 	gormmysql "gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -27,21 +25,21 @@ func TestMySQLConcurrentCaseCreationSelectsDistinctEscalation(t *testing.T) {
 
 	ctx := context.Background()
 	suffix := fmt.Sprint(time.Now().UTC().UnixNano())
-	guild, err := repositories.UpsertGuild(ctx, model.UpsertGuildParams{
+	guild, err := repositories.UpsertGuild(ctx, quack.UpsertGuildParams{
 		DiscordGuildID: "integration-" + suffix, Name: "Integration", OwnerDiscordUserID: "owner",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	staff := &model.StaffMember{GuildID: guild.ID, DiscordUserID: "moderator"}
+	staff := &quack.StaffMember{GuildID: guild.ID, DiscordUserID: "moderator"}
 	guildContext := &quack.GuildStaffContext{
 		Guild: guild, Staff: staff, IsAdmin: true, IsModerator: true,
-		Permissions: map[model.PermissionAction]bool{
-			model.PermissionActionCaseTemplateWrite: true,
-			model.PermissionActionCaseCreate:        true,
+		Permissions: map[quack.PermissionAction]bool{
+			quack.PermissionActionCaseTemplateWrite: true,
+			quack.PermissionActionCaseCreate:        true,
 		},
 	}
-	services := quack.NewWithConfigDependencies(config.Default(), repositories, nil, nil, nil)
+	services := quack.New(quack.Deps{Store: repositories})
 	template, err := services.Templates.Create(ctx, guildContext, quack.TemplateInput{
 		Slug: "concurrent-" + suffix, Name: "Concurrent", Description: "Integration", ReasonTemplate: "Reason",
 		Levels: []quack.TemplateLevelInput{
@@ -104,15 +102,15 @@ func TestMySQLConcurrentCaseCreationAndVoidPreserveNumberingAndValidity(t *testi
 
 	ctx := context.Background()
 	suffix := fmt.Sprint(time.Now().UTC().UnixNano())
-	guild, err := repositories.UpsertGuild(ctx, model.UpsertGuildParams{DiscordGuildID: "create-void-" + suffix, Name: "Create Void", OwnerDiscordUserID: "owner"})
+	guild, err := repositories.UpsertGuild(ctx, quack.UpsertGuildParams{DiscordGuildID: "create-void-" + suffix, Name: "Create Void", OwnerDiscordUserID: "owner"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	guildContext := &quack.GuildStaffContext{
-		Guild: guild, Staff: &model.StaffMember{GuildID: guild.ID, DiscordUserID: "moderator"}, IsAdmin: true, IsModerator: true,
-		Permissions: map[model.PermissionAction]bool{model.PermissionActionCaseTemplateWrite: true, model.PermissionActionCaseCreate: true, model.PermissionActionCaseVoid: true},
+		Guild: guild, Staff: &quack.StaffMember{GuildID: guild.ID, DiscordUserID: "moderator"}, IsAdmin: true, IsModerator: true,
+		Permissions: map[quack.PermissionAction]bool{quack.PermissionActionCaseTemplateWrite: true, quack.PermissionActionCaseCreate: true, quack.PermissionActionCaseVoid: true},
 	}
-	services := quack.NewWithConfigDependencies(config.Default(), repositories, nil, nil, nil)
+	services := quack.New(quack.Deps{Store: repositories})
 	template, err := services.Templates.Create(ctx, guildContext, quack.TemplateInput{
 		Slug: "create-void-" + suffix, Name: "Create Void", ReasonTemplate: "Reason",
 		Levels: []quack.TemplateLevelInput{{Name: "Default", Position: 1, IsDefault: true}, {Name: "Second", Position: 2, TriggerCaseCount: 2}},
@@ -152,11 +150,11 @@ func TestMySQLConcurrentCaseCreationAndVoidPreserveNumberingAndValidity(t *testi
 		t.Fatalf("case numbering changed across create/void: first=%d second=%d", first.CaseNumber, second.CaseNumber)
 	}
 	persistedFirst, err := repositories.GetCaseByID(ctx, first.ID)
-	if err != nil || persistedFirst.Validity != model.CaseValidityVoided {
+	if err != nil || persistedFirst.Validity != quack.CaseValidityVoided {
 		t.Fatalf("first case was not durably voided: %+v err=%v", persistedFirst, err)
 	}
 	persistedSecond, err := repositories.GetCaseByID(ctx, second.ID)
-	if err != nil || persistedSecond.Validity != model.CaseValidityValid {
+	if err != nil || persistedSecond.Validity != quack.CaseValidityValid {
 		t.Fatalf("concurrent case was not durably valid: %+v err=%v", persistedSecond, err)
 	}
 }
@@ -168,24 +166,24 @@ func TestMySQLUnavailableEvidenceSnapshotUsesPersistableTimestamp(t *testing.T) 
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	guild, err := repositories.UpsertGuild(ctx, model.UpsertGuildParams{
+	guild, err := repositories.UpsertGuild(ctx, quack.UpsertGuildParams{
 		DiscordGuildID: "111111111111111111", Name: "Evidence", OwnerDiscordUserID: "owner",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	guildContext := &quack.GuildStaffContext{
-		Guild: guild, Staff: &model.StaffMember{GuildID: guild.ID, DiscordUserID: "moderator"},
-		Permissions: map[model.PermissionAction]bool{
-			model.PermissionActionCaseTemplateWrite: true,
-			model.PermissionActionCaseCreate:        true,
+		Guild: guild, Staff: &quack.StaffMember{GuildID: guild.ID, DiscordUserID: "moderator"},
+		Permissions: map[quack.PermissionAction]bool{
+			quack.PermissionActionCaseTemplateWrite: true,
+			quack.PermissionActionCaseCreate:        true,
 		},
 	}
 	template, err := quack.NewTemplateService(repositories).Create(ctx, guildContext, quack.TemplateInput{
 		Slug: "unavailable-evidence", Name: "Unavailable evidence", Description: "Integration", ReasonTemplate: "Reason",
 		ContextFields: []quack.TemplateContextFieldInput{
-			{Key: "summary", Label: "Summary", FieldType: model.ContextFieldShortText, Position: 1, Required: true},
-			{Key: "message", Label: "Message", FieldType: model.ContextFieldMessageLink, Position: 2, Required: true},
+			{Key: "summary", Label: "Summary", FieldType: quack.ContextFieldShortText, Position: 1, Required: true},
+			{Key: "message", Label: "Message", FieldType: quack.ContextFieldMessageLink, Position: 2, Required: true},
 		},
 		Levels: []quack.TemplateLevelInput{{Name: "Default", Position: 1, IsDefault: true}},
 	})
@@ -195,7 +193,7 @@ func TestMySQLUnavailableEvidenceSnapshotUsesPersistableTimestamp(t *testing.T) 
 	link := "https://discord.com/channels/111111111111111111/222222222222222222/333333333333333333"
 	summary, _ := json.Marshal("visible fallback")
 	message, _ := json.Marshal(link)
-	service := quack.NewCaseService(repositories).WithEvidenceCapture(quack.NewEvidenceService(unavailableEvidenceClient{err: &quack.EvidenceUnavailableError{Outcome: "deleted", Message: "message deleted"}}, repositories))
+	service := quack.NewCaseService(repositories, nil, quack.NewEvidenceService(repositories, unavailableEvidenceClient{err: &quack.EvidenceUnavailableError{Outcome: "deleted", Message: "message deleted"}}), nil)
 	created, err := service.Create(ctx, guildContext, quack.CaseInput{
 		TemplateID: template.ID, TargetDiscordUserID: "target",
 		ContextValues: []quack.CaseContextValueInput{{Key: "summary", Value: summary}, {Key: "message", Value: message}},

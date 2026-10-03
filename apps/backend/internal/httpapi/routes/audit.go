@@ -9,7 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/quackdiscord/bot/internal/httpapi/middleware"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 // listAuditLog returns audit log subject to authorization, ordering, and filtering constraints.
@@ -27,7 +26,7 @@ import (
 // @Failure 400 {object} map[string]interface{}
 // @Failure 403 {object} map[string]interface{}
 // @Router /guilds/{discordGuildID}/audit-log [get]
-func listAuditLog(c *gin.Context, services *quack.Services) {
+func listAuditLog(c *gin.Context, services *Deps) {
 	result, err := services.Audits.List(c.Request.Context(), middleware.GetGuildContext(c), quack.AuditListInput{
 		Limit:               c.Query("limit"),
 		Offset:              c.Query("offset"),
@@ -41,7 +40,7 @@ func listAuditLog(c *gin.Context, services *quack.Services) {
 		MemberDiscordUserID: c.Query("member_discord_user_id"),
 		CreatedAfter:        c.Query("created_after"),
 		CreatedBefore:       c.Query("created_before"),
-		ReadSource:          model.AuditSourceAPI,
+		ReadSource:          quack.AuditSourceAPI,
 		BeforeID:            c.Query("before_id"),
 	})
 	if err != nil {

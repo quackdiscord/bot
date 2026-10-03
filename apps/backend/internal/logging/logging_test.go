@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/quackdiscord/bot/internal/quack/idutil"
+	"github.com/quackdiscord/bot/internal/quack"
 )
 
 func TestStructuredLogsCarryTraceAndHonorLevel(t *testing.T) {
@@ -15,7 +15,7 @@ func TestStructuredLogsCarryTraceAndHonorLevel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx := idutil.ContextWithTrace(context.Background(), "request-1", "correlation-1")
+	ctx := quack.ContextWithTrace(context.Background(), "request-1", "correlation-1")
 	logger.DebugContext(ctx, "hidden")
 	if output.Len() != 0 {
 		t.Fatal("debug enabled at info level")

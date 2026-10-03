@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/quackdiscord/bot/internal/quack/model"
+	"github.com/quackdiscord/bot/internal/quack"
 	"github.com/quackdiscord/bot/internal/testutil"
 )
 
@@ -12,7 +12,7 @@ func TestGuildBootstrapCreatesExactStarterAndIsIdempotent(t *testing.T) {
 	ctx := context.Background()
 	repositories := testutil.NewSQLiteStore(t)
 	migrateStore(t, repositories)
-	input := model.BootstrapGuildParams{
+	input := quack.BootstrapGuildParams{Starter: quack.StarterTemplate(),
 		DiscordGuildID: "guild-bootstrap", Name: "Bootstrap", IconURL: "icon-url",
 		OwnerDiscordUserID: "owner-1", KnownChannelDiscordIDs: []string{"channel-1"},
 	}
@@ -45,7 +45,7 @@ func TestGuildSettingsLifecyclePreservesHistoryAndRepairsChannels(t *testing.T) 
 	ctx := context.Background()
 	repositories := testutil.NewSQLiteStore(t)
 	migrateStore(t, repositories)
-	bootstrap, err := repositories.BootstrapGuild(ctx, model.BootstrapGuildParams{
+	bootstrap, err := repositories.BootstrapGuild(ctx, quack.BootstrapGuildParams{Starter: quack.StarterTemplate(),
 		DiscordGuildID: "guild-lifecycle", Name: "Before", OwnerDiscordUserID: "owner-1",
 	})
 	if err != nil {
@@ -59,9 +59,9 @@ func TestGuildSettingsLifecyclePreservesHistoryAndRepairsChannels(t *testing.T) 
 	settings.TicketsEnabled = true
 	settings.GeneralLoggingEnabled = true
 	settings.HoneypotEnabled = true
-	updated, err := repositories.UpdateGuildSettings(ctx, model.UpdateGuildSettingsParams{Settings: settings, Audit: &model.AuditLogEntry{
-		GuildID: bootstrap.Guild.ID, ActorDiscordUserID: "owner-1", Source: model.AuditSourceAPI,
-		Action: "guild_settings.update", ResourceType: "guild_settings", Result: model.AuditResultSuccess, MetadataJSON: "{}",
+	updated, err := repositories.UpdateGuildSettings(ctx, quack.UpdateGuildSettingsParams{Settings: settings, Audit: &quack.AuditLogEntry{
+		GuildID: bootstrap.Guild.ID, ActorDiscordUserID: "owner-1", Source: quack.AuditSourceAPI,
+		Action: "guild_settings.update", ResourceType: "guild_settings", Result: quack.AuditResultSuccess, MetadataJSON: "{}",
 	}})
 	if err != nil {
 		t.Fatalf("update settings: %v", err)
@@ -69,9 +69,9 @@ func TestGuildSettingsLifecyclePreservesHistoryAndRepairsChannels(t *testing.T) 
 	if !updated.TicketsEnabled || !updated.GeneralLoggingEnabled || !updated.HoneypotEnabled {
 		t.Fatalf("independent module toggles were not stored: %+v", updated)
 	}
-	if _, err := repositories.DeactivateGuild(ctx, bootstrap.Guild.DiscordGuildID, &model.AuditLogEntry{
-		ActorDiscordUserID: "quack-system", Source: model.AuditSourceDiscord, Action: "guild.lifecycle.leave",
-		ResourceType: "guild", Result: model.AuditResultSuccess, MetadataJSON: "{}",
+	if _, err := repositories.DeactivateGuild(ctx, bootstrap.Guild.DiscordGuildID, &quack.AuditLogEntry{
+		ActorDiscordUserID: "quack-system", Source: quack.AuditSourceDiscord, Action: "guild.lifecycle.leave",
+		ResourceType: "guild", Result: quack.AuditResultSuccess, MetadataJSON: "{}",
 	}); err != nil {
 		t.Fatalf("deactivate guild: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestGuildSettingsLifecyclePreservesHistoryAndRepairsChannels(t *testing.T) 
 		t.Fatalf("expected inactive preserved guild, guild=%+v err=%v", departed, err)
 	}
 
-	rejoined, err := repositories.BootstrapGuild(ctx, model.BootstrapGuildParams{
+	rejoined, err := repositories.BootstrapGuild(ctx, quack.BootstrapGuildParams{Starter: quack.StarterTemplate(),
 		DiscordGuildID: bootstrap.Guild.DiscordGuildID, Name: "After", IconURL: "new-icon",
 		OwnerDiscordUserID: "owner-2", KnownChannelDiscordIDs: []string{"audit-channel"},
 	})
@@ -99,9 +99,9 @@ func TestGuildSettingsLifecyclePreservesHistoryAndRepairsChannels(t *testing.T) 
 	if rejoined.Settings.NotificationIntroduction != "Welcome" || !rejoined.Settings.TicketsEnabled {
 		t.Fatalf("rejoin lost non-channel settings: %+v", rejoined.Settings)
 	}
-	if _, err := repositories.ClearGuildChannelReferences(ctx, bootstrap.Guild.ID, "audit-channel", &model.AuditLogEntry{
-		GuildID: bootstrap.Guild.ID, ActorDiscordUserID: "quack-system", Source: model.AuditSourceDiscord,
-		Action: "guild_settings.channel_reference.cleared", ResourceType: "guild_settings", Result: model.AuditResultSuccess, MetadataJSON: "{}",
+	if _, err := repositories.ClearGuildChannelReferences(ctx, bootstrap.Guild.ID, "audit-channel", &quack.AuditLogEntry{
+		GuildID: bootstrap.Guild.ID, ActorDiscordUserID: "quack-system", Source: quack.AuditSourceDiscord,
+		Action: "guild_settings.channel_reference.cleared", ResourceType: "guild_settings", Result: quack.AuditResultSuccess, MetadataJSON: "{}",
 	}); err != nil {
 		t.Fatalf("clear deleted channel: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestGuildSettingsLifecyclePreservesHistoryAndRepairsChannels(t *testing.T) 
 	}
 }
 
-func assertExactStarterPolicy(t *testing.T, template model.ExpandedCaseTemplate) {
+func assertExactStarterPolicy(t *testing.T, template quack.ExpandedCaseTemplate) {
 	t.Helper()
 	if template.Template.Name != "General rule violation" || template.Template.ReasonTemplate != "General rule violation" || !template.Template.Appealable || template.Template.ArchivedAt != nil || len(template.Levels) != 3 {
 		t.Fatalf("unexpected starter template: %+v", template)
@@ -119,10 +119,10 @@ func assertExactStarterPolicy(t *testing.T, template model.ExpandedCaseTemplate)
 	if !template.Levels[0].Level.IsDefault || template.Levels[0].Level.TriggerCaseCount != 0 || !template.Levels[0].Level.NotifyUser || len(template.Levels[0].Actions) != 0 {
 		t.Fatalf("unexpected starter default: %+v", template.Levels[0])
 	}
-	if template.Levels[1].Level.TriggerCaseCount != 3 || !template.Levels[1].Level.NotifyUser || len(template.Levels[1].Actions) != 1 || template.Levels[1].Actions[0].ActionType != model.ActionTimeoutUser || template.Levels[1].Actions[0].ConfigJSON != `{"duration_seconds":86400}` {
+	if template.Levels[1].Level.TriggerCaseCount != 3 || !template.Levels[1].Level.NotifyUser || len(template.Levels[1].Actions) != 1 || template.Levels[1].Actions[0].ActionType != quack.ActionTimeoutUser || template.Levels[1].Actions[0].ConfigJSON != `{"duration_seconds":86400}` {
 		t.Fatalf("unexpected starter timeout: %+v", template.Levels[1])
 	}
-	if template.Levels[2].Level.TriggerCaseCount != 5 || !template.Levels[2].Level.NotifyUser || len(template.Levels[2].Actions) != 1 || template.Levels[2].Actions[0].ActionType != model.ActionBanUser || template.Levels[2].Actions[0].ConfigJSON != `{"delete_message_seconds":86400}` {
+	if template.Levels[2].Level.TriggerCaseCount != 5 || !template.Levels[2].Level.NotifyUser || len(template.Levels[2].Actions) != 1 || template.Levels[2].Actions[0].ActionType != quack.ActionBanUser || template.Levels[2].Actions[0].ConfigJSON != `{"delete_message_seconds":86400}` {
 		t.Fatalf("unexpected starter ban: %+v", template.Levels[2])
 	}
 }

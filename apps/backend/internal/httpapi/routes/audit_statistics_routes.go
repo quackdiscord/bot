@@ -9,13 +9,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/quackdiscord/bot/internal/httpapi/middleware"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 // RegisterAuditStatisticsStaffRoutes mounts QP-E feature routes without editing the integration-owned router.
-func RegisterAuditStatisticsStaffRoutes(group *gin.RouterGroup, services *quack.Services) {
-	statistics := quack.NewStaffStatisticsService(services.Store)
-	group.GET("/:discordGuildID/statistics", middleware.RequireGuildContext(services, model.PermissionActionAuditRead), func(c *gin.Context) {
+func RegisterAuditStatisticsStaffRoutes(group *gin.RouterGroup, services *Deps) {
+	statistics := services.Statistics
+	group.GET("/:discordGuildID/statistics", middleware.RequireGuildContext(services.Services, quack.PermissionActionAuditRead), func(c *gin.Context) {
 		getStatistics(c, statistics)
 	})
 }
@@ -28,7 +27,7 @@ func RegisterAuditStatisticsStaffRoutes(group *gin.RouterGroup, services *quack.
 // @Param from query string false "Inclusive RFC3339 start"
 // @Param to query string false "Exclusive RFC3339 end"
 // @Security CookieAuth
-// @Success 200 {object} model.StaffStatistics
+// @Success 200 {object} quack.StaffStatistics
 // @Failure 400 {object} map[string]interface{}
 // @Failure 403 {object} map[string]interface{}
 // @Router /guilds/{discordGuildID}/statistics [get]

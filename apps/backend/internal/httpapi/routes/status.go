@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/quackdiscord/bot/internal/quack"
 )
 
 // DiscordStatusProvider supplies discord status data without coupling callers to its source.
@@ -39,7 +38,7 @@ type dbStatus struct {
 // @Produce json
 // @Success 200 {object} map[string]interface{}
 // @Router /status [get]
-func status(c *gin.Context, services *quack.Services, discord DiscordStatusProvider) {
+func status(c *gin.Context, services *Deps, discord DiscordStatusProvider) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
 	defer cancel()
 	c.JSON(http.StatusOK, gin.H{
@@ -59,7 +58,7 @@ func getDiscordStatus(provider DiscordStatusProvider) discordStatus {
 }
 
 // getRedisStatus retrieves redis status without exposing the underlying adapter implementation.
-func getRedisStatus(ctx context.Context, services *quack.Services) redisStatus {
+func getRedisStatus(ctx context.Context, services *Deps) redisStatus {
 	if services == nil || services.Store == nil {
 		return redisStatus{Connected: false}
 	}
@@ -79,7 +78,7 @@ func getRedisStatus(ctx context.Context, services *quack.Services) redisStatus {
 }
 
 // getDBStatus retrieves dbstatus without exposing the underlying adapter implementation.
-func getDBStatus(ctx context.Context, services *quack.Services) dbStatus {
+func getDBStatus(ctx context.Context, services *Deps) dbStatus {
 	if services == nil || services.Store == nil {
 		return dbStatus{Connected: false}
 	}

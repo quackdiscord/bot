@@ -2,7 +2,7 @@ package commands
 
 import (
 	"github.com/bwmarrin/discordgo"
-	"github.com/quackdiscord/bot/internal/quack/model"
+	"github.com/quackdiscord/bot/internal/quack"
 )
 
 const caseCommandName = "case"
@@ -50,7 +50,7 @@ func caseStaffCommandOptions() []*discordgo.ApplicationCommandOption {
 	confirm := func() *discordgo.ApplicationCommandOption {
 		return &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionBoolean, Name: "confirm", Description: "Confirm this irreversible control.", Required: true}
 	}
-	return []*discordgo.ApplicationCommandOption{sub("view", "View authorized case detail.", stringOption("case", "Case number or ID.", true)), sub("list", "List recent guild cases."), sub("user", "View a member's case history.", &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionUser, Name: "user", Description: "Member to review.", Required: true}), sub("failures", "Review failed Discord actions."), sub("retry", "Retry the same failed action.", stringOption("execution", "Failed execution ID.", true)), sub("dismiss", "Dismiss a failure from active review.", stringOption("execution", "Failed execution ID.", true)), sub("void", "Void an incorrect case.", stringOption("case", "Case number or ID.", true), stringOption("reason", "Required correction reason.", true), confirm()), sub("reverse", "Remove a timeout or unban.", stringOption("case", "Case ID.", true), stringOption("execution", "Original execution ID.", true), &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionString, Name: "action", Description: "Reversal action.", Required: true, Choices: []*discordgo.ApplicationCommandOptionChoice{{Name: "Remove timeout", Value: string(model.ActionRemoveTimeout)}, {Name: "Unban", Value: string(model.ActionUnbanUser)}}}, confirm())}
+	return []*discordgo.ApplicationCommandOption{sub("view", "View authorized case detail.", stringOption("case", "Case number or ID.", true)), sub("list", "List recent guild cases."), sub("user", "View a member's case history.", &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionUser, Name: "user", Description: "Member to review.", Required: true}), sub("failures", "Review failed Discord actions."), sub("retry", "Retry the same failed action.", stringOption("execution", "Failed execution ID.", true)), sub("dismiss", "Dismiss a failure from active review.", stringOption("execution", "Failed execution ID.", true)), sub("void", "Void an incorrect case.", stringOption("case", "Case number or ID.", true), stringOption("reason", "Required correction reason.", true), confirm()), sub("reverse", "Remove a timeout or unban.", stringOption("case", "Case ID.", true), stringOption("execution", "Original execution ID.", true), &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionString, Name: "action", Description: "Reversal action.", Required: true, Choices: []*discordgo.ApplicationCommandOptionChoice{{Name: "Remove timeout", Value: string(quack.ActionRemoveTimeout)}, {Name: "Unban", Value: string(quack.ActionUnbanUser)}}}, confirm())}
 }
 
 // CommandDefinition returns a fresh compatibility command definition derived from the explicit case specification.

@@ -3,8 +3,6 @@ package quack
 import (
 	"encoding/json"
 	"testing"
-
-	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 // FuzzNormalizeTemplatePolicyJSON exercises the bounded JSON object boundary
@@ -32,8 +30,8 @@ func FuzzStructuredContextValue(f *testing.F) {
 	f.Add("summary", `null`)
 	f.Add("summary", `{bad`)
 	f.Fuzz(func(t *testing.T, key, value string) {
-		fields := []model.CaseTemplateContextField{{Key: "summary", Label: "Summary", FieldType: model.ContextFieldShortText, Position: 1, Required: true}}
-		body, _, _, err := validateCaseContextValues(fields, []CaseContextValueInput{{Key: key, Value: json.RawMessage(value)}})
+		fields := []CaseTemplateContextField{{Key: "summary", Label: "Summary", FieldType: ContextFieldShortText, Position: 1, Required: true}}
+		body, _, _, err := validateContextValues(fields, []CaseContextValueInput{{Key: key, Value: json.RawMessage(value)}})
 		if err != nil {
 			return
 		}

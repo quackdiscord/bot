@@ -26,7 +26,7 @@ const opsKeyHeader = "X-Quack-Ops-Key"
 // @Failure 404 {object} map[string]interface{}
 // @Failure 500 {object} map[string]interface{}
 // @Router /ops/status [get]
-func globalOpsStatus(c *gin.Context, services *quack.Services) {
+func globalOpsStatus(c *gin.Context, services *Deps) {
 	if !validOpsKey(c, services) {
 		if strings.TrimSpace(services.Config.API.OpsToken) == "" {
 			apierror.Write(c, http.StatusNotFound, apierror.CodeNotFound, "ops status is disabled")
@@ -56,7 +56,7 @@ func globalOpsStatus(c *gin.Context, services *quack.Services) {
 // @Failure 404 {object} map[string]interface{}
 // @Failure 500 {object} map[string]interface{}
 // @Router /guilds/{discordGuildID}/ops/status [get]
-func guildOpsStatus(c *gin.Context, services *quack.Services) {
+func guildOpsStatus(c *gin.Context, services *Deps) {
 	guildID, ok := guildOpsAuthorized(c, services)
 	if !ok {
 		return
@@ -75,7 +75,7 @@ func guildOpsStatus(c *gin.Context, services *quack.Services) {
 }
 
 // guildOpsAuthorized encapsulates the guild ops authorized rule so callers share one consistent package implementation.
-func guildOpsAuthorized(c *gin.Context, services *quack.Services) (string, bool) {
+func guildOpsAuthorized(c *gin.Context, services *Deps) (string, bool) {
 	discordGuildID := strings.TrimSpace(c.Param("discordGuildID"))
 	if discordGuildID == "" {
 		apierror.Write(c, http.StatusBadRequest, apierror.CodeValidation, "missing discord guild id")
@@ -134,7 +134,7 @@ func guildOpsAuthorized(c *gin.Context, services *quack.Services) (string, bool)
 }
 
 // validOpsKey checks valid ops key before state is read or changed.
-func validOpsKey(c *gin.Context, services *quack.Services) bool {
+func validOpsKey(c *gin.Context, services *Deps) bool {
 	if services == nil {
 		return false
 	}

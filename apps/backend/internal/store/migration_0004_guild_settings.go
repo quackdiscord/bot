@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/quackdiscord/bot/internal/quack/idutil"
+	"github.com/quackdiscord/bot/internal/quack"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -71,10 +71,7 @@ func applyGuildSettings(db *gorm.DB) error {
 	}
 	now := time.Now().UTC()
 	for _, guild := range guilds {
-		id, err := idutil.NewULID()
-		if err != nil {
-			return fmt.Errorf("create guild settings id: %w", err)
-		}
+		id := quack.NewID()
 		row := migration0004GuildSettingsRecord{
 			ID: id, CreatedAt: now, UpdatedAt: now, GuildID: guild.ID,
 			StarterPolicyNoticePending: true,

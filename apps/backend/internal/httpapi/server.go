@@ -17,12 +17,12 @@ import (
 )
 
 // Run serves the configured HTTP API until the context is canceled, then performs a bounded graceful shutdown.
-func Run(ctx context.Context, cfg config.Config, services *quack.Services, moduleRuntime *moduleintegration.Runtime, discord routes.DiscordStatusProvider) error {
+func Run(ctx context.Context, cfg config.Config, services *quack.Services, store routes.Storage, moduleRuntime *moduleintegration.Runtime, discord routes.DiscordStatusProvider) error {
 	if cfg.Environment != "dev" {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	registrar, err := NewPlatformRegistrarWithRepository(cfg, services.Store)
+	registrar, err := NewPlatformRegistrarWithRepository(cfg, store)
 	if err != nil {
 		return fmt.Errorf("validate HTTP platform configuration: %w", err)
 	}
@@ -32,7 +32,7 @@ func Run(ctx context.Context, cfg config.Config, services *quack.Services, modul
 		return fmt.Errorf("configure trusted HTTP proxies: %w", err)
 	}
 
-	if err := routes.SetupRoutesWithModules(r, services, moduleRuntime, discord); err != nil {
+	if err := routes.SetupRoutesWithModules(r, &routes.Deps{Services: services, Config: cfg, Store: store}, moduleRuntime, discord); err != nil {
 		return fmt.Errorf("register HTTP routes: %w", err)
 	}
 

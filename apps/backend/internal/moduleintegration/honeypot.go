@@ -10,7 +10,6 @@ import (
 	"github.com/quackdiscord/bot/internal/modules"
 	"github.com/quackdiscord/bot/internal/modules/honeypot"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 // systemHoneypotCaseCreator is QP-A's single system-attributed moderation entrypoint.
@@ -36,7 +35,7 @@ func (a honeypotCaseApplier) ApplyHoneypotCase(ctx context.Context, request hone
 	}
 	created, err := a.cases.CreateSystemHoneypot(ctx, request.GuildID, quack.CaseInput{
 		TemplateID: request.TemplateID, TargetDiscordUserID: request.TargetDiscordUserID,
-		Source:                  model.CaseSourceHoneypot,
+		Source:                  quack.CaseSourceHoneypot,
 		ContextChannelDiscordID: request.ContextChannelDiscordID,
 		ContextMessageDiscordID: request.ContextMessageDiscordID,
 		ContextURL:              request.ContextURL, IdempotencyKey: request.IdempotencyKey,
@@ -49,7 +48,12 @@ func (a honeypotCaseApplier) ApplyHoneypotCase(ctx context.Context, request hone
 
 // honeypotTemplateValidator projects live core policy without duplicating it
 // into optional-module persistence.
-type honeypotTemplateValidator struct{ repository quack.Repository }
+type honeypotTemplateValidator struct{ repository templateReader }
+
+// templateReader loads a template with its levels.
+type templateReader interface {
+	GetCaseTemplateExpanded(ctx context.Context, guildID, templateID string) (*quack.ExpandedCaseTemplate, error)
+}
 
 // ValidateHoneypotTemplate requires an active, unattended-compatible v5 policy.
 func (v honeypotTemplateValidator) ValidateHoneypotTemplate(ctx context.Context, guildID, templateID string) error {
@@ -78,7 +82,7 @@ func (v honeypotTemplateValidator) ValidateHoneypotTemplate(ctx context.Context,
 		}
 		for _, action := range level.Actions {
 			switch action.ActionType {
-			case model.ActionSendDM, model.ActionTimeoutUser, model.ActionKickUser, model.ActionBanUser:
+			case quack.ActionSendDM, quack.ActionTimeoutUser, quack.ActionKickUser, quack.ActionBanUser:
 			default:
 				return fmt.Errorf("%w: unsupported unattended action %s", honeypot.ErrTemplateUnavailable, action.ActionType)
 			}

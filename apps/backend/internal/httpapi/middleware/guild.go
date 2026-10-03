@@ -9,7 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/quackdiscord/bot/internal/httpapi/apierror"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 const ContextGuildKey = "guild_context"
@@ -30,7 +29,7 @@ func ContinueAuthorizedWrite(c *gin.Context) {
 }
 
 // RequireGuildContext is a middleware function that requires a valid guild context
-func RequireGuildContext(services *quack.Services, requiredAction model.PermissionAction) gin.HandlerFunc {
+func RequireGuildContext(services *quack.Services, requiredAction quack.PermissionAction) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		session := GetAuthSession(c)
 		if session == nil {
@@ -53,7 +52,7 @@ func RequireGuildContext(services *quack.Services, requiredAction model.Permissi
 			return
 		}
 
-		if err := services.Guilds.Authorize(c.Request.Context(), guildContext, requiredAction, model.AuditSourceAPI); err != nil {
+		if err := services.Guilds.Authorize(c.Request.Context(), guildContext, requiredAction, quack.AuditSourceAPI); err != nil {
 			slog.Warn("guild permission denied", "request_id", quack.RequestIDFromContext(c.Request.Context()), "correlation_id", quack.CorrelationIDFromContext(c.Request.Context()), "actor_discord_user_id", session.DiscordUserID, "discord_guild_id", c.Param("discordGuildID"), "permission_action", string(requiredAction))
 			apierror.Write(c, http.StatusForbidden, apierror.CodeAuthorization, "access denied")
 			return

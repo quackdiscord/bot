@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 	r "github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -22,8 +21,25 @@ type Store struct {
 	executableGuildCursor string
 }
 
+// Store implements every persistence port the core declares.
+var (
+	_ quack.Store                   = (*Store)(nil)
+	_ quack.GuildStore              = (*Store)(nil)
+	_ quack.SettingsStore           = (*Store)(nil)
+	_ quack.TemplateStore           = (*Store)(nil)
+	_ quack.CaseStore               = (*Store)(nil)
+	_ quack.ActionStore             = (*Store)(nil)
+	_ quack.EvidenceStore           = (*Store)(nil)
+	_ quack.AppealStore             = (*Store)(nil)
+	_ quack.AppealNotificationStore = (*Store)(nil)
+	_ quack.AuditStore              = (*Store)(nil)
+	_ quack.AuditMirrorStore        = (*Store)(nil)
+	_ quack.StatisticsStore         = (*Store)(nil)
+	_ quack.OpsStore                = (*Store)(nil)
+)
+
 // WithGuildCaseLock runs case creation in one transaction while locking the guild row to serialize numbering and escalation selection.
-func (s *Store) WithGuildCaseLock(ctx context.Context, guildID string, fn func(quack.CaseRepository) error) error {
+func (s *Store) WithGuildCaseLock(ctx context.Context, guildID string, fn func(quack.CaseStore) error) error {
 	if s == nil || s.db == nil {
 		return errors.New("database not connected")
 	}
@@ -31,7 +47,7 @@ func (s *Store) WithGuildCaseLock(ctx context.Context, guildID string, fn func(q
 		return errors.New("guild id is required")
 	}
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var guild model.Guild
+		var guild quack.Guild
 		result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", guildID).Limit(1).Find(&guild)
 		if result.Error != nil {
 			return fmt.Errorf("lock guild for case creation: %w", result.Error)

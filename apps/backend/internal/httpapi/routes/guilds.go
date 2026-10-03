@@ -19,7 +19,7 @@ import (
 // @Failure 401 {object} map[string]interface{}
 // @Failure 502 {object} map[string]interface{}
 // @Router /guilds [get]
-func listUserGuilds(c *gin.Context, services *quack.Services) {
+func listUserGuilds(c *gin.Context, services *Deps) {
 	session := middleware.GetAuthSession(c)
 	if session == nil {
 		apierror.Write(c, http.StatusUnauthorized, apierror.CodeAuthentication, "missing auth session")

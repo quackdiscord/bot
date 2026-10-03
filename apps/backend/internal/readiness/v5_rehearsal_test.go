@@ -40,7 +40,7 @@ func TestCleanInstallComposesEveryAcceptedV5Surface(t *testing.T) {
 
 	cfg := config.Default()
 	cfg.Discord.AppID = "123456789012345678"
-	services := quack.NewWithConfigDependencies(cfg, repository, nil, nil, nil)
+	services := quack.New(quack.Deps{Store: repository})
 	session, err := discordgo.New("Bot readiness-test-token")
 	if err != nil {
 		t.Fatalf("construct offline Discord session: %v", err)
@@ -55,7 +55,7 @@ func TestCleanInstallComposesEveryAcceptedV5Surface(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
-	if err := routes.SetupRoutesWithModules(engine, services, modules); err != nil {
+	if err := routes.SetupRoutesWithModules(engine, &routes.Deps{Services: services, Config: cfg, Store: repository}, modules); err != nil {
 		t.Fatalf("compose HTTP routes: %v", err)
 	}
 	assertRoutes(t, engine, []string{

@@ -13,7 +13,6 @@ import (
 	"github.com/quackdiscord/bot/internal/httpapi/middleware"
 	httpplatform "github.com/quackdiscord/bot/internal/httpapi/platform"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 	"github.com/quackdiscord/bot/internal/testutil"
 )
 
@@ -22,11 +21,11 @@ func TestTemplateReplayRequiresLiveSessionAndCurrentManager(t *testing.T) {
 	if err := store.Migrate(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.BootstrapGuild(context.Background(), model.BootstrapGuildParams{DiscordGuildID: "guild-1", Name: "Guild", OwnerDiscordUserID: "owner"}); err != nil {
+	if _, err := store.BootstrapGuild(context.Background(), quack.BootstrapGuildParams{Starter: quack.StarterTemplate(), DiscordGuildID: "guild-1", Name: "Guild", OwnerDiscordUserID: "owner"}); err != nil {
 		t.Fatal(err)
 	}
 	discord := routeFakeDiscordClient{userGuilds: []quack.DiscordUserGuild{{ID: "guild-1", Permissions: uint64(discordgo.PermissionManageGuild)}}, botGuild: &quack.DiscordBotGuild{ID: "guild-1", Name: "Guild", OwnerID: "owner"}}
-	services := quack.NewWithDiscordClient(store, discord)
+	services := testDeps(store, discord, nil)
 	session := routeTestSession("manager")
 	if err := store.SaveSession(context.Background(), session, time.Hour); err != nil {
 		t.Fatal(err)

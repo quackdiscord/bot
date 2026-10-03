@@ -9,23 +9,22 @@ import (
 	"github.com/quackdiscord/bot/internal/httpapi/middleware"
 	httpplatform "github.com/quackdiscord/bot/internal/httpapi/platform"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
-func memberReadLimit(services *quack.Services) httpplatform.RateLimit {
+func memberReadLimit(services *Deps) httpplatform.RateLimit {
 	return httpplatform.RateLimit{Maximum: services.Config.Limits.MemberRead.Max, Window: services.Config.Limits.MemberRead.Window}
 }
 
-func memberWriteIdempotency(primitives httpplatform.Primitives, services *quack.Services, class string) gin.HandlerFunc {
+func memberWriteIdempotency(primitives httpplatform.Primitives, services *Deps, class string) gin.HandlerFunc {
 	return primitives.Idempotency.Protect(class, services.Config.API.IdempotencyTTL, memberWriteSubject)
 }
 
-func staffWriteIdempotency(primitives httpplatform.Primitives, services *quack.Services, class string) gin.HandlerFunc {
+func staffWriteIdempotency(primitives httpplatform.Primitives, services *Deps, class string) gin.HandlerFunc {
 	protect := primitives.Idempotency.Protect(class, services.Config.API.IdempotencyTTL, staffWriteSubject)
 	return func(c *gin.Context) {
-		action := model.PermissionActionAppealReview
+		action := quack.PermissionActionAppealReview
 		if class == "appeal-settings" {
-			action = model.PermissionActionGuildSettingsWrite
+			action = quack.PermissionActionGuildSettingsWrite
 		}
 		guild := middleware.GetGuildContext(c)
 		if guild == nil || !guild.Can(action) {
@@ -66,7 +65,7 @@ func writeAppealError(c *gin.Context, err error) {
 		apierror.Write(c, http.StatusBadRequest, apierror.CodeValidation, "invalid appeal request")
 	case errors.Is(err, quack.ErrAppealPermissionDenied):
 		apierror.Write(c, http.StatusForbidden, apierror.CodeAuthorization, "appeal access denied")
-	case errors.Is(err, quack.ErrAppealNotFound), errors.Is(err, model.ErrAppealCaseIneligible):
+	case errors.Is(err, quack.ErrAppealNotFound), errors.Is(err, quack.ErrAppealCaseIneligible):
 		apierror.Write(c, http.StatusNotFound, apierror.CodeNotFound, "appeal not found")
 	case errors.Is(err, quack.ErrAppealConflict):
 		apierror.Write(c, http.StatusConflict, apierror.CodeConflict, "appeal state conflict")

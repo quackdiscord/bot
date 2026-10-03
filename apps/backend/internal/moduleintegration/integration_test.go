@@ -21,7 +21,6 @@ import (
 	"github.com/quackdiscord/bot/internal/modules/honeypot"
 	"github.com/quackdiscord/bot/internal/modules/tickets"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 	"github.com/quackdiscord/bot/internal/store"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/driver/sqlite"
@@ -48,7 +47,7 @@ func TestModuleAuditAdapterWritesImmutableCoreEntry(t *testing.T) {
 	if err := repository.Migrate(); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	guild := model.Guild{ULIDModel: model.ULIDModel{ID: "01J60000000000000000000001"}, DiscordGuildID: "discord-guild", Name: "Guild", IsActive: true}
+	guild := quack.Guild{ULIDModel: quack.ULIDModel{ID: "01J60000000000000000000001"}, DiscordGuildID: "discord-guild", Name: "Guild", IsActive: true}
 	if err := db.Create(&guild).Error; err != nil {
 		t.Fatalf("create guild: %v", err)
 	}
@@ -63,10 +62,10 @@ func TestModuleAuditAdapterWritesImmutableCoreEntry(t *testing.T) {
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("read module audit: entries=%+v err=%v", entries, err)
 	}
-	if entries[0].Source != model.AuditSourceAPI || entries[0].Action != "ticket.open" {
+	if entries[0].Source != quack.AuditSourceAPI || entries[0].Action != "ticket.open" {
 		t.Fatalf("unexpected module audit: %+v", entries[0])
 	}
-	if err := auditor.RecordModuleAudit(quack.ContextWithAuditSource(context.Background(), model.AuditSourceDiscord), modules.AuditEvent{
+	if err := auditor.RecordModuleAudit(quack.ContextWithAuditSource(context.Background(), quack.AuditSourceDiscord), modules.AuditEvent{
 		GuildID: guild.ID, ActorDiscordUserID: "actor", Action: "ticket.close",
 		ResourceType: "ticket", ResourceID: "ticket-1", Result: "success", MetadataJSON: "{}",
 	}); err != nil {
@@ -78,7 +77,7 @@ func TestModuleAuditAdapterWritesImmutableCoreEntry(t *testing.T) {
 		t.Fatalf("record honeypot module audit: %v", err)
 	}
 	entries, err = repository.ListAuditLogEntries(context.Background(), guild.ID)
-	if err != nil || len(entries) != 3 || entries[1].Source != model.AuditSourceDiscord || entries[2].Source != model.AuditSourceHoneypot {
+	if err != nil || len(entries) != 3 || entries[1].Source != quack.AuditSourceDiscord || entries[2].Source != quack.AuditSourceHoneypot {
 		t.Fatalf("module audit sources were not propagated: entries=%+v err=%v", entries, err)
 	}
 }
@@ -117,9 +116,10 @@ func TestOptionalModuleHTTPRegistrarsMountCompleteSurface(t *testing.T) {
 		Logging:  generallogging.NewService(registry, nil, nil, nil),
 		Honeypot: honeypot.NewService(registry, honeypot.NewStore(db), nil, nil, nil, nil),
 	}
-	services := quack.NewWithConfigDependencies(config.Default(), store.New(db, nil), nil, nil, nil)
+	repository := store.New(db, nil)
+	services := quack.New(quack.Deps{Store: repository})
 	engine := gin.New()
-	if err := runtime.RegisterHTTP(engine.Group("/guilds"), services, httpplatform.FromRepository(services.Store)); err != nil {
+	if err := runtime.RegisterHTTP(engine.Group("/guilds"), services, config.Default(), httpplatform.FromRepository(repository)); err != nil {
 		t.Fatalf("register module routes: %v", err)
 	}
 	want := map[string]bool{
@@ -154,7 +154,7 @@ func TestHoneypotCaseAdapterPreservesNormalPathEnvelope(t *testing.T) {
 	if err != nil || result.CaseID != "case-1" {
 		t.Fatalf("apply normal case: result=%+v err=%v", result, err)
 	}
-	if creator.guildID != request.GuildID || creator.input.TemplateID != request.TemplateID || creator.input.TargetDiscordUserID != request.TargetDiscordUserID || creator.input.Source != model.CaseSourceHoneypot || creator.input.ContextChannelDiscordID != request.ContextChannelDiscordID || creator.input.ContextMessageDiscordID != request.ContextMessageDiscordID || creator.input.ContextURL != request.ContextURL || creator.input.IdempotencyKey != request.IdempotencyKey {
+	if creator.guildID != request.GuildID || creator.input.TemplateID != request.TemplateID || creator.input.TargetDiscordUserID != request.TargetDiscordUserID || creator.input.Source != quack.CaseSourceHoneypot || creator.input.ContextChannelDiscordID != request.ContextChannelDiscordID || creator.input.ContextMessageDiscordID != request.ContextMessageDiscordID || creator.input.ContextURL != request.ContextURL || creator.input.IdempotencyKey != request.IdempotencyKey {
 		t.Fatalf("adapter changed the normal-path envelope: guild=%q input=%+v", creator.guildID, creator.input)
 	}
 	request.ActorDiscordUserID = "fabricated-staff"
@@ -230,13 +230,13 @@ func TestTemplateDriftDisablesOnlyMatchingHoneypotConfiguration(t *testing.T) {
 	if err := repository.Migrate(); err != nil {
 		t.Fatal(err)
 	}
-	guild, err := repository.UpsertGuild(context.Background(), model.UpsertGuildParams{DiscordGuildID: "discord", Name: "Guild", OwnerDiscordUserID: "owner"})
+	guild, err := repository.UpsertGuild(context.Background(), quack.UpsertGuildParams{DiscordGuildID: "discord", Name: "Guild", OwnerDiscordUserID: "owner"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	template, err := repository.CreateCaseTemplate(context.Background(), model.CreateCaseTemplateParams{
-		Template: model.CaseTemplate{GuildID: guild.ID, Slug: "trap", Name: "Trap", ReasonTemplate: "Trap", CreatedByDiscordUserID: "admin", UpdatedByDiscordUserID: "admin"},
-		Levels:   []model.ExpandedCaseTemplateLevel{{Level: model.CaseTemplateLevel{Name: "Default", Position: 1, IsDefault: true}}},
+	template, err := repository.CreateCaseTemplate(context.Background(), quack.CreateCaseTemplateParams{
+		Template: quack.CaseTemplate{GuildID: guild.ID, Slug: "trap", Name: "Trap", ReasonTemplate: "Trap", CreatedByDiscordUserID: "admin", UpdatedByDiscordUserID: "admin"},
+		Levels:   []quack.ExpandedCaseTemplateLevel{{Level: quack.CaseTemplateLevel{Name: "Default", Position: 1, IsDefault: true}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -274,8 +274,8 @@ func TestGatewayDriftForwardsChannelAndGuildDeletionWithIsolation(t *testing.T) 
 	if err := repository.Migrate(); err != nil {
 		t.Fatal(err)
 	}
-	guildOne, _ := repository.UpsertGuild(context.Background(), model.UpsertGuildParams{DiscordGuildID: "discord-1", Name: "One", OwnerDiscordUserID: "owner"})
-	guildTwo, _ := repository.UpsertGuild(context.Background(), model.UpsertGuildParams{DiscordGuildID: "discord-2", Name: "Two", OwnerDiscordUserID: "owner"})
+	guildOne, _ := repository.UpsertGuild(context.Background(), quack.UpsertGuildParams{DiscordGuildID: "discord-1", Name: "One", OwnerDiscordUserID: "owner"})
+	guildTwo, _ := repository.UpsertGuild(context.Background(), quack.UpsertGuildParams{DiscordGuildID: "discord-2", Name: "Two", OwnerDiscordUserID: "owner"})
 	registry, err := modules.NewRegistry(modules.NewSQLSettingsStore(db), honeypot.Descriptor())
 	if err != nil {
 		t.Fatal(err)
@@ -307,13 +307,13 @@ func TestGatewayDriftForwardsChannelAndGuildDeletionWithIsolation(t *testing.T) 
 }
 
 func TestHTTPActorMappingIncludesManagersAndAdministrators(t *testing.T) {
-	for _, permissions := range []map[model.PermissionAction]bool{
-		{model.PermissionActionGuildSettingsWrite: true},
-		{model.PermissionActionGuildSettingsWrite: true, model.PermissionActionTicketResolve: true},
+	for _, permissions := range []map[quack.PermissionAction]bool{
+		{quack.PermissionActionGuildSettingsWrite: true},
+		{quack.PermissionActionGuildSettingsWrite: true, quack.PermissionActionTicketResolve: true},
 	} {
 		ctx, _ := gin.CreateTestContext(nil)
 		ctx.Set(middleware.ContextGuildKey, &quack.GuildStaffContext{
-			Guild:              &model.Guild{ULIDModel: model.ULIDModel{ID: "guild"}},
+			Guild:              &quack.Guild{ULIDModel: quack.ULIDModel{ID: "guild"}},
 			ActorDiscordUserID: "actor", Permissions: permissions,
 		})
 		actor, err := resolveTicketActor(ctx)
@@ -331,11 +331,11 @@ func TestModuleIdempotencyScopeIncludesOperation(t *testing.T) {
 	engine := gin.New()
 	seen := make(chan string, 2)
 	engine.POST("/guilds/:discordGuildID/modules/tickets/:ticketID/reopen", func(c *gin.Context) {
-		c.Set(middleware.ContextGuildKey, &quack.GuildStaffContext{Guild: &model.Guild{ULIDModel: model.ULIDModel{ID: "guild"}}, ActorDiscordUserID: "actor"})
+		c.Set(middleware.ContextGuildKey, &quack.GuildStaffContext{Guild: &quack.Guild{ULIDModel: quack.ULIDModel{ID: "guild"}}, ActorDiscordUserID: "actor"})
 		seen <- moduleWriteSubject(c)
 	})
 	engine.PUT("/guilds/:discordGuildID/modules/tickets/settings", func(c *gin.Context) {
-		c.Set(middleware.ContextGuildKey, &quack.GuildStaffContext{Guild: &model.Guild{ULIDModel: model.ULIDModel{ID: "guild"}}, ActorDiscordUserID: "actor"})
+		c.Set(middleware.ContextGuildKey, &quack.GuildStaffContext{Guild: &quack.Guild{ULIDModel: quack.ULIDModel{ID: "guild"}}, ActorDiscordUserID: "actor"})
 		seen <- moduleWriteSubject(c)
 	})
 	for method, path := range map[string]string{
@@ -363,7 +363,7 @@ func TestRuntimeWorkerShutdownIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new Discord session: %v", err)
 	}
-	runtime, err := New(context.Background(), repository, session, quack.New(repository))
+	runtime, err := New(context.Background(), repository, session, quack.New(quack.Deps{Store: repository}))
 	if err != nil {
 		t.Fatalf("new module runtime: %v", err)
 	}

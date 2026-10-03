@@ -9,7 +9,6 @@ import (
 	"log/slog"
 
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/idutil"
 )
 
 // Handler handles one unit of work through the package's transport-neutral callback contract.
@@ -106,11 +105,11 @@ func (q *Queue) Submit(ctx context.Context, caseID string) bool {
 	if _, exists := q.pending[caseID]; exists {
 		return true
 	}
-	requestID := idutil.RequestIDFromContext(ctx)
+	requestID := quack.RequestIDFromContext(ctx)
 	if requestID == "" {
-		requestID = idutil.NewTraceID()
+		requestID = quack.NewTraceID()
 	}
-	correlationID := idutil.CorrelationIDFromContext(ctx)
+	correlationID := quack.CorrelationIDFromContext(ctx)
 	if correlationID == "" {
 		correlationID = requestID
 	}
@@ -193,7 +192,7 @@ func (q *Queue) process(next job) {
 	if workerCtx == nil {
 		workerCtx = context.Background()
 	}
-	ctx := idutil.ContextWithTrace(workerCtx, next.requestID, next.correlationID)
+	ctx := quack.ContextWithTrace(workerCtx, next.requestID, next.correlationID)
 	if err := handler(ctx, next.caseID); err != nil {
 		atomic.AddUint64(&q.stats.FailedTotal, 1)
 		slog.Error("Case action job failed", "error", err, "case_id", next.caseID, "request_id", next.requestID, "correlation_id", next.correlationID)

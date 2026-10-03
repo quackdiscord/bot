@@ -2,19 +2,18 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/quackdiscord/bot/internal/quack/model"
+	"github.com/quackdiscord/bot/internal/quack"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
 // GetGuildAppealSettings returns a guild's configured future appeal form, or nil to select the product default.
-func (s *Store) GetGuildAppealSettings(ctx context.Context, guildID string) (*model.GuildAppealSettings, error) {
+func (s *Store) GetGuildAppealSettings(ctx context.Context, guildID string) (*quack.GuildAppealSettings, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
@@ -30,7 +29,7 @@ func (s *Store) GetGuildAppealSettings(ctx context.Context, guildID string) (*mo
 }
 
 // UpdateGuildAppealSettings replaces only the form used by future submissions and appends its audit record atomically.
-func (s *Store) UpdateGuildAppealSettings(ctx context.Context, params model.UpdateGuildAppealSettingsParams) (*model.GuildAppealSettings, error) {
+func (s *Store) UpdateGuildAppealSettings(ctx context.Context, params quack.UpdateGuildAppealSettingsParams) (*quack.GuildAppealSettings, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
@@ -68,7 +67,7 @@ func (s *Store) UpdateGuildAppealSettings(ctx context.Context, params model.Upda
 }
 
 // CreateAppeal inserts one case-unique appeal with its first immutable event, public case history, audit, and staff notification.
-func (s *Store) CreateAppeal(ctx context.Context, params model.CreateAppealParams) (*model.Appeal, error) {
+func (s *Store) CreateAppeal(ctx context.Context, params quack.CreateAppealParams) (*quack.Appeal, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
@@ -92,29 +91,31 @@ func (s *Store) CreateAppeal(ctx context.Context, params model.CreateAppealParam
 	}
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if appeal.CaseID == nil || strings.TrimSpace(*appeal.CaseID) == "" {
-			return model.ErrAppealCaseIneligible
+			return quack.ErrAppealCaseIneligible
 		}
 		var item CaseRecord
 		result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND guild_id = ?", *appeal.CaseID, appeal.GuildID).First(&item)
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return model.ErrAppealCaseIneligible
+			return quack.ErrAppealCaseIneligible
 		}
 		if result.Error != nil {
 			return result.Error
 		}
-		if item.TargetDiscordUserID != appeal.TargetDiscordUserID || item.Validity != model.CaseValidityValid || !snapshotAppealable(item.TemplateSnapshotJSON) {
-			return model.ErrAppealCaseIneligible
+		// The service decided the case is appealable. Re-check only what can
+		// change concurrently: the case may have been voided since.
+		if item.TargetDiscordUserID != appeal.TargetDiscordUserID || item.Validity != quack.CaseValidityValid {
+			return quack.ErrAppealCaseIneligible
 		}
 		var existing int64
 		if err := tx.Model(&appealV5Record{}).Where("case_id = ?", item.ID).Count(&existing).Error; err != nil {
 			return err
 		}
 		if existing != 0 {
-			return model.ErrAppealAlreadyExists
+			return quack.ErrAppealAlreadyExists
 		}
 		if err := tx.Create(appealRecord(appeal)).Error; err != nil {
 			if isDuplicateError(err) {
-				return model.ErrAppealAlreadyExists
+				return quack.ErrAppealAlreadyExists
 			}
 			return err
 		}
@@ -141,7 +142,7 @@ func (s *Store) CreateAppeal(ctx context.Context, params model.CreateAppealParam
 }
 
 // GetAppealByID returns one appeal without applying caller authorization.
-func (s *Store) GetAppealByID(ctx context.Context, appealID string) (*model.Appeal, error) {
+func (s *Store) GetAppealByID(ctx context.Context, appealID string) (*quack.Appeal, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
@@ -157,7 +158,7 @@ func (s *Store) GetAppealByID(ctx context.Context, appealID string) (*model.Appe
 }
 
 // GetAppealByCaseID returns the only appeal for a case, if any.
-func (s *Store) GetAppealByCaseID(ctx context.Context, caseID string) (*model.Appeal, error) {
+func (s *Store) GetAppealByCaseID(ctx context.Context, caseID string) (*quack.Appeal, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
@@ -173,7 +174,7 @@ func (s *Store) GetAppealByCaseID(ctx context.Context, caseID string) (*model.Ap
 }
 
 // ListAppeals returns stable newest-first staff queue pagination for one guild.
-func (s *Store) ListAppeals(ctx context.Context, params model.AppealListParams) (*model.AppealListResult, error) {
+func (s *Store) ListAppeals(ctx context.Context, params quack.AppealListParams) (*quack.AppealListResult, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
@@ -189,15 +190,15 @@ func (s *Store) ListAppeals(ctx context.Context, params model.AppealListParams) 
 	if err := query.Order("created_at DESC, id DESC").Limit(params.Limit).Offset(params.Offset).Find(&records).Error; err != nil {
 		return nil, err
 	}
-	items := make([]model.Appeal, 0, len(records))
+	items := make([]quack.Appeal, 0, len(records))
 	for _, record := range records {
 		items = append(items, *appealModel(record))
 	}
-	return &model.AppealListResult{Appeals: items, Total: total}, nil
+	return &quack.AppealListResult{Appeals: items, Total: total}, nil
 }
 
 // ListAppealEvents returns one immutable timeline in creation order.
-func (s *Store) ListAppealEvents(ctx context.Context, appealID string) ([]model.AppealEvent, error) {
+func (s *Store) ListAppealEvents(ctx context.Context, appealID string) ([]quack.AppealEvent, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
@@ -205,7 +206,7 @@ func (s *Store) ListAppealEvents(ctx context.Context, appealID string) ([]model.
 	if err := s.db.WithContext(ctx).Where("appeal_id = ?", appealID).Order("created_at ASC, id ASC").Find(&records).Error; err != nil {
 		return nil, err
 	}
-	items := make([]model.AppealEvent, 0, len(records))
+	items := make([]quack.AppealEvent, 0, len(records))
 	for _, record := range records {
 		items = append(items, appealEventModel(record))
 	}
@@ -213,7 +214,7 @@ func (s *Store) ListAppealEvents(ctx context.Context, appealID string) ([]model.
 }
 
 // AppendAppealInformation appends a member response and reopens the same appeal for staff review.
-func (s *Store) AppendAppealInformation(ctx context.Context, params model.AppendAppealInformationParams) (*model.Appeal, error) {
+func (s *Store) AppendAppealInformation(ctx context.Context, params quack.AppendAppealInformationParams) (*quack.Appeal, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
@@ -222,20 +223,20 @@ func (s *Store) AppendAppealInformation(ctx context.Context, params model.Append
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", params.AppealID).First(&updated)
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) || updated.TargetDiscordUserID != params.TargetDiscordUserID {
-			return model.ErrAppealStateConflict
+			return quack.ErrAppealStateConflict
 		}
 		if result.Error != nil {
 			return result.Error
 		}
-		if updated.Status != model.AppealStatusNeedsInformation {
-			return model.ErrAppealStateConflict
+		if updated.Status != quack.AppealStatusNeedsInformation {
+			return quack.ErrAppealStateConflict
 		}
-		updated.Status = model.AppealStatusPending
+		updated.Status = quack.AppealStatusPending
 		updated.Version++
 		updated.UpdatedAt = now
 		result = tx.Model(&appealV5Record{}).Where("id = ? AND version = ?", updated.ID, updated.Version-1).Updates(map[string]any{"status": updated.Status, "version": updated.Version, "updated_at": now})
 		if result.Error != nil || result.RowsAffected != 1 {
-			return model.ErrAppealStateConflict
+			return quack.ErrAppealStateConflict
 		}
 		event := params.Event
 		event.AppealID = updated.ID
@@ -268,7 +269,7 @@ func (s *Store) AppendAppealInformation(ctx context.Context, params model.Append
 }
 
 // TransitionAppeal applies one staff timeline transition and optionally voids the case in the same transaction.
-func (s *Store) TransitionAppeal(ctx context.Context, params model.TransitionAppealParams) (*model.Appeal, error) {
+func (s *Store) TransitionAppeal(ctx context.Context, params quack.TransitionAppealParams) (*quack.Appeal, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
@@ -277,34 +278,34 @@ func (s *Store) TransitionAppeal(ctx context.Context, params model.TransitionApp
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND guild_id = ?", params.AppealID, params.GuildID).First(&updated)
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return model.ErrAppealStateConflict
+			return quack.ErrAppealStateConflict
 		}
 		if result.Error != nil {
 			return result.Error
 		}
 		if !appealStatusIn(updated.Status, params.AllowedFrom) {
-			return model.ErrAppealStateConflict
+			return quack.ErrAppealStateConflict
 		}
 		if params.VoidCase {
 			if updated.CaseID == nil {
-				return model.ErrAppealCaseIneligible
+				return quack.ErrAppealCaseIneligible
 			}
 			var item CaseRecord
 			caseResult := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND guild_id = ?", *updated.CaseID, params.GuildID).First(&item)
-			if caseResult.Error != nil || item.Validity != model.CaseValidityValid {
-				return model.ErrAppealStateConflict
+			if caseResult.Error != nil || item.Validity != quack.CaseValidityValid {
+				return quack.ErrAppealStateConflict
 			}
-			caseUpdates := map[string]any{"status": model.CaseValidityVoided, "voided_reason": "Appeal accepted", "voided_by_discord_user_id": params.ActorDiscordUserID, "voided_at": now, "updated_at": now}
-			if result := tx.Model(&CaseRecord{}).Where("id = ? AND status = ?", item.ID, model.CaseValidityValid).Updates(caseUpdates); result.Error != nil || result.RowsAffected != 1 {
-				return model.ErrAppealStateConflict
+			caseUpdates := map[string]any{"status": quack.CaseValidityVoided, "voided_reason": "Appeal accepted", "voided_by_discord_user_id": params.ActorDiscordUserID, "voided_at": now, "updated_at": now}
+			if result := tx.Model(&CaseRecord{}).Where("id = ? AND status = ?", item.ID, quack.CaseValidityValid).Updates(caseUpdates); result.Error != nil || result.RowsAffected != 1 {
+				return quack.ErrAppealStateConflict
 			}
-			if err := tx.Model(&model.CaseActionExecution{}).Where("case_id = ? AND status IN ?", item.ID, []model.ActionExecutionStatus{model.ActionExecutionPending, model.ActionExecutionRetrying}).Updates(map[string]any{"status": model.ActionExecutionCancelled, "last_error_code": "case_voided", "last_error": "case was voided before enforcement", "finished_at": now, "next_retry_at": nil}).Error; err != nil {
+			if err := tx.Model(&quack.CaseActionExecution{}).Where("case_id = ? AND status IN ?", item.ID, []quack.ActionExecutionStatus{quack.ActionExecutionPending, quack.ActionExecutionRetrying}).Updates(map[string]any{"status": quack.ActionExecutionCancelled, "last_error_code": "case_voided", "last_error": "case was voided before enforcement", "finished_at": now, "next_retry_at": nil}).Error; err != nil {
 				return fmt.Errorf("cancel appeal-voided case actions: %w", err)
 			}
-			if err := tx.Model(&model.CaseNotification{}).Where("case_id = ? AND status IN ?", item.ID, []model.NotificationStatus{model.NotificationPending, model.NotificationPrepared, model.NotificationClaimed}).Updates(map[string]any{"status": model.NotificationFailed, "last_error_code": "case_voided", "last_error": "case was voided before notification", "lease_token": "", "lease_expires_at": nil, "updated_at": now}).Error; err != nil {
+			if err := tx.Model(&quack.CaseNotification{}).Where("case_id = ? AND status IN ?", item.ID, []quack.NotificationStatus{quack.NotificationPending, quack.NotificationPrepared, quack.NotificationClaimed}).Updates(map[string]any{"status": quack.NotificationFailed, "last_error_code": "case_voided", "last_error": "case was voided before notification", "lease_token": "", "lease_expires_at": nil, "updated_at": now}).Error; err != nil {
 				return fmt.Errorf("cancel appeal-voided case notification: %w", err)
 			}
-			caseEvent := model.CaseEvent{CaseID: item.ID, GuildID: item.GuildID, EventType: model.CaseEventVoided, ActorDiscordUserID: params.ActorDiscordUserID, ActorType: "staff", Visibility: model.EventVisibilityPublic, Body: "Case voided after appeal accepted", MetadataJSON: "{}"}
+			caseEvent := quack.CaseEvent{CaseID: item.ID, GuildID: item.GuildID, EventType: quack.CaseEventVoided, ActorDiscordUserID: params.ActorDiscordUserID, ActorType: "staff", Visibility: quack.EventVisibilityPublic, Body: "Case voided after appeal accepted", MetadataJSON: "{}"}
 			if err := appendCaseEvent(tx, &caseEvent, now); err != nil {
 				return err
 			}
@@ -328,7 +329,7 @@ func (s *Store) TransitionAppeal(ctx context.Context, params model.TransitionApp
 			"reviewed_at":                 now, "version": updated.Version, "updated_at": now,
 		})
 		if result.Error != nil || result.RowsAffected != 1 {
-			return model.ErrAppealStateConflict
+			return quack.ErrAppealStateConflict
 		}
 		event := params.Event
 		event.AppealID = updated.ID
@@ -359,16 +360,7 @@ func (s *Store) TransitionAppeal(ctx context.Context, params model.TransitionApp
 	return appealModel(updated), nil
 }
 
-func snapshotAppealable(body string) bool {
-	var snapshot struct {
-		Template struct {
-			Appealable bool `json:"appealable"`
-		} `json:"template"`
-	}
-	return json.Unmarshal([]byte(body), &snapshot) == nil && snapshot.Template.Appealable
-}
-
-func appealStatusIn(status model.AppealStatus, allowed []model.AppealStatus) bool {
+func appealStatusIn(status quack.AppealStatus, allowed []quack.AppealStatus) bool {
 	for _, candidate := range allowed {
 		if status == candidate {
 			return true

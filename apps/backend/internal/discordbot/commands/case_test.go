@@ -8,7 +8,6 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 	"github.com/quackdiscord/bot/internal/store"
 	"github.com/quackdiscord/bot/internal/testutil"
 )
@@ -118,7 +117,7 @@ func TestHandleCaseInteractionCreatesCase(t *testing.T) {
 	if len(cases) != 1 {
 		t.Fatalf("expected one case, got %+v", cases)
 	}
-	if cases[0].Source != model.CaseSourceDiscord || cases[0].TargetDiscordUserID != "target-1" {
+	if cases[0].Source != quack.CaseSourceDiscord || cases[0].TargetDiscordUserID != "target-1" {
 		t.Fatalf("unexpected case: %+v", cases[0])
 	}
 	if cases[0].Reason != "Spam" {
@@ -301,9 +300,9 @@ func newCaseCommandHarnessWithLivePermissions(t *testing.T, permissionBits uint6
 		t.Fatalf("migrate schema: %v", err)
 	}
 
-	services := quack.NewWithDiscordClient(store, fakeDiscordClient{
+	services := quack.New(quack.Deps{Store: store, Guilds: fakeDiscordClient{
 		botGuild: &quack.DiscordBotGuild{ID: "guild-1", Name: "Guild", OwnerID: "owner-1"}, liveActorPermissionBits: &permissionBits,
-	})
+	}})
 	guildContext, err := services.Guilds.ResolveDiscordStaffContext(ctx, quack.DiscordStaffContextInput{
 		DiscordGuildID: "guild-1",
 		DiscordUserID:  "owner-1",

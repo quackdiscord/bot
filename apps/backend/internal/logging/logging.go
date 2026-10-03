@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/lmittmann/tint"
-	"github.com/quackdiscord/bot/internal/quack/idutil"
+	"github.com/quackdiscord/bot/internal/quack"
 )
 
 // New creates a logger with colorized development output or structured production
@@ -36,7 +36,7 @@ type traceHandler struct{ slog.Handler }
 
 // Handle forwards the record with the request and correlation IDs from context.
 func (h traceHandler) Handle(ctx context.Context, record slog.Record) error {
-	requestID, correlationID := idutil.TraceIDsFromContext(ctx)
+	requestID, correlationID := quack.TraceIDsFromContext(ctx)
 	if requestID != "" {
 		record.AddAttrs(slog.String("request_id", requestID))
 	}

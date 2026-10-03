@@ -6,22 +6,16 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/quackdiscord/bot/internal/quack/model"
+	"github.com/quackdiscord/bot/internal/quack"
 )
 
-// UpsertGuildParams aliases the core upsert guild params contract so Store satisfies the port without maintaining a second data shape.
-type UpsertGuildParams = model.UpsertGuildParams
-
-// UpsertStaffMemberParams aliases the core upsert staff member params contract so Store satisfies the port without maintaining a second data shape.
-type UpsertStaffMemberParams = model.UpsertStaffMemberParams
-
 // GetGuildByDiscordID retrieves guild by discord id without exposing the underlying adapter implementation.
-func (s *Store) GetGuildByDiscordID(ctx context.Context, discordGuildID string) (*model.Guild, error) {
+func (s *Store) GetGuildByDiscordID(ctx context.Context, discordGuildID string) (*quack.Guild, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
 
-	var guild model.Guild
+	var guild quack.Guild
 	result := s.db.WithContext(ctx).Where("discord_guild_id = ?", discordGuildID).Limit(1).Find(&guild)
 	if result.Error != nil {
 		return nil, fmt.Errorf("get guild by discord id: %w", result.Error)
@@ -34,11 +28,11 @@ func (s *Store) GetGuildByDiscordID(ctx context.Context, discordGuildID string) 
 }
 
 // GetGuildByID retrieves the durable guild identity used by case notifications.
-func (s *Store) GetGuildByID(ctx context.Context, guildID string) (*model.Guild, error) {
+func (s *Store) GetGuildByID(ctx context.Context, guildID string) (*quack.Guild, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
-	var guild model.Guild
+	var guild quack.Guild
 	result := s.db.WithContext(ctx).Where("id = ?", guildID).Limit(1).Find(&guild)
 	if result.Error != nil {
 		return nil, fmt.Errorf("get guild by id: %w", result.Error)
@@ -50,7 +44,7 @@ func (s *Store) GetGuildByID(ctx context.Context, guildID string) (*model.Guild,
 }
 
 // UpsertGuild encapsulates the upsert guild rule so callers share one consistent package implementation.
-func (s *Store) UpsertGuild(ctx context.Context, params UpsertGuildParams) (*model.Guild, error) {
+func (s *Store) UpsertGuild(ctx context.Context, params quack.UpsertGuildParams) (*quack.Guild, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
@@ -81,7 +75,7 @@ func (s *Store) UpsertGuild(ctx context.Context, params UpsertGuildParams) (*mod
 		return existing, nil
 	}
 
-	guild := &model.Guild{
+	guild := &quack.Guild{
 		DiscordGuildID:     params.DiscordGuildID,
 		Name:               params.Name,
 		IconURL:            params.IconURL,
@@ -100,7 +94,7 @@ func (s *Store) UpsertGuild(ctx context.Context, params UpsertGuildParams) (*mod
 }
 
 // UpsertStaffMember encapsulates the upsert staff member rule so callers share one consistent package implementation.
-func (s *Store) UpsertStaffMember(ctx context.Context, params UpsertStaffMemberParams) (*model.StaffMember, error) {
+func (s *Store) UpsertStaffMember(ctx context.Context, params quack.UpsertStaffMemberParams) (*quack.StaffMember, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
@@ -111,7 +105,7 @@ func (s *Store) UpsertStaffMember(ctx context.Context, params UpsertStaffMemberP
 		activeAt = now
 	}
 
-	var staff model.StaffMember
+	var staff quack.StaffMember
 	result := s.db.WithContext(ctx).
 		Where("guild_id = ? AND discord_user_id = ?", params.GuildID, params.DiscordUserID).
 		Limit(1).
@@ -141,7 +135,7 @@ func (s *Store) UpsertStaffMember(ctx context.Context, params UpsertStaffMemberP
 		return &staff, nil
 	}
 
-	staff = model.StaffMember{
+	staff = quack.StaffMember{
 		GuildID:                params.GuildID,
 		DiscordUserID:          params.DiscordUserID,
 		LastSeenPermissionBits: params.LastSeenPermissionBits,
@@ -160,12 +154,12 @@ func (s *Store) UpsertStaffMember(ctx context.Context, params UpsertStaffMemberP
 }
 
 // GetStaffMember retrieves staff member without exposing the underlying adapter implementation.
-func (s *Store) GetStaffMember(ctx context.Context, guildID, discordUserID string) (*model.StaffMember, error) {
+func (s *Store) GetStaffMember(ctx context.Context, guildID, discordUserID string) (*quack.StaffMember, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
 
-	var staff model.StaffMember
+	var staff quack.StaffMember
 	result := s.db.WithContext(ctx).
 		Where("guild_id = ? AND discord_user_id = ?", guildID, discordUserID).
 		Limit(1).

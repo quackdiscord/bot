@@ -7,7 +7,6 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 // CaseCreated groups the case created state used to keep this package's responsibilities explicit.
@@ -108,8 +107,8 @@ func actionSummary(actions []quack.CaseActionResponse) string {
 		return " (none)"
 	}
 
-	counts := map[model.ActionType]int{}
-	order := make([]model.ActionType, 0, len(actions))
+	counts := map[quack.ActionType]int{}
+	order := make([]quack.ActionType, 0, len(actions))
 	for _, action := range actions {
 		if counts[action.ActionType] == 0 {
 			order = append(order, action.ActionType)

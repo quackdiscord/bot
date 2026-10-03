@@ -3,7 +3,7 @@ package store
 import (
 	"time"
 
-	"github.com/quackdiscord/bot/internal/quack/model"
+	"github.com/quackdiscord/bot/internal/quack"
 )
 
 // ULIDModelRecord is the GORM persistence representation of ulidmodel; domain models remain storage-agnostic.
@@ -77,7 +77,7 @@ type CaseTemplateContextFieldRecord struct {
 	TemplateID string                 `gorm:"type:char(26);not null;uniqueIndex:idx_template_context_key,priority:1;uniqueIndex:idx_template_context_position,priority:1;index"`
 	Key        string                 `gorm:"size:64;not null;uniqueIndex:idx_template_context_key,priority:2"`
 	Label      string                 `gorm:"size:191;not null"`
-	FieldType  model.ContextFieldType `gorm:"size:32;not null"`
+	FieldType  quack.ContextFieldType `gorm:"size:32;not null"`
 	Position   int                    `gorm:"not null;uniqueIndex:idx_template_context_position,priority:2"`
 	Required   bool                   `gorm:"not null;default:false"`
 }
@@ -101,7 +101,7 @@ type CaseTemplateLevelActionRecord struct {
 	ULIDModelRecord
 	LevelID          string           `gorm:"type:char(26);not null;uniqueIndex:idx_level_action_position,priority:1;index"`
 	Position         int              `gorm:"not null;uniqueIndex:idx_level_action_position,priority:2"`
-	ActionType       model.ActionType `gorm:"size:64;not null;index"`
+	ActionType       quack.ActionType `gorm:"size:64;not null;index"`
 	ConfigJSON       string           `gorm:"type:json;not null"`
 	NotifyUser       bool             `gorm:"not null;default:false"`
 	NotificationType string           `gorm:"size:64"`
@@ -124,8 +124,8 @@ type CaseRecord struct {
 	TargetDiscordUserID     string             `gorm:"size:32;not null;index:idx_case_guild_target,priority:2"`
 	ModeratorDiscordUserID  string             `gorm:"size:32;not null;index:idx_case_guild_mod,priority:2"`
 	Reason                  string             `gorm:"type:text;not null"`
-	Validity                model.CaseValidity `gorm:"column:status;size:32;not null;default:'valid';index:idx_case_guild_status,priority:2"`
-	Source                  model.CaseSource   `gorm:"size:32;not null;default:'dashboard';index"`
+	Validity                quack.CaseValidity `gorm:"column:status;size:32;not null;default:'valid';index:idx_case_guild_status,priority:2"`
+	Source                  quack.CaseSource   `gorm:"size:32;not null;default:'dashboard';index"`
 	CorrelationID           string             `gorm:"size:128;index"`
 	ContextChannelDiscordID string             `gorm:"size:32"`
 	ContextMessageDiscordID string             `gorm:"size:32"`
@@ -146,8 +146,8 @@ type CaseActionExecutionRecord struct {
 	CaseID                   string                      `gorm:"type:char(26);not null;index:idx_action_execution_case_position,priority:1;index"`
 	TemplateActionID         *string                     `gorm:"type:char(26);index"`
 	Position                 int                         `gorm:"not null;index:idx_action_execution_case_position,priority:2"`
-	ActionType               model.ActionType            `gorm:"size:64;not null;index"`
-	Status                   model.ActionExecutionStatus `gorm:"size:32;not null;default:'pending';index:idx_action_execution_status_retry,priority:1"`
+	ActionType               quack.ActionType            `gorm:"size:64;not null;index"`
+	Status                   quack.ActionExecutionStatus `gorm:"size:32;not null;default:'pending';index:idx_action_execution_status_retry,priority:1"`
 	IdempotencyKey           string                      `gorm:"size:191;not null;uniqueIndex"`
 	ConfigSnapshotJSON       string                      `gorm:"type:json;not null"`
 	NotifyUser               bool                        `gorm:"not null;default:false"`
@@ -207,7 +207,7 @@ type CaseEvidenceAttachmentRecord struct {
 type CaseNotificationRecord struct {
 	ULIDModelRecord
 	CaseID                   string                   `gorm:"type:char(26);not null;uniqueIndex"`
-	Status                   model.NotificationStatus `gorm:"size:32;not null;index"`
+	Status                   quack.NotificationStatus `gorm:"size:32;not null;index"`
 	PreparedChannelDiscordID string                   `gorm:"size:32;not null"`
 	RenderedMessage          string                   `gorm:"type:text;not null"`
 	DeliveryMessageDiscordID string                   `gorm:"size:32;not null"`
@@ -224,7 +224,7 @@ type CaseActionAttemptRecord struct {
 	ULIDModelRecord
 	ExecutionID         string                    `gorm:"type:char(26);not null;uniqueIndex:idx_action_attempt_execution_number,priority:1;index"`
 	AttemptNumber       uint8                     `gorm:"not null;uniqueIndex:idx_action_attempt_execution_number,priority:2"`
-	Status              model.ActionAttemptStatus `gorm:"size:32;not null;index"`
+	Status              quack.ActionAttemptStatus `gorm:"size:32;not null;index"`
 	WorkerID            string                    `gorm:"size:64"`
 	StartedAt           time.Time                 `gorm:"not null"`
 	FinishedAt          *time.Time
@@ -240,10 +240,10 @@ type CaseEventRecord struct {
 	ULIDModelRecord
 	CaseID             string                `gorm:"type:char(26);not null;index:idx_case_event_case_created,priority:1"`
 	GuildID            string                `gorm:"type:char(26);not null;index"`
-	EventType          model.CaseEventType   `gorm:"size:64;not null;index"`
+	EventType          quack.CaseEventType   `gorm:"size:64;not null;index"`
 	ActorDiscordUserID string                `gorm:"size:32;index"`
 	ActorType          string                `gorm:"size:32;not null;default:'system'"`
-	Visibility         model.EventVisibility `gorm:"size:32;not null;default:'staff'"`
+	Visibility         quack.EventVisibility `gorm:"size:32;not null;default:'staff'"`
 	Body               string                `gorm:"type:text;not null"`
 	MetadataJSON       string                `gorm:"type:json;not null"`
 }
@@ -254,7 +254,7 @@ type AppealRecord struct {
 	GuildID                 string             `gorm:"type:char(26);not null;index:idx_appeal_guild_status,priority:1;index:idx_appeal_guild_user,priority:1"`
 	CaseID                  *string            `gorm:"type:char(26);index"`
 	TargetDiscordUserID     string             `gorm:"size:32;not null;index:idx_appeal_guild_user,priority:2"`
-	Status                  model.AppealStatus `gorm:"size:32;not null;default:'pending';index:idx_appeal_guild_status,priority:2"`
+	Status                  quack.AppealStatus `gorm:"size:32;not null;default:'pending';index:idx_appeal_guild_status,priority:2"`
 	Content                 string             `gorm:"type:text;not null"`
 	DecisionReason          string             `gorm:"type:text"`
 	ReviewedByDiscordUserID string             `gorm:"size:32"`
@@ -289,8 +289,8 @@ type AppealNotificationRecord struct {
 	EventID             string                           `gorm:"type:char(26);not null;uniqueIndex"`
 	GuildID             string                           `gorm:"type:char(26);not null;index"`
 	TargetDiscordUserID string                           `gorm:"size:32;not null;index"`
-	Audience            model.AppealNotificationAudience `gorm:"size:32;not null;index"`
-	Status              model.AppealNotificationStatus   `gorm:"size:32;not null;index"`
+	Audience            quack.AppealNotificationAudience `gorm:"size:32;not null;index"`
+	Status              quack.AppealNotificationStatus   `gorm:"size:32;not null;index"`
 	Body                string                           `gorm:"type:text;not null"`
 	DeliveryMessageID   string                           `gorm:"size:32;not null"`
 	LastErrorCode       string                           `gorm:"size:64;not null"`
@@ -304,7 +304,7 @@ type TicketRecord struct {
 	GuildID                 string             `gorm:"type:char(26);not null;index:idx_ticket_guild_status,priority:1;index:idx_ticket_guild_owner,priority:1"`
 	OwnerDiscordUserID      string             `gorm:"size:32;not null;index:idx_ticket_guild_owner,priority:2"`
 	ThreadDiscordChannelID  string             `gorm:"size:32;uniqueIndex"`
-	Status                  model.TicketStatus `gorm:"size:32;not null;default:'open';index:idx_ticket_guild_status,priority:2"`
+	Status                  quack.TicketStatus `gorm:"size:32;not null;default:'open';index:idx_ticket_guild_status,priority:2"`
 	LogMessageDiscordID     string             `gorm:"size:32"`
 	ResolvedByDiscordUserID string             `gorm:"size:32"`
 	ResolvedAt              *time.Time         `gorm:"index"`
@@ -329,11 +329,11 @@ type AuditLogEntryRecord struct {
 	GuildID             string            `gorm:"type:char(26);not null;index:idx_audit_guild_action,priority:1;index"`
 	ActorDiscordUserID  string            `gorm:"size:32;index"`
 	ActorPermissionBits uint64            `gorm:"type:bigint unsigned;not null;default:0"`
-	Source              model.AuditSource `gorm:"size:32;not null;index"`
+	Source              quack.AuditSource `gorm:"size:32;not null;index"`
 	Action              string            `gorm:"size:96;not null;index:idx_audit_guild_action,priority:2"`
 	ResourceType        string            `gorm:"size:64;not null;index:idx_audit_resource,priority:1"`
 	ResourceID          string            `gorm:"size:64;not null;index:idx_audit_resource,priority:2"`
-	Result              model.AuditResult `gorm:"size:32;not null;index"`
+	Result              quack.AuditResult `gorm:"size:32;not null;index"`
 	FailureReason       string            `gorm:"type:text"`
 	CorrelationID       string            `gorm:"size:128;index"`
 	RequestID           string            `gorm:"size:128;index"`

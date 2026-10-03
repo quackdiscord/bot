@@ -14,12 +14,11 @@ import (
 	"github.com/quackdiscord/bot/internal/httpapi/apierror"
 	"github.com/quackdiscord/bot/internal/httpapi/middleware"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 	"github.com/quackdiscord/bot/internal/testutil"
 )
 
 func TestAuthSessionJSONNeverExposesCredentials(t *testing.T) {
-	session := &model.AuthSession{
+	session := &quack.AuthSession{
 		ID: "session-secret", DiscordUserID: "user-1", AccessToken: "access-secret",
 		RefreshToken: "refresh-secret", CSRFToken: "csrf-secret",
 	}
@@ -56,14 +55,14 @@ func TestAuthCookieAttributes(t *testing.T) {
 func TestExpiredOAuthTokenForcesStableReauthenticationAndRevokesSession(t *testing.T) {
 	store := testutil.NewSQLiteRedisStore(t)
 	now := time.Now().UTC()
-	session := &model.AuthSession{
+	session := &quack.AuthSession{
 		ID: "expired-session", DiscordUserID: "user-1", AccessToken: "token-secret",
 		TokenExpiresAt: now.Add(-time.Minute), SessionExpiresAt: now.Add(time.Hour), CreatedAt: now, LastSeenAt: now,
 	}
 	if err := store.SaveSession(context.Background(), session, time.Hour); err != nil {
 		t.Fatalf("save session: %v", err)
 	}
-	services := quack.New(store)
+	services := testDeps(store, nil, nil)
 	router := authTestRouter(services)
 	request := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
 	request.Header.Set("Authorization", "Bearer "+session.ID)
@@ -88,14 +87,14 @@ func TestExpiredOAuthTokenForcesStableReauthenticationAndRevokesSession(t *testi
 func TestAuthMeAndLogoutAllDoNotExposeOrRetainSessions(t *testing.T) {
 	store := testutil.NewSQLiteRedisStore(t)
 	now := time.Now().UTC()
-	first := &model.AuthSession{ID: "session-one", DiscordUserID: "user-1", AccessToken: "access-one", RefreshToken: "refresh-one", TokenExpiresAt: now.Add(time.Hour), SessionExpiresAt: now.Add(time.Hour), CreatedAt: now, LastSeenAt: now}
-	second := &model.AuthSession{ID: "session-two", DiscordUserID: "user-1", AccessToken: "access-two", RefreshToken: "refresh-two", TokenExpiresAt: now.Add(time.Hour), SessionExpiresAt: now.Add(time.Hour), CreatedAt: now, LastSeenAt: now}
-	for _, session := range []*model.AuthSession{first, second} {
+	first := &quack.AuthSession{ID: "session-one", DiscordUserID: "user-1", AccessToken: "access-one", RefreshToken: "refresh-one", TokenExpiresAt: now.Add(time.Hour), SessionExpiresAt: now.Add(time.Hour), CreatedAt: now, LastSeenAt: now}
+	second := &quack.AuthSession{ID: "session-two", DiscordUserID: "user-1", AccessToken: "access-two", RefreshToken: "refresh-two", TokenExpiresAt: now.Add(time.Hour), SessionExpiresAt: now.Add(time.Hour), CreatedAt: now, LastSeenAt: now}
+	for _, session := range []*quack.AuthSession{first, second} {
 		if err := store.SaveSession(context.Background(), session, time.Hour); err != nil {
 			t.Fatalf("save session: %v", err)
 		}
 	}
-	services := quack.New(store)
+	services := testDeps(store, nil, nil)
 	router := authTestRouter(services)
 	request := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
 	request.AddCookie(&http.Cookie{Name: services.Config.Auth.SessionCookieName, Value: first.ID})
@@ -142,11 +141,11 @@ func TestAuthMeAndLogoutAllDoNotExposeOrRetainSessions(t *testing.T) {
 
 func TestRevokedDiscordGrantReturnsSafeReauthentication(t *testing.T) {
 	store := testutil.NewSQLiteRedisStore(t)
-	services := quack.New(store)
+	services := testDeps(store, nil, nil)
 	services.Config.Discord.AppID = "app"
 	services.Config.Discord.ClientSecret = "client-secret"
 	services.Config.Discord.OAuthRedirectURI = "https://dashboard.example.com/callback"
-	if err := store.SaveOAuthState(context.Background(), "state-id", &model.OAuthState{ResponseMode: "json", CreatedAt: time.Now().UTC()}, time.Minute); err != nil {
+	if err := store.SaveOAuthState(context.Background(), "state-id", &quack.OAuthState{ResponseMode: "json", CreatedAt: time.Now().UTC()}, time.Minute); err != nil {
 		t.Fatalf("save state: %v", err)
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -179,11 +178,11 @@ func TestRevokedDiscordGrantReturnsSafeReauthentication(t *testing.T) {
 
 func TestOAuthJSONCallbackReturnsOnlySafeUserContract(t *testing.T) {
 	store := testutil.NewSQLiteRedisStore(t)
-	services := quack.New(store)
+	services := testDeps(store, nil, nil)
 	services.Config.Discord.AppID = "app"
 	services.Config.Discord.ClientSecret = "client-secret"
 	services.Config.Discord.OAuthRedirectURI = "https://dashboard.example.com/callback"
-	if err := store.SaveOAuthState(context.Background(), "state-id", &model.OAuthState{ResponseMode: "json", CreatedAt: time.Now().UTC()}, time.Minute); err != nil {
+	if err := store.SaveOAuthState(context.Background(), "state-id", &quack.OAuthState{ResponseMode: "json", CreatedAt: time.Now().UTC()}, time.Minute); err != nil {
 		t.Fatalf("save state: %v", err)
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
@@ -238,7 +237,7 @@ func TestOAuthJSONCallbackReturnsOnlySafeUserContract(t *testing.T) {
 }
 
 // authTestRouter builds the route contract with trace and error normalization but without browser-only CSRF concerns.
-func authTestRouter(services *quack.Services) *gin.Engine {
+func authTestRouter(services *Deps) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.Use(middleware.RequestContext, middleware.ErrorEnvelope)
@@ -250,11 +249,11 @@ func TestOAuthCallbackRequiresInitiatingBrowser(t *testing.T) {
 	for _, binding := range []string{"", "different-browser"} {
 		t.Run(binding, func(t *testing.T) {
 			store := testutil.NewSQLiteRedisStore(t)
-			services := quack.New(store)
+			services := testDeps(store, nil, nil)
 			services.Config.Discord.AppID = "app"
 			services.Config.Discord.ClientSecret = "secret"
 			services.Config.Discord.OAuthRedirectURI = "https://api.example/auth/discord/callback"
-			if err := store.SaveOAuthState(context.Background(), "state-id", &model.OAuthState{}, time.Minute); err != nil {
+			if err := store.SaveOAuthState(context.Background(), "state-id", &quack.OAuthState{}, time.Minute); err != nil {
 				t.Fatal(err)
 			}
 			request := httptest.NewRequest(http.MethodGet, "/auth/discord/callback?code=code&state=state-id", nil)
@@ -292,7 +291,7 @@ func TestRedirectTargetRejectsExternalAndBrowserNormalizedURLs(t *testing.T) {
 }
 
 func TestOAuthLoginSetsHostBoundStateCookie(t *testing.T) {
-	services := quack.New(testutil.NewSQLiteRedisStore(t))
+	services := testDeps(testutil.NewSQLiteRedisStore(t), nil, nil)
 	services.Config.Discord.AppID = "app"
 	services.Config.Discord.ClientSecret = "secret"
 	services.Config.Discord.OAuthRedirectURI = "https://api.example/auth/discord/callback"

@@ -55,7 +55,7 @@ func liveness(c *gin.Context) {
 // @Success 200 {object} readinessResponse
 // @Failure 503 {object} readinessResponse
 // @Router /readyz [get]
-func readiness(c *gin.Context, services *quack.Services, discord DiscordStatusProvider) {
+func readiness(c *gin.Context, services *Deps, discord DiscordStatusProvider) {
 	result := readinessResponse{Ready: true, Checks: map[string]readinessCheck{}}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
 	defer cancel()
@@ -148,7 +148,7 @@ func readinessDetail(ready bool, unavailable string) string {
 // @Failure 404 {string} string
 // @Failure 503 {string} string
 // @Router /metrics [get]
-func metrics(c *gin.Context, services *quack.Services) {
+func metrics(c *gin.Context, services *Deps) {
 	configured := strings.TrimSpace(services.Config.API.MetricsToken)
 	provided := strings.TrimSpace(c.GetHeader("X-Quack-Metrics-Key"))
 	if configured == "" {

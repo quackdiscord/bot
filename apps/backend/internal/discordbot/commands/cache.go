@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/quackdiscord/bot/internal/quack"
 	r "github.com/redis/go-redis/v9"
 )
 
@@ -37,11 +36,17 @@ func (noopCommandCache) Set(ctx context.Context, scope, commandName string, entr
 
 // redisCommandCache groups the redis command cache state used to keep this package's responsibilities explicit.
 type redisCommandCache struct {
-	store quack.Repository
+	store CommandHashStore
+}
+
+// CommandHashStore is the Redis hash storage the command cache uses.
+type CommandHashStore interface {
+	HashGet(ctx context.Context, key, field string) ([]byte, error)
+	HashSet(ctx context.Context, key, field string, value []byte) error
 }
 
 // newRedisCommandCache encapsulates the new redis command cache rule so callers share one consistent package implementation.
-func newRedisCommandCache(store quack.Repository) commandHashCache {
+func newRedisCommandCache(store CommandHashStore) commandHashCache {
 	if store == nil {
 		return noopCommandCache{}
 	}

@@ -6,7 +6,6 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 func TestAppealEntryMessageRequiresHTTPSAndTargetsOwnedCase(t *testing.T) {
@@ -28,7 +27,7 @@ func TestAppealEntryMessageRequiresHTTPSAndTargetsOwnedCase(t *testing.T) {
 }
 
 func TestAppealStaffMessageOffersOnlyExplicitReversalControls(t *testing.T) {
-	message := AppealStaffMessage(&quack.AppealResponse{ID: "appeal", CaseID: "case", TargetDiscordUserID: "target", Status: model.AppealStatusAccepted, ReversalOffers: []quack.AppealReversalOffer{{OriginalExecutionID: "execution", ActionType: model.ActionUnbanUser}}})
+	message := AppealStaffMessage(&quack.AppealResponse{ID: "appeal", CaseID: "case", TargetDiscordUserID: "target", Status: quack.AppealStatusAccepted, ReversalOffers: []quack.AppealReversalOffer{{OriginalExecutionID: "execution", ActionType: quack.ActionUnbanUser}}})
 	if len(message.Components) != 1 || len(message.Embeds) != 1 {
 		t.Fatalf("expected one explicit reversal offer: %+v", message)
 	}

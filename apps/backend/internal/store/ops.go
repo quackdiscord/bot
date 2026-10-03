@@ -5,24 +5,12 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/quackdiscord/bot/internal/quack/model"
+	"github.com/quackdiscord/bot/internal/quack"
 	"gorm.io/gorm"
 )
 
-// ActionStatusCount aliases the core action status count contract so Store satisfies the port without maintaining a second data shape.
-type ActionStatusCount = model.ActionStatusCount
-
-// OldestActionExecution aliases the core oldest action execution contract so Store satisfies the port without maintaining a second data shape.
-type OldestActionExecution = model.OldestActionExecution
-
-// RecentActionFailure aliases the core recent action failure contract so Store satisfies the port without maintaining a second data shape.
-type RecentActionFailure = model.RecentActionFailure
-
-// ActionQueueSnapshot aliases the core action queue snapshot contract so Store satisfies the port without maintaining a second data shape.
-type ActionQueueSnapshot = model.ActionQueueSnapshot
-
-// ActionQueueSnapshot encapsulates the action queue snapshot rule so callers share one consistent package implementation.
-func (s *Store) ActionQueueSnapshot(ctx context.Context, guildID string, recentLimit int) (*ActionQueueSnapshot, error) {
+// quack.ActionQueueSnapshot encapsulates the action queue snapshot rule so callers share one consistent package implementation.
+func (s *Store) ActionQueueSnapshot(ctx context.Context, guildID string, recentLimit int) (*quack.ActionQueueSnapshot, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
@@ -40,15 +28,15 @@ func (s *Store) ActionQueueSnapshot(ctx context.Context, guildID string, recentL
 		base = base.Where("c.guild_id = ?", guildID)
 	}
 
-	var statusCounts []ActionStatusCount
+	var statusCounts []quack.ActionStatusCount
 	if err := base.Session(&gorm.Session{}).Select("e.status AS status, COUNT(*) AS count").Group("e.status").Scan(&statusCounts).Error; err != nil {
 		return nil, fmt.Errorf("count action executions by status: %w", err)
 	}
 
-	var oldest OldestActionExecution
+	var oldest quack.OldestActionExecution
 	oldestResult := base.Session(&gorm.Session{}).
 		Select("e.id, e.case_id, c.case_number, e.action_type, e.status, e.created_at, e.next_retry_at").
-		Where("e.status IN ?", []model.ActionExecutionStatus{model.ActionExecutionPending, model.ActionExecutionRetrying}).
+		Where("e.status IN ?", []quack.ActionExecutionStatus{quack.ActionExecutionPending, quack.ActionExecutionRetrying}).
 		Order("COALESCE(e.next_retry_at, e.created_at) ASC").
 		Limit(1).
 		Scan(&oldest)
@@ -56,17 +44,17 @@ func (s *Store) ActionQueueSnapshot(ctx context.Context, guildID string, recentL
 		return nil, fmt.Errorf("get oldest pending action: %w", oldestResult.Error)
 	}
 
-	var failures []RecentActionFailure
+	var failures []quack.RecentActionFailure
 	if err := base.Session(&gorm.Session{}).
 		Select("e.id, e.case_id, c.case_number, e.action_type, e.status, e.last_error_code, e.last_error, e.updated_at").
-		Where("e.status = ? OR e.last_error_code <> ''", model.ActionExecutionFailed).
+		Where("e.status = ? OR e.last_error_code <> ''", quack.ActionExecutionFailed).
 		Order("e.updated_at DESC").
 		Limit(recentLimit).
 		Scan(&failures).Error; err != nil {
 		return nil, fmt.Errorf("list recent action failures: %w", err)
 	}
 
-	snapshot := &ActionQueueSnapshot{
+	snapshot := &quack.ActionQueueSnapshot{
 		StatusCounts:   statusCounts,
 		RecentFailures: failures,
 	}

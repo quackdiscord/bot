@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/quackdiscord/bot/internal/quack/model"
+	"github.com/quackdiscord/bot/internal/quack"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -19,7 +19,7 @@ func TestLiveTemplateRecordDoesNotEnableSoftDeleteSemantics(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	guild := model.Guild{ULIDModel: model.ULIDModel{ID: "01J40000000000000000000021", CreatedAt: now, UpdatedAt: now}, DiscordGuildID: "archive-only-guild", Name: "Archive only", OwnerDiscordUserID: "owner", IsActive: true}
+	guild := quack.Guild{ULIDModel: quack.ULIDModel{ID: "01J40000000000000000000021", CreatedAt: now, UpdatedAt: now}, DiscordGuildID: "archive-only-guild", Name: "Archive only", OwnerDiscordUserID: "owner", IsActive: true}
 	if err := db.Create(&guild).Error; err != nil {
 		t.Fatal(err)
 	}

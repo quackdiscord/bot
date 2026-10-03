@@ -7,24 +7,24 @@ import (
 	"sort"
 	"time"
 
-	"github.com/quackdiscord/bot/internal/quack/model"
+	"github.com/quackdiscord/bot/internal/quack"
 	"gorm.io/gorm"
 )
 
 // ListPendingAuditMirrorEntries returns important immutable entries without a successful mirror outcome.
-func (s *Store) ListPendingAuditMirrorEntries(ctx context.Context, limit int) ([]model.AuditLogEntry, error) {
+func (s *Store) ListPendingAuditMirrorEntries(ctx context.Context, limit int) ([]quack.AuditLogEntry, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
-	var entries []model.AuditLogEntry
+	var entries []quack.AuditLogEntry
 	retryAfter := time.Now().UTC().Add(-time.Minute)
 	err := s.db.WithContext(ctx).
-		Where("action IN ?", model.ImportantAuditActions()).
-		Where("NOT EXISTS (SELECT 1 FROM audit_log_entries outcomes WHERE outcomes.guild_id = audit_log_entries.guild_id AND outcomes.action IN ? AND outcomes.resource_type = ? AND outcomes.resource_id = audit_log_entries.id AND outcomes.result = ?)", []string{string(model.AuditActionMirrorDelivered), string(model.AuditActionMirrorSkipped)}, "audit_entry", model.AuditResultSuccess).
-		Where("NOT EXISTS (SELECT 1 FROM audit_log_entries failures WHERE failures.guild_id = audit_log_entries.guild_id AND failures.action = ? AND failures.resource_type = ? AND failures.resource_id = audit_log_entries.id AND failures.created_at > ?)", string(model.AuditActionMirrorFailed), "audit_entry", retryAfter).
+		Where("action IN ?", quack.ImportantAuditActions()).
+		Where("NOT EXISTS (SELECT 1 FROM audit_log_entries outcomes WHERE outcomes.guild_id = audit_log_entries.guild_id AND outcomes.action IN ? AND outcomes.resource_type = ? AND outcomes.resource_id = audit_log_entries.id AND outcomes.result = ?)", []string{string(quack.AuditActionMirrorDelivered), string(quack.AuditActionMirrorSkipped)}, "audit_entry", quack.AuditResultSuccess).
+		Where("NOT EXISTS (SELECT 1 FROM audit_log_entries failures WHERE failures.guild_id = audit_log_entries.guild_id AND failures.action = ? AND failures.resource_type = ? AND failures.resource_id = audit_log_entries.id AND failures.created_at > ?)", string(quack.AuditActionMirrorFailed), "audit_entry", retryAfter).
 		Order("created_at ASC, id ASC").Limit(limit).Find(&entries).Error
 	if err != nil {
 		return nil, fmt.Errorf("list pending audit mirror entries: %w", err)
@@ -33,7 +33,7 @@ func (s *Store) ListPendingAuditMirrorEntries(ctx context.Context, limit int) ([
 }
 
 // DeriveStaffStatistics calculates operational counts directly from immutable source records.
-func (s *Store) DeriveStaffStatistics(ctx context.Context, params model.StaffStatisticsParams) (*model.StaffStatistics, error) {
+func (s *Store) DeriveStaffStatistics(ctx context.Context, params quack.StaffStatisticsParams) (*quack.StaffStatistics, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
@@ -41,24 +41,24 @@ func (s *Store) DeriveStaffStatistics(ctx context.Context, params model.StaffSta
 		return nil, errors.New("invalid staff statistics range")
 	}
 
-	var cases []model.Case
+	var cases []quack.Case
 	if err := timeRange(s.db.WithContext(ctx).Where("guild_id = ?", params.GuildID), params).Find(&cases).Error; err != nil {
 		return nil, fmt.Errorf("derive case statistics: %w", err)
 	}
-	var actions []model.CaseActionExecution
+	var actions []quack.CaseActionExecution
 	if err := timeRange(s.db.WithContext(ctx).Where("case_id IN (SELECT id FROM cases WHERE guild_id = ?)", params.GuildID), params).Find(&actions).Error; err != nil {
 		return nil, fmt.Errorf("derive action statistics: %w", err)
 	}
-	var appeals []model.Appeal
+	var appeals []quack.Appeal
 	if err := timeRange(s.db.WithContext(ctx).Where("guild_id = ?", params.GuildID), params).Find(&appeals).Error; err != nil {
 		return nil, fmt.Errorf("derive appeal statistics: %w", err)
 	}
-	var audits []model.AuditLogEntry
+	var audits []quack.AuditLogEntry
 	if err := timeRange(s.db.WithContext(ctx).Where("guild_id = ?", params.GuildID), params).Find(&audits).Error; err != nil {
 		return nil, fmt.Errorf("derive audit statistics: %w", err)
 	}
 
-	result := &model.StaffStatistics{From: params.From.UTC(), To: params.To.UTC(), CaseTotal: int64(len(cases)), ActionTotal: int64(len(actions)), AppealTotal: int64(len(appeals)), AuditTotal: int64(len(audits))}
+	result := &quack.StaffStatistics{From: params.From.UTC(), To: params.To.UTC(), CaseTotal: int64(len(cases)), ActionTotal: int64(len(actions)), AppealTotal: int64(len(appeals)), AuditTotal: int64(len(audits))}
 	caseDays, caseTemplates, caseValidity, caseSources := map[string]int64{}, map[string]int64{}, map[string]int64{}, map[string]int64{}
 	for _, item := range cases {
 		caseDays[item.CreatedAt.UTC().Format(time.DateOnly)]++
@@ -104,19 +104,19 @@ func (s *Store) DeriveStaffStatistics(ctx context.Context, params model.StaffSta
 	return result, nil
 }
 
-func timeRange(query *gorm.DB, params model.StaffStatisticsParams) *gorm.DB {
+func timeRange(query *gorm.DB, params quack.StaffStatisticsParams) *gorm.DB {
 	return query.Where("created_at >= ? AND created_at < ?", params.From.UTC(), params.To.UTC())
 }
 
-func statisticBuckets(counts map[string]int64) []model.StatisticBucket {
+func statisticBuckets(counts map[string]int64) []quack.StatisticBucket {
 	keys := make([]string, 0, len(counts))
 	for key := range counts {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
-	result := make([]model.StatisticBucket, 0, len(keys))
+	result := make([]quack.StatisticBucket, 0, len(keys))
 	for _, key := range keys {
-		result = append(result, model.StatisticBucket{Key: key, Count: counts[key]})
+		result = append(result, quack.StatisticBucket{Key: key, Count: counts[key]})
 	}
 	return result
 }

@@ -10,7 +10,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/quackdiscord/bot/internal/httpapi/middleware"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 // caseCreateRequest is the strict dashboard contract; adapter-owned reason and source cannot be supplied by callers.
@@ -41,7 +40,7 @@ type caseCreateRequest struct {
 // @Failure 400 {object} map[string]interface{}
 // @Failure 403 {object} map[string]interface{}
 // @Router /guilds/{discordGuildID}/cases [get]
-func listCases(c *gin.Context, services *quack.Services) {
+func listCases(c *gin.Context, services *Deps) {
 	result, err := services.Cases.List(c.Request.Context(), middleware.GetGuildContext(c), caseListInput(c))
 	if err != nil {
 		writeCaseError(c, err)
@@ -65,7 +64,7 @@ func listCases(c *gin.Context, services *quack.Services) {
 // @Failure 403 {object} map[string]interface{}
 // @Failure 404 {object} map[string]interface{}
 // @Router /guilds/{discordGuildID}/cases [post]
-func createCase(c *gin.Context, services *quack.Services) {
+func createCase(c *gin.Context, services *Deps) {
 	var input caseCreateRequest
 	if err := decodeStrictJSON(c, &input); err != nil {
 		apierror.Write(c, http.StatusBadRequest, apierror.CodeValidation, "invalid case payload")
@@ -75,7 +74,7 @@ func createCase(c *gin.Context, services *quack.Services) {
 	created, err := services.Cases.Create(c.Request.Context(), middleware.GetGuildContext(c), quack.CaseInput{
 		TemplateID:              input.TemplateID,
 		TargetDiscordUserID:     input.TargetDiscordUserID,
-		Source:                  model.CaseSourceDashboard,
+		Source:                  quack.CaseSourceDashboard,
 		ContextChannelDiscordID: input.ContextChannelDiscordID,
 		ContextMessageDiscordID: input.ContextMessageDiscordID,
 		ContextURL:              input.ContextURL,
@@ -110,7 +109,7 @@ type voidCaseRequest struct {
 // @Failure 403 {object} map[string]interface{}
 // @Failure 404 {object} map[string]interface{}
 // @Router /guilds/{discordGuildID}/cases/{caseRef}/void [post]
-func voidCase(c *gin.Context, services *quack.Services) {
+func voidCase(c *gin.Context, services *Deps) {
 	var input voidCaseRequest
 	if err := decodeStrictJSON(c, &input); err != nil {
 		apierror.Write(c, http.StatusBadRequest, apierror.CodeValidation, "invalid void payload")
@@ -135,7 +134,7 @@ func voidCase(c *gin.Context, services *quack.Services) {
 // @Failure 403 {object} map[string]interface{}
 // @Failure 404 {object} map[string]interface{}
 // @Router /guilds/{discordGuildID}/cases/{caseRef} [get]
-func getCase(c *gin.Context, services *quack.Services) {
+func getCase(c *gin.Context, services *Deps) {
 	result, err := services.Cases.Get(c.Request.Context(), middleware.GetGuildContext(c), c.Param("caseRef"))
 	if err != nil {
 		writeCaseError(c, err)
@@ -158,7 +157,7 @@ func getCase(c *gin.Context, services *quack.Services) {
 // @Failure 400 {object} map[string]interface{}
 // @Failure 403 {object} map[string]interface{}
 // @Router /guilds/{discordGuildID}/users/{targetDiscordUserID}/cases [get]
-func listUserCases(c *gin.Context, services *quack.Services) {
+func listUserCases(c *gin.Context, services *Deps) {
 	result, err := services.Cases.UserHistory(c.Request.Context(), middleware.GetGuildContext(c), c.Param("targetDiscordUserID"), caseListInput(c))
 	if err != nil {
 		writeCaseError(c, err)

@@ -6,15 +6,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/quackdiscord/bot/internal/quack/model"
+	"github.com/quackdiscord/bot/internal/quack"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
-const starterPolicySlug = "general-rule-violation"
-
 // GetGuildSettings returns the single guild-owned settings record, if one exists.
-func (s *Store) GetGuildSettings(ctx context.Context, guildID string) (*model.GuildSettings, error) {
+func (s *Store) GetGuildSettings(ctx context.Context, guildID string) (*quack.GuildSettings, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
@@ -31,7 +29,7 @@ func (s *Store) GetGuildSettings(ctx context.Context, guildID string) (*model.Gu
 }
 
 // UpdateGuildSettings atomically replaces validated mutable settings and appends success audit evidence.
-func (s *Store) UpdateGuildSettings(ctx context.Context, params model.UpdateGuildSettingsParams) (*model.GuildSettings, error) {
+func (s *Store) UpdateGuildSettings(ctx context.Context, params quack.UpdateGuildSettingsParams) (*quack.GuildSettings, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
@@ -71,7 +69,7 @@ func (s *Store) UpdateGuildSettings(ctx context.Context, params model.UpdateGuil
 }
 
 // ClearGuildChannelReferences atomically clears every core settings reference to a deleted or invalid Discord channel.
-func (s *Store) ClearGuildChannelReferences(ctx context.Context, guildID, channelID string, audit *model.AuditLogEntry) (*model.GuildSettings, error) {
+func (s *Store) ClearGuildChannelReferences(ctx context.Context, guildID, channelID string, audit *quack.AuditLogEntry) (*quack.GuildSettings, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
@@ -115,21 +113,21 @@ func (s *Store) ClearGuildChannelReferences(ctx context.Context, guildID, channe
 }
 
 // BootstrapGuild atomically refreshes guild lifecycle state and creates the one-time exact starter policy.
-func (s *Store) BootstrapGuild(ctx context.Context, params model.BootstrapGuildParams) (*model.BootstrapGuildResult, error) {
+func (s *Store) BootstrapGuild(ctx context.Context, params quack.BootstrapGuildParams) (*quack.BootstrapGuildResult, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
-	result := &model.BootstrapGuildResult{}
+	result := &quack.BootstrapGuildResult{}
 	now := time.Now().UTC()
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var guild model.Guild
+		var guild quack.Guild
 		query := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("discord_guild_id = ?", params.DiscordGuildID).Limit(1).Find(&guild)
 		if query.Error != nil {
 			return fmt.Errorf("get guild for bootstrap: %w", query.Error)
 		}
 		wasActive := query.RowsAffected > 0 && guild.IsActive
 		if query.RowsAffected == 0 {
-			guild = model.Guild{DiscordGuildID: params.DiscordGuildID}
+			guild = quack.Guild{DiscordGuildID: params.DiscordGuildID}
 			if err := prepareULIDModel(&guild.ULIDModel, now); err != nil {
 				return fmt.Errorf("prepare bootstrap guild: %w", err)
 			}
@@ -164,7 +162,7 @@ func (s *Store) BootstrapGuild(ctx context.Context, params model.BootstrapGuildP
 		}
 
 		if settingsRecord.StarterPolicyTemplateID == "" {
-			starter, created, err := ensureStarterPolicy(tx, guild.ID, now)
+			starter, created, err := ensureStarterPolicy(tx, guild.ID, params.Starter, now)
 			if err != nil {
 				return err
 			}
@@ -238,19 +236,19 @@ func (s *Store) BootstrapGuild(ctx context.Context, params model.BootstrapGuildP
 
 // createSystemLifecycleAudit appends adapter-attributed lifecycle evidence inside the caller's transaction.
 func createSystemLifecycleAudit(tx *gorm.DB, guildID, action, resourceType, resourceID string, now time.Time) error {
-	return createAuditLogEntry(tx, &model.AuditLogEntry{
-		GuildID: guildID, ActorDiscordUserID: "quack-system", Source: model.AuditSourceDiscord,
+	return createAuditLogEntry(tx, &quack.AuditLogEntry{
+		GuildID: guildID, ActorDiscordUserID: "quack-system", Source: quack.AuditSourceDiscord,
 		Action: action, ResourceType: resourceType, ResourceID: resourceID,
-		Result: model.AuditResultSuccess, MetadataJSON: "{}",
+		Result: quack.AuditResultSuccess, MetadataJSON: "{}",
 	}, now)
 }
 
 // DeactivateGuild marks a departed guild inactive while retaining every owned record and appends lifecycle audit evidence.
-func (s *Store) DeactivateGuild(ctx context.Context, discordGuildID string, audit *model.AuditLogEntry) (*model.Guild, error) {
+func (s *Store) DeactivateGuild(ctx context.Context, discordGuildID string, audit *quack.AuditLogEntry) (*quack.Guild, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
-	var guild model.Guild
+	var guild quack.Guild
 	now := time.Now().UTC()
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("discord_guild_id = ?", discordGuildID).First(&guild).Error; err != nil {
@@ -280,10 +278,14 @@ func (s *Store) DeactivateGuild(ctx context.Context, discordGuildID string, audi
 	return &guild, nil
 }
 
-// ensureStarterPolicy creates the exact editable v5 starter template or returns its existing identity on repeated bootstrap.
-func ensureStarterPolicy(tx *gorm.DB, guildID string, now time.Time) (*model.ExpandedCaseTemplate, bool, error) {
+// ensureStarterPolicy stores starter as the guild's starter template, or
+// returns the existing one on a repeated bootstrap.
+func ensureStarterPolicy(tx *gorm.DB, guildID string, starter quack.ExpandedCaseTemplate, now time.Time) (*quack.ExpandedCaseTemplate, bool, error) {
+	if starter.Template.Slug == "" {
+		return nil, false, errors.New("starter policy is required")
+	}
 	var existing CaseTemplateRecord
-	query := tx.Where("guild_id = ? AND slug = ?", guildID, starterPolicySlug).Limit(1).Find(&existing)
+	query := tx.Where("guild_id = ? AND slug = ?", guildID, starter.Template.Slug).Limit(1).Find(&existing)
 	if query.Error != nil {
 		return nil, false, fmt.Errorf("find starter policy: %w", query.Error)
 	}
@@ -292,18 +294,15 @@ func ensureStarterPolicy(tx *gorm.DB, guildID string, now time.Time) (*model.Exp
 		if err != nil {
 			return nil, false, err
 		}
-		if expanded == nil || !isExactStarterPolicy(*expanded) {
-			return nil, false, errors.New("general-rule-violation slug is already used by a non-starter policy")
+		if expanded == nil || !quack.IsStarterTemplate(*expanded) {
+			return nil, false, fmt.Errorf("%s slug is already used by a non-starter policy", starter.Template.Slug)
 		}
 		return expanded, false, nil
 	}
 
-	template := model.CaseTemplate{
-		GuildID: guildID, Slug: starterPolicySlug, Name: "General rule violation",
-		Description:    "A starter rule for general violations. Review and customize it for this guild.",
-		ReasonTemplate: "General rule violation", Appealable: true, Version: 1,
-		CreatedByDiscordUserID: "quack-system", UpdatedByDiscordUserID: "quack-system",
-	}
+	template := starter.Template
+	template.ID = ""
+	template.GuildID = guildID
 	if err := prepareULIDModel(&template.ULIDModel, now); err != nil {
 		return nil, false, fmt.Errorf("prepare starter policy: %w", err)
 	}
@@ -311,45 +310,17 @@ func ensureStarterPolicy(tx *gorm.DB, guildID string, now time.Time) (*model.Exp
 	if err := tx.Select("*").Create(&record).Error; err != nil {
 		return nil, false, fmt.Errorf("create starter policy: %w", err)
 	}
-	levels := starterPolicyLevels()
-	if err := createTemplateLevels(tx, template.ID, levels, now); err != nil {
+	if err := createTemplateLevels(tx, template.ID, starter.Levels, now); err != nil {
 		return nil, false, err
 	}
 	expanded, err := getCaseTemplateExpanded(tx, guildID, template.ID)
 	return expanded, true, err
 }
 
-// starterPolicyLevels returns the product-defined case-only, timeout, and ban escalation policy.
-func starterPolicyLevels() []model.ExpandedCaseTemplateLevel {
-	return []model.ExpandedCaseTemplateLevel{
-		{Level: model.CaseTemplateLevel{Position: 1, Name: "Default", IsDefault: true, TriggerCaseCount: 0, NotifyUser: true}},
-		{Level: model.CaseTemplateLevel{Position: 2, Name: "24-hour timeout", TriggerCaseCount: 3, NotifyUser: true}, Actions: []model.CaseTemplateLevelAction{{ActionType: model.ActionTimeoutUser, ConfigJSON: `{"duration_seconds":86400}`, MaxRetries: 0}}},
-		{Level: model.CaseTemplateLevel{Position: 3, Name: "Ban", TriggerCaseCount: 5, NotifyUser: true}, Actions: []model.CaseTemplateLevelAction{{ActionType: model.ActionBanUser, ConfigJSON: `{"delete_message_seconds":86400}`, MaxRetries: 0}}},
-	}
-}
-
-// isExactStarterPolicy prevents an unrelated policy from being silently adopted when the reserved starter slug already exists.
-func isExactStarterPolicy(template model.ExpandedCaseTemplate) bool {
-	want := starterPolicyLevels()
-	if template.Template.Name != "General rule violation" || template.Template.ReasonTemplate != "General rule violation" || !template.Template.Appealable || template.Template.ArchivedAt != nil || len(template.Levels) != len(want) {
-		return false
-	}
-	for i := range want {
-		gotLevel, wantLevel := template.Levels[i], want[i]
-		if gotLevel.Level.IsDefault != wantLevel.Level.IsDefault || gotLevel.Level.TriggerCaseCount != wantLevel.Level.TriggerCaseCount || !gotLevel.Level.NotifyUser || len(gotLevel.Actions) != len(wantLevel.Actions) {
-			return false
-		}
-		if len(wantLevel.Actions) == 1 && (gotLevel.Actions[0].ActionType != wantLevel.Actions[0].ActionType || gotLevel.Actions[0].ConfigJSON != wantLevel.Actions[0].ConfigJSON) {
-			return false
-		}
-	}
-	return true
-}
-
 // guildSettingsModelFromRecord maps adapter storage into the persistence-free settings model.
-func guildSettingsModelFromRecord(record GuildSettingsRecord) model.GuildSettings {
-	return model.GuildSettings{
-		ULIDModel: model.ULIDModel{ID: record.ID, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt},
+func guildSettingsModelFromRecord(record GuildSettingsRecord) quack.GuildSettings {
+	return quack.GuildSettings{
+		ULIDModel: quack.ULIDModel{ID: record.ID, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt},
 		GuildID:   record.GuildID, AuditMirrorChannelDiscordID: record.AuditMirrorChannelDiscordID,
 		ManagedEvidenceChannelDiscordID: record.ManagedEvidenceChannelDiscordID,
 		NotificationIntroduction:        record.NotificationIntroduction, NotificationFooter: record.NotificationFooter,
@@ -362,7 +333,7 @@ func guildSettingsModelFromRecord(record GuildSettingsRecord) model.GuildSetting
 
 // prepareULIDRecord initializes adapter-owned records without exposing storage tags to the core model.
 func prepareULIDRecord(record *ULIDModelRecord, now time.Time) error {
-	modelValue := model.ULIDModel{ID: record.ID, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
+	modelValue := quack.ULIDModel{ID: record.ID, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
 	if err := prepareULIDModel(&modelValue, now); err != nil {
 		return err
 	}

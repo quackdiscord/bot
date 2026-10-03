@@ -13,7 +13,6 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/actionmods"
 )
 
 // FetchMessageEvidence fetches a live message and maps it into the bounded core capture contract.
@@ -91,7 +90,7 @@ func (b *Bot) PreserveEvidenceAttachment(ctx context.Context, guildID, channelID
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, actionmods.DiscordError{Code: "evidence_download_failed", Message: "attachment download failed", Retryable: response.StatusCode >= 500}
+		return nil, quack.DiscordError{Code: "evidence_download_failed", Message: "attachment download failed", Retryable: response.StatusCode >= 500}
 	}
 	content, err := io.ReadAll(io.LimitReader(response.Body, item.SizeBytes+1))
 	if err != nil || int64(len(content)) != item.SizeBytes {

@@ -6,24 +6,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/quackdiscord/bot/internal/quack/model"
+	"github.com/quackdiscord/bot/internal/quack"
 	"gorm.io/gorm"
 )
 
-// ExpandedCaseTemplate aliases the core expanded case template contract so Store satisfies the port without maintaining a second data shape.
-type ExpandedCaseTemplate = model.ExpandedCaseTemplate
-
-// ExpandedCaseTemplateLevel aliases the core expanded case template level contract so Store satisfies the port without maintaining a second data shape.
-type ExpandedCaseTemplateLevel = model.ExpandedCaseTemplateLevel
-
-// CreateCaseTemplateParams aliases the core create case template params contract so Store satisfies the port without maintaining a second data shape.
-type CreateCaseTemplateParams = model.CreateCaseTemplateParams
-
-// UpdateCaseTemplateParams aliases the core update case template params contract so Store satisfies the port without maintaining a second data shape.
-type UpdateCaseTemplateParams = model.UpdateCaseTemplateParams
-
 // CreateCaseTemplate creates case template while preserving validation, authorization, and persistence invariants.
-func (s *Store) CreateCaseTemplate(ctx context.Context, params CreateCaseTemplateParams) (*ExpandedCaseTemplate, error) {
+func (s *Store) CreateCaseTemplate(ctx context.Context, params quack.CreateCaseTemplateParams) (*quack.ExpandedCaseTemplate, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
@@ -66,7 +54,7 @@ func (s *Store) CreateCaseTemplate(ctx context.Context, params CreateCaseTemplat
 }
 
 // ListCaseTemplates returns case templates subject to authorization, ordering, and filtering constraints.
-func (s *Store) ListCaseTemplates(ctx context.Context, guildID string) ([]ExpandedCaseTemplate, error) {
+func (s *Store) ListCaseTemplates(ctx context.Context, guildID string) ([]quack.ExpandedCaseTemplate, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
@@ -79,7 +67,7 @@ func (s *Store) ListCaseTemplates(ctx context.Context, guildID string) ([]Expand
 		return nil, fmt.Errorf("list case templates: %w", err)
 	}
 
-	expanded := make([]ExpandedCaseTemplate, 0, len(records))
+	expanded := make([]quack.ExpandedCaseTemplate, 0, len(records))
 	for _, record := range records {
 		template := caseTemplateModelFromRecord(record)
 		item, err := s.GetCaseTemplateExpanded(ctx, guildID, template.ID)
@@ -87,7 +75,7 @@ func (s *Store) ListCaseTemplates(ctx context.Context, guildID string) ([]Expand
 			// Quarantined legacy policies cannot be projected through the live
 			// template contract. Detail reads retain their explicit conflict,
 			// while list reads omit them so valid templates remain usable.
-			if errors.Is(err, model.ErrTemplateCompatibilityReviewRequired) {
+			if errors.Is(err, quack.ErrTemplateCompatibilityReviewRequired) {
 				continue
 			}
 			return nil, err
@@ -101,7 +89,7 @@ func (s *Store) ListCaseTemplates(ctx context.Context, guildID string) ([]Expand
 }
 
 // GetCaseTemplateExpanded retrieves case template expanded without exposing the underlying adapter implementation.
-func (s *Store) GetCaseTemplateExpanded(ctx context.Context, guildID, templateID string) (*ExpandedCaseTemplate, error) {
+func (s *Store) GetCaseTemplateExpanded(ctx context.Context, guildID, templateID string) (*quack.ExpandedCaseTemplate, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
@@ -110,7 +98,7 @@ func (s *Store) GetCaseTemplateExpanded(ctx context.Context, guildID, templateID
 }
 
 // GetCaseTemplateBySlug retrieves case template by slug without exposing the underlying adapter implementation.
-func (s *Store) GetCaseTemplateBySlug(ctx context.Context, guildID, slug string) (*model.CaseTemplate, error) {
+func (s *Store) GetCaseTemplateBySlug(ctx context.Context, guildID, slug string) (*quack.CaseTemplate, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
@@ -128,7 +116,7 @@ func (s *Store) GetCaseTemplateBySlug(ctx context.Context, guildID, slug string)
 }
 
 // UpdateCaseTemplate updates case template while retaining validation, compatibility, and audit requirements.
-func (s *Store) UpdateCaseTemplate(ctx context.Context, params UpdateCaseTemplateParams) (*ExpandedCaseTemplate, error) {
+func (s *Store) UpdateCaseTemplate(ctx context.Context, params quack.UpdateCaseTemplateParams) (*quack.ExpandedCaseTemplate, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
@@ -194,7 +182,7 @@ func (s *Store) UpdateCaseTemplate(ctx context.Context, params UpdateCaseTemplat
 }
 
 // RestoreCaseTemplate makes an archived template available again without changing its identity or version.
-func (s *Store) RestoreCaseTemplate(ctx context.Context, guildID, templateID string, audit *model.AuditLogEntry) (*ExpandedCaseTemplate, error) {
+func (s *Store) RestoreCaseTemplate(ctx context.Context, guildID, templateID string, audit *quack.AuditLogEntry) (*quack.ExpandedCaseTemplate, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
@@ -232,7 +220,7 @@ func (s *Store) RestoreCaseTemplate(ctx context.Context, guildID, templateID str
 }
 
 // ArchiveCaseTemplate archives case template without deleting historical moderation references.
-func (s *Store) ArchiveCaseTemplate(ctx context.Context, guildID, templateID string, audit *model.AuditLogEntry) (*ExpandedCaseTemplate, error) {
+func (s *Store) ArchiveCaseTemplate(ctx context.Context, guildID, templateID string, audit *quack.AuditLogEntry) (*quack.ExpandedCaseTemplate, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}

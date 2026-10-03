@@ -8,7 +8,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/discordbot/ui/views"
-	"github.com/quackdiscord/bot/internal/quack/model"
+	"github.com/quackdiscord/bot/internal/quack"
 )
 
 func handleRetryComponent(ctx ui.Context) ui.HandlerResult {
@@ -97,7 +97,7 @@ func handleReverseModal(ctx ui.Context) ui.HandlerResult {
 		if resolveErr != nil {
 			return resolveErr
 		}
-		_, reverseErr := ctx.Services.Actions.Reverse(taskCtx, guildContext, parts[0], parts[1], model.ActionType(parts[2]))
+		_, reverseErr := ctx.Services.Actions.Reverse(taskCtx, guildContext, parts[0], parts[1], quack.ActionType(parts[2]))
 		if reverseErr != nil {
 			_, editErr := responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(reverseErr)))
 			return editErr

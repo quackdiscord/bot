@@ -7,18 +7,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/quackdiscord/bot/internal/quack/model"
+	"github.com/quackdiscord/bot/internal/quack"
 	"gorm.io/gorm"
 )
 
-// ListAuditLogEntriesParams aliases the core list audit log entries params contract so Store satisfies the port without maintaining a second data shape.
-type ListAuditLogEntriesParams = model.ListAuditLogEntriesParams
-
-// ListAuditLogEntriesResult aliases the core list audit log entries result contract so Store satisfies the port without maintaining a second data shape.
-type ListAuditLogEntriesResult = model.ListAuditLogEntriesResult
-
 // CreateAuditLogEntry creates audit log entry while preserving validation, authorization, and persistence invariants.
-func (s *Store) CreateAuditLogEntry(ctx context.Context, entry *model.AuditLogEntry) error {
+func (s *Store) CreateAuditLogEntry(ctx context.Context, entry *quack.AuditLogEntry) error {
 	if s == nil || s.db == nil {
 		return errors.New("database not connected")
 	}
@@ -27,12 +21,12 @@ func (s *Store) CreateAuditLogEntry(ctx context.Context, entry *model.AuditLogEn
 }
 
 // ListAuditLogEntries returns audit log entries subject to authorization, ordering, and filtering constraints.
-func (s *Store) ListAuditLogEntries(ctx context.Context, guildID string) ([]model.AuditLogEntry, error) {
+func (s *Store) ListAuditLogEntries(ctx context.Context, guildID string) ([]quack.AuditLogEntry, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
 
-	var entries []model.AuditLogEntry
+	var entries []quack.AuditLogEntry
 	if err := s.db.WithContext(ctx).Where("guild_id = ?", guildID).Order("created_at ASC").Find(&entries).Error; err != nil {
 		return nil, fmt.Errorf("list audit log entries: %w", err)
 	}
@@ -41,7 +35,7 @@ func (s *Store) ListAuditLogEntries(ctx context.Context, guildID string) ([]mode
 }
 
 // ListAuditLogEntriesFiltered returns audit log entries filtered subject to authorization, ordering, and filtering constraints.
-func (s *Store) ListAuditLogEntriesFiltered(ctx context.Context, params ListAuditLogEntriesParams) (*ListAuditLogEntriesResult, error) {
+func (s *Store) ListAuditLogEntriesFiltered(ctx context.Context, params quack.ListAuditLogEntriesParams) (*quack.ListAuditLogEntriesResult, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
@@ -59,20 +53,20 @@ func (s *Store) ListAuditLogEntriesFiltered(ctx context.Context, params ListAudi
 	}
 
 	var total int64
-	if err := filteredAuditQuery(s.db.WithContext(ctx).Model(&model.AuditLogEntry{}), params).Count(&total).Error; err != nil {
+	if err := filteredAuditQuery(s.db.WithContext(ctx).Model(&quack.AuditLogEntry{}), params).Count(&total).Error; err != nil {
 		return nil, fmt.Errorf("count audit log entries: %w", err)
 	}
 
-	query := filteredAuditQuery(s.db.WithContext(ctx).Model(&model.AuditLogEntry{}), params)
+	query := filteredAuditQuery(s.db.WithContext(ctx).Model(&quack.AuditLogEntry{}), params)
 	if params.BeforeID != "" {
-		var cursor model.AuditLogEntry
+		var cursor quack.AuditLogEntry
 		result := s.db.WithContext(ctx).Where("guild_id = ? AND id = ?", params.GuildID, params.BeforeID).First(&cursor)
 		if result.Error != nil {
 			return nil, fmt.Errorf("resolve audit cursor: %w", result.Error)
 		}
 		query = query.Where("created_at < ? OR (created_at = ? AND id < ?)", cursor.CreatedAt, cursor.CreatedAt, cursor.ID)
 	}
-	var entries []model.AuditLogEntry
+	var entries []quack.AuditLogEntry
 	if err := query.
 		Order("created_at DESC, id DESC").
 		Limit(limit).
@@ -81,11 +75,11 @@ func (s *Store) ListAuditLogEntriesFiltered(ctx context.Context, params ListAudi
 		return nil, fmt.Errorf("list filtered audit log entries: %w", err)
 	}
 
-	return &ListAuditLogEntriesResult{Entries: entries, Total: total}, nil
+	return &quack.ListAuditLogEntriesResult{Entries: entries, Total: total}, nil
 }
 
 // filteredAuditQuery encapsulates the filtered audit query rule so callers share one consistent package implementation.
-func filteredAuditQuery(query *gorm.DB, params ListAuditLogEntriesParams) *gorm.DB {
+func filteredAuditQuery(query *gorm.DB, params quack.ListAuditLogEntriesParams) *gorm.DB {
 	query = query.Where("guild_id = ?", params.GuildID)
 	if params.ActorDiscordUserID != "" {
 		query = query.Where("actor_discord_user_id = ?", params.ActorDiscordUserID)
@@ -128,7 +122,7 @@ func filteredAuditQuery(query *gorm.DB, params ListAuditLogEntriesParams) *gorm.
 }
 
 // createAuditLogEntry creates audit log entry while preserving validation, authorization, and persistence invariants.
-func createAuditLogEntry(db *gorm.DB, entry *model.AuditLogEntry, now time.Time) error {
+func createAuditLogEntry(db *gorm.DB, entry *quack.AuditLogEntry, now time.Time) error {
 	if entry == nil {
 		return nil
 	}
@@ -138,7 +132,7 @@ func createAuditLogEntry(db *gorm.DB, entry *model.AuditLogEntry, now time.Time)
 	if entry.MetadataJSON == "" {
 		entry.MetadataJSON = "{}"
 	}
-	entry.MetadataJSON = model.RedactAuditMetadata(entry.MetadataJSON)
+	entry.MetadataJSON = quack.RedactAuditMetadata(entry.MetadataJSON)
 	entry.FailureReason = redactAuditFailureReason(entry.FailureReason)
 	if err := prepareULIDModel(&entry.ULIDModel, now); err != nil {
 		return fmt.Errorf("prepare audit log entry model: %w", err)

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/quackdiscord/bot/internal/quack/model"
+	"github.com/quackdiscord/bot/internal/quack"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -164,10 +164,10 @@ func TestMigration0002QuarantinedPolicyCannotCrossLiveReadBoundary(t *testing.T)
 	if got != nil {
 		t.Fatalf("quarantined policy crossed live read boundary: %+v", got)
 	}
-	if !errors.Is(err, model.ErrTemplateCompatibilityReviewRequired) {
+	if !errors.Is(err, quack.ErrTemplateCompatibilityReviewRequired) {
 		t.Fatalf("expected compatibility review error, got %v", err)
 	}
-	var compatibilityError *model.TemplateCompatibilityReviewError
+	var compatibilityError *quack.TemplateCompatibilityReviewError
 	if !errors.As(err, &compatibilityError) {
 		t.Fatalf("expected typed compatibility error, got %T", err)
 	}
@@ -288,7 +288,7 @@ func TestMigration0003MapsCasesInventoriesRetiredEventsAndRollsBackExactly(t *te
 	if err != nil {
 		t.Fatalf("list live case events: %v", err)
 	}
-	if len(liveEvents) != 1 || liveEvents[0].EventType != model.CaseEventCreated {
+	if len(liveEvents) != 1 || liveEvents[0].EventType != quack.CaseEventCreated {
 		t.Fatalf("retired events crossed live boundary: %+v", liveEvents)
 	}
 
@@ -361,11 +361,11 @@ func TestMigration0003RollbackDowngradesPostMigrationCases(t *testing.T) {
 	if err := db.Create(&guild).Error; err != nil {
 		t.Fatalf("create guild: %v", err)
 	}
-	postMigration := model.Case{
-		ULIDModel: model.ULIDModel{ID: "01J32000000000000000000002", CreatedAt: now, UpdatedAt: now},
+	postMigration := quack.Case{
+		ULIDModel: quack.ULIDModel{ID: "01J32000000000000000000002", CreatedAt: now, UpdatedAt: now},
 		GuildID:   guild.ID, CaseNumber: 1, TemplateVersion: 1, TemplateSnapshotJSON: `{}`,
 		TargetDiscordUserID: "target", ModeratorDiscordUserID: "moderator", Reason: "reason",
-		Validity: model.CaseValidityValid, Source: model.CaseSourceDashboard, MetadataJSON: `{}`,
+		Validity: quack.CaseValidityValid, Source: quack.CaseSourceDashboard, MetadataJSON: `{}`,
 	}
 	if err := db.Omit("ContextValuesJSON", "VoidedReason", "VoidedByDiscordUserID", "VoidedAt", "ReplacementCaseID", "ReplacesCaseID", "IdempotencyKey").Create(&postMigration).Error; err != nil {
 		t.Fatalf("create post-migration case: %v", err)
@@ -551,7 +551,7 @@ func TestRegisteredMigrationsProduceEveryCurrentSchemaFieldAndIndex(t *testing.T
 }
 
 func TestMigration0001SourceDoesNotDependOnLiveDomainModels(t *testing.T) {
-	if strings.Contains(migration0001Source, "internal/quack/model") {
+	if strings.Contains(migration0001Source, `internal/quack"`) {
 		t.Fatal("frozen migration source must use primitive storage types, not live domain aliases")
 	}
 }
@@ -903,10 +903,10 @@ func insertRepresentativeHistory(t *testing.T, db *gorm.DB) representativeHistor
 	records := []any{
 		&GuildRecord{ULIDModelRecord: ULIDModelRecord{ID: want.GuildID, CreatedAt: now, UpdatedAt: now}, DiscordGuildID: "123", Name: "Fixture Guild", OwnerDiscordUserID: "owner"},
 		&migration0003HistoryCase{ID: want.CaseID, CreatedAt: now, UpdatedAt: now, GuildID: want.GuildID, CaseNumber: want.CaseNumber, TemplateVersion: 3, TemplateSnapshotJSON: want.TemplateSnapshot, TargetDiscordUserID: "target", ModeratorDiscordUserID: "moderator", Reason: "preserve", Severity: "medium", Weight: 1, Status: "open", Source: "discord_command", MetadataJSON: "{}"},
-		&CaseActionExecutionRecord{ULIDModelRecord: ULIDModelRecord{ID: "01J00000000000000000000003", CreatedAt: now, UpdatedAt: now}, CaseID: want.CaseID, Position: 1, ActionType: model.ActionType("send_dm"), Status: model.ActionExecutionStatus("succeeded"), IdempotencyKey: "fixture-action", ConfigSnapshotJSON: "{}"},
-		&CaseActionAttemptRecord{ULIDModelRecord: ULIDModelRecord{ID: want.AttemptID, CreatedAt: now, UpdatedAt: now}, ExecutionID: "01J00000000000000000000003", AttemptNumber: 1, Status: model.ActionAttemptStatus("succeeded"), StartedAt: now, RequestPayloadJSON: "{}", ResponsePayloadJSON: "{}"},
-		&CaseEventRecord{ULIDModelRecord: ULIDModelRecord{ID: want.EventID, CreatedAt: now, UpdatedAt: now}, CaseID: want.CaseID, GuildID: want.GuildID, EventType: model.CaseEventType("created"), ActorType: "staff", Visibility: model.EventVisibility("staff"), Body: "fixture event", MetadataJSON: "{}"},
-		&AuditLogEntryRecord{ULIDModelRecord: ULIDModelRecord{ID: want.AuditID, CreatedAt: now, UpdatedAt: now}, GuildID: want.GuildID, Source: model.AuditSource("dashboard"), Action: "case.create", ResourceType: "case", ResourceID: want.CaseID, Result: model.AuditResult("success"), MetadataJSON: "{}"},
+		&CaseActionExecutionRecord{ULIDModelRecord: ULIDModelRecord{ID: "01J00000000000000000000003", CreatedAt: now, UpdatedAt: now}, CaseID: want.CaseID, Position: 1, ActionType: quack.ActionType("send_dm"), Status: quack.ActionExecutionStatus("succeeded"), IdempotencyKey: "fixture-action", ConfigSnapshotJSON: "{}"},
+		&CaseActionAttemptRecord{ULIDModelRecord: ULIDModelRecord{ID: want.AttemptID, CreatedAt: now, UpdatedAt: now}, ExecutionID: "01J00000000000000000000003", AttemptNumber: 1, Status: quack.ActionAttemptStatus("succeeded"), StartedAt: now, RequestPayloadJSON: "{}", ResponsePayloadJSON: "{}"},
+		&CaseEventRecord{ULIDModelRecord: ULIDModelRecord{ID: want.EventID, CreatedAt: now, UpdatedAt: now}, CaseID: want.CaseID, GuildID: want.GuildID, EventType: quack.CaseEventType("created"), ActorType: "staff", Visibility: quack.EventVisibility("staff"), Body: "fixture event", MetadataJSON: "{}"},
+		&AuditLogEntryRecord{ULIDModelRecord: ULIDModelRecord{ID: want.AuditID, CreatedAt: now, UpdatedAt: now}, GuildID: want.GuildID, Source: quack.AuditSource("dashboard"), Action: "case.create", ResourceType: "case", ResourceID: want.CaseID, Result: quack.AuditResult("success"), MetadataJSON: "{}"},
 	}
 	for _, record := range records {
 		query := db

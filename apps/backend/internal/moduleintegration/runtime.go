@@ -17,7 +17,6 @@ import (
 	"github.com/quackdiscord/bot/internal/modules/honeypot"
 	"github.com/quackdiscord/bot/internal/modules/tickets"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 	"github.com/quackdiscord/bot/internal/store"
 	"gorm.io/gorm"
 )
@@ -49,7 +48,7 @@ type Runtime struct {
 	registry            *modules.Registry
 	session             *discordgo.Session
 	resolver            guildResolver
-	repository          quack.Repository
+	repository          templateReader
 	services            *quack.Services
 	cancel              context.CancelFunc
 	bulk                chan bulkDeleteEvent
@@ -81,7 +80,7 @@ func New(ctx context.Context, repositories *store.Store, session *discordgo.Sess
 	if session == nil {
 		return nil, errors.New("optional module Discord session is not configured")
 	}
-	if services == nil || services.Cases == nil || services.Store == nil {
+	if services == nil || services.Cases == nil || services.Appeals == nil {
 		return nil, errors.New("optional module core services are not configured")
 	}
 
@@ -104,7 +103,7 @@ func New(ctx context.Context, repositories *store.Store, session *discordgo.Sess
 	honeypotChannels := honeypotChannelValidator{session: session, resolver: resolver}
 	honeypotService := honeypot.NewService(registry, honeypot.NewStore(repositories.DB()), auditor, honeypotChannels, honeypotTemplates, honeypotCaseApplier{cases: services.Cases})
 	honeypotDiscord := honeypot.NewDiscordAdapter(honeypotService)
-	appeals := quack.NewAppealService(repositories)
+	appeals := services.Appeals
 	appealAdapter := &discordadapter.AppealNotificationAdapter{Session: session, Resolver: appealStaffChannelResolver{repository: repositories, validator: &discordadapter.Bot{Session: session}}}
 	appealDispatcher := quack.NewAppealNotificationDispatcher(repositories, appealAdapter)
 	workerCtx, cancel := context.WithCancel(ctx)
@@ -229,8 +228,11 @@ func (r *Runtime) runAppealNotifications(ctx context.Context) {
 // appealStaffChannelResolver reuses the configured staff-only audit channel as
 // the appeal queue notification destination.
 type appealStaffChannelResolver struct {
-	repository quack.Repository
-	validator  interface {
+	repository interface {
+		GetGuildSettings(ctx context.Context, guildID string) (*quack.GuildSettings, error)
+		GetGuildByID(ctx context.Context, guildID string) (*quack.Guild, error)
+	}
+	validator interface {
 		ValidateStaffChannel(context.Context, string, string) error
 	}
 }
@@ -304,7 +306,11 @@ func (r *Runtime) purgeTranscripts(ctx context.Context) {
 }
 
 // moduleAuditor adapts module outcomes into the append-only core audit store.
-type moduleAuditor struct{ repository quack.Repository }
+type moduleAuditor struct {
+	repository interface {
+		CreateAuditLogEntry(context.Context, *quack.AuditLogEntry) error
+	}
+}
 
 // RecordModuleAudit appends one module event and never routes general-log
 // payload delivery into audit history.
@@ -312,14 +318,14 @@ func (a moduleAuditor) RecordModuleAudit(ctx context.Context, event modules.Audi
 	if a.repository == nil {
 		return errors.New("module audit repository is not configured")
 	}
-	result := model.AuditResult(event.Result)
+	result := quack.AuditResult(event.Result)
 	switch result {
-	case model.AuditResultSuccess, model.AuditResultFailure, model.AuditResultDenied:
+	case quack.AuditResultSuccess, quack.AuditResultFailure, quack.AuditResultDenied:
 	default:
 		return errors.New("module audit result is invalid")
 	}
 	requestID, correlationID := quack.TraceIDsFromContext(ctx)
-	return a.repository.CreateAuditLogEntry(ctx, &model.AuditLogEntry{
+	return a.repository.CreateAuditLogEntry(ctx, &quack.AuditLogEntry{
 		GuildID: event.GuildID, ActorDiscordUserID: event.ActorDiscordUserID,
 		Source: quack.AuditSourceForModuleAction(ctx, event.Action), Action: event.Action,
 		ResourceType: event.ResourceType, ResourceID: event.ResourceID,
@@ -334,7 +340,7 @@ type guildResolver struct{ db *gorm.DB }
 
 // internalID returns the active internal guild identity for a Discord guild.
 func (r guildResolver) internalID(ctx context.Context, discordGuildID string) (string, error) {
-	var guild model.Guild
+	var guild quack.Guild
 	result := r.db.WithContext(ctx).Where("discord_guild_id = ? AND is_active = ?", discordGuildID, true).Limit(1).Find(&guild)
 	if result.Error != nil {
 		return "", result.Error
@@ -348,7 +354,7 @@ func (r guildResolver) internalID(ctx context.Context, discordGuildID string) (s
 // internalIDAny resolves preserved guild identity for departure cleanup even
 // when another gateway handler has already marked the guild inactive.
 func (r guildResolver) internalIDAny(ctx context.Context, discordGuildID string) (string, error) {
-	var guild model.Guild
+	var guild quack.Guild
 	result := r.db.WithContext(ctx).Where("discord_guild_id = ?", discordGuildID).Limit(1).Find(&guild)
 	if result.Error != nil {
 		return "", result.Error
@@ -361,7 +367,7 @@ func (r guildResolver) internalIDAny(ctx context.Context, discordGuildID string)
 
 // discordID returns the Discord guild identity for an internal module key.
 func (r guildResolver) discordID(ctx context.Context, guildID string) (string, error) {
-	var guild model.Guild
+	var guild quack.Guild
 	result := r.db.WithContext(ctx).Where("id = ? AND is_active = ?", guildID, true).Limit(1).Find(&guild)
 	if result.Error != nil {
 		return "", result.Error

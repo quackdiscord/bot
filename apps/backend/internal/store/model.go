@@ -3,24 +3,17 @@ package store
 import (
 	"time"
 
-	"github.com/quackdiscord/bot/internal/quack/idutil"
-	"github.com/quackdiscord/bot/internal/quack/model"
+	"github.com/quackdiscord/bot/internal/quack"
 )
 
-// prepareULIDModel encapsulates the prepare ulidmodel rule so callers share one consistent package implementation.
-func prepareULIDModel(model *model.ULIDModel, now time.Time) error {
-	if model.ID == "" {
-		id, err := idutil.NewULID()
-		if err != nil {
-			return err
-		}
-		model.ID = id
+// prepareULIDModel assigns a new record its ID and timestamps.
+func prepareULIDModel(record *quack.ULIDModel, now time.Time) error {
+	if record.ID == "" {
+		record.ID = quack.NewID()
 	}
-
-	if model.CreatedAt.IsZero() {
-		model.CreatedAt = now
+	if record.CreatedAt.IsZero() {
+		record.CreatedAt = now
 	}
-	model.UpdatedAt = now
-
+	record.UpdatedAt = now
 	return nil
 }

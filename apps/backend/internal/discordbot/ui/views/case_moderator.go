@@ -8,7 +8,6 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 const casePageSize = 10
@@ -91,7 +90,7 @@ func CaseListMessage(list *quack.CaseListResponse, page int, targetID string) ui
 }
 
 // FailedActionMessage renders the active recovery queue with real retry, dismiss, and void controls.
-func FailedActionMessage(result *model.FailedCaseActionResult, page int) ui.Message {
+func FailedActionMessage(result *quack.FailedCaseActionResult, page int) ui.Message {
 	if page < 1 {
 		page = 1
 	}
@@ -126,16 +125,16 @@ func FailedActionMessage(result *model.FailedCaseActionResult, page int) ui.Mess
 }
 
 func caseDetailComponents(detail *quack.CaseDetailResponse) []discordgo.MessageComponent {
-	buttons := []discordgo.MessageComponent{ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "void", Version: "v1", Payload: detail.ID}), "Void case", discordgo.DangerButton, detail.Validity == model.CaseValidityVoided)}
+	buttons := []discordgo.MessageComponent{ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "void", Version: "v1", Payload: detail.ID}), "Void case", discordgo.DangerButton, detail.Validity == quack.CaseValidityVoided)}
 	for _, action := range detail.Actions {
-		if action.Status == model.ActionExecutionFailed {
+		if action.Status == quack.ActionExecutionFailed {
 			buttons = append(buttons, ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "retry", Version: "v1", Payload: action.ID}), "Retry", discordgo.PrimaryButton, false), ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "dismiss", Version: "v1", Payload: action.ID}), "Dismiss", discordgo.SecondaryButton, false))
 			break
 		}
-		if action.Status == model.ActionExecutionSucceeded && (action.ActionType == model.ActionTimeoutUser || action.ActionType == model.ActionBanUser) {
-			reversal := model.ActionRemoveTimeout
-			if action.ActionType == model.ActionBanUser {
-				reversal = model.ActionUnbanUser
+		if action.Status == quack.ActionExecutionSucceeded && (action.ActionType == quack.ActionTimeoutUser || action.ActionType == quack.ActionBanUser) {
+			reversal := quack.ActionRemoveTimeout
+			if action.ActionType == quack.ActionBanUser {
+				reversal = quack.ActionUnbanUser
 			}
 			payload := strings.Join([]string{detail.ID, action.ID, string(reversal)}, "|")
 			buttons = append(buttons, ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "reverse", Version: "v1", Payload: payload}), "Reverse action", discordgo.SecondaryButton, false))

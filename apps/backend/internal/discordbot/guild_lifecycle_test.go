@@ -7,7 +7,6 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordbot"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 	"github.com/quackdiscord/bot/internal/testutil"
 )
 
@@ -33,7 +32,7 @@ func TestGuildLifecycleHandlerCreateUpdateDeleteChannelLeaveAndRejoin(t *testing
 	starterID := settings.StarterPolicyTemplateID
 	settings.AuditMirrorChannelDiscordID = "audit-channel"
 	settings.ManagedEvidenceChannelDiscordID = "evidence-channel"
-	if _, err := repositories.UpdateGuildSettings(ctx, model.UpdateGuildSettingsParams{Settings: *settings}); err != nil {
+	if _, err := repositories.UpdateGuildSettings(ctx, quack.UpdateGuildSettingsParams{Settings: *settings}); err != nil {
 		t.Fatalf("configure lifecycle channels: %v", err)
 	}
 

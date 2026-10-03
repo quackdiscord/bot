@@ -7,46 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/quackdiscord/bot/internal/quack/model"
-	storage "github.com/quackdiscord/bot/internal/store"
+	"github.com/quackdiscord/bot/internal/quack"
 )
-
-func TestActionLeaseFencingAndCrashRecovery(t *testing.T) {
-	ctx := context.Background()
-	repository, guildID := templateTestStore(t)
-	created, err := repository.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent(), ActionExecutions: []model.CaseActionExecution{{ActionType: model.ActionTimeoutUser, SafeForRetry: true, MaxRetries: 1, ConfigSnapshotJSON: `{"duration_seconds":60}`}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	first, err := repository.ClaimNextCaseAction(ctx, storage.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "worker-1"})
-	if err != nil || first == nil || first.Execution.LeaseToken == "" {
-		t.Fatalf("first claim: %+v err=%v", first, err)
-	}
-	expired := time.Now().UTC().Add(-time.Minute)
-	if err := repository.DB().Model(&model.CaseActionExecution{}).Where("id = ?", first.Execution.ID).Update("lease_expires_at", expired).Error; err != nil {
-		t.Fatal(err)
-	}
-	second, err := repository.ClaimNextCaseAction(ctx, storage.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "worker-2"})
-	if err != nil || second == nil || second.Execution.LeaseToken == first.Execution.LeaseToken {
-		t.Fatalf("reclaimed action: %+v err=%v", second, err)
-	}
-	stale := storage.CompleteCaseActionParams{ExecutionID: first.Execution.ID, LeaseToken: first.Execution.LeaseToken, AttemptNumber: first.Execution.AttemptCount, WorkerID: "worker-1", AttemptStatus: model.ActionAttemptSucceeded, ExecutionStatus: model.ActionExecutionSucceeded}
-	if err := repository.CompleteCaseAction(ctx, stale); err == nil {
-		t.Fatal("stale worker completed a reclaimed action")
-	}
-	fresh := stale
-	fresh.LeaseToken = second.Execution.LeaseToken
-	fresh.AttemptNumber = second.Execution.AttemptCount
-	fresh.WorkerID = "worker-2"
-	if err := repository.CompleteCaseAction(ctx, fresh); err != nil {
-		t.Fatalf("fresh completion: %v", err)
-	}
-}
 
 func TestActionClaimIsSingleWinnerUnderConcurrency(t *testing.T) {
 	ctx := context.Background()
 	repository, guildID := templateTestStore(t)
-	created, err := repository.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent(), ActionExecutions: []model.CaseActionExecution{{ActionType: model.ActionTimeoutUser, ConfigSnapshotJSON: `{}`}}})
+	created, err := repository.CreateCase(ctx, quack.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent(), ActionExecutions: []quack.CaseActionExecution{{ActionType: quack.ActionTimeoutUser, ConfigSnapshotJSON: `{}`}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +23,7 @@ func TestActionClaimIsSingleWinnerUnderConcurrency(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			claimed, claimErr := repository.ClaimNextCaseAction(ctx, storage.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "worker"})
+			claimed, claimErr := repository.ClaimNextCaseAction(ctx, quack.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "worker"})
 			if claimErr == nil && claimed != nil {
 				winners.Add(1)
 			}
@@ -71,7 +38,7 @@ func TestActionClaimIsSingleWinnerUnderConcurrency(t *testing.T) {
 func TestActionRecoveryControlsAreIdempotentAndAuditable(t *testing.T) {
 	ctx := context.Background()
 	repository, guildID := templateTestStore(t)
-	created, err := repository.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent(), ActionExecutions: []model.CaseActionExecution{{ActionType: model.ActionTimeoutUser, Status: model.ActionExecutionSucceeded, ConfigSnapshotJSON: `{}`}, {Position: 1, ActionType: model.ActionKickUser, Status: model.ActionExecutionFailed, ConfigSnapshotJSON: `{}`}}})
+	created, err := repository.CreateCase(ctx, quack.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent(), ActionExecutions: []quack.CaseActionExecution{{ActionType: quack.ActionTimeoutUser, Status: quack.ActionExecutionSucceeded, ConfigSnapshotJSON: `{}`}, {Position: 1, ActionType: quack.ActionKickUser, Status: quack.ActionExecutionFailed, ConfigSnapshotJSON: `{}`}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +47,7 @@ func TestActionRecoveryControlsAreIdempotentAndAuditable(t *testing.T) {
 		t.Fatal(err)
 	}
 	failed := actions[1]
-	retryParams := model.RetryCaseActionParams{GuildID: guildID, ExecutionID: failed.ID, ActorDiscordUserID: "mod"}
+	retryParams := quack.RetryCaseActionParams{GuildID: guildID, ExecutionID: failed.ID, ActorDiscordUserID: "mod"}
 	firstRetry, err := repository.RetryCaseAction(ctx, retryParams)
 	if err != nil {
 		t.Fatal(err)
@@ -89,10 +56,10 @@ func TestActionRecoveryControlsAreIdempotentAndAuditable(t *testing.T) {
 	if err != nil || secondRetry.ID != firstRetry.ID {
 		t.Fatalf("retry was not idempotent: %+v err=%v", secondRetry, err)
 	}
-	if err := repository.DB().Model(&model.CaseActionExecution{}).Where("id = ?", failed.ID).Update("status", model.ActionExecutionFailed).Error; err != nil {
+	if err := repository.DB().Model(&quack.CaseActionExecution{}).Where("id = ?", failed.ID).Update("status", quack.ActionExecutionFailed).Error; err != nil {
 		t.Fatal(err)
 	}
-	dismissParams := model.DismissCaseActionParams{GuildID: guildID, ExecutionID: failed.ID, ActorDiscordUserID: "mod"}
+	dismissParams := quack.DismissCaseActionParams{GuildID: guildID, ExecutionID: failed.ID, ActorDiscordUserID: "mod"}
 	firstDismiss, err := repository.DismissCaseAction(ctx, dismissParams)
 	if err != nil {
 		t.Fatal(err)
@@ -101,7 +68,7 @@ func TestActionRecoveryControlsAreIdempotentAndAuditable(t *testing.T) {
 	if err != nil || secondDismiss.ID != firstDismiss.ID {
 		t.Fatalf("dismiss was not idempotent: %+v err=%v", secondDismiss, err)
 	}
-	reversalParams := model.QueueCaseReversalParams{GuildID: guildID, CaseID: created.Case.ID, ActorDiscordUserID: "mod", OriginalExecutionID: actions[0].ID, ActionType: model.ActionRemoveTimeout}
+	reversalParams := quack.QueueCaseReversalParams{GuildID: guildID, CaseID: created.Case.ID, ActorDiscordUserID: "mod", OriginalExecutionID: actions[0].ID, ActionType: quack.ActionRemoveTimeout}
 	firstReversal, err := repository.QueueCaseReversal(ctx, reversalParams)
 	if err != nil {
 		t.Fatal(err)
@@ -115,65 +82,65 @@ func TestActionRecoveryControlsAreIdempotentAndAuditable(t *testing.T) {
 func TestNotificationClaimRecoversBeforeSendButNeverRepeatsAmbiguousSend(t *testing.T) {
 	ctx := context.Background()
 	repository, guildID := templateTestStore(t)
-	notification := &model.CaseNotification{Status: model.NotificationPending}
-	created, err := repository.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent(), Notification: notification})
+	notification := &quack.CaseNotification{Status: quack.NotificationPending}
+	created, err := repository.CreateCase(ctx, quack.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent(), Notification: notification})
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, err := repository.ClaimCaseNotification(ctx, model.ClaimCaseNotificationParams{CaseID: created.Case.ID, WorkerID: "worker-1"})
-	if err != nil || first == nil || first.Status != model.NotificationClaimed {
+	first, err := repository.ClaimCaseNotification(ctx, quack.ClaimCaseNotificationParams{CaseID: created.Case.ID, WorkerID: "worker-1"})
+	if err != nil || first == nil || first.Status != quack.NotificationClaimed {
 		t.Fatalf("first claim: %+v err=%v", first, err)
 	}
 	expired := time.Now().UTC().Add(-time.Minute)
-	if err := repository.DB().Model(&model.CaseNotification{}).Where("id = ?", first.ID).Update("lease_expires_at", expired).Error; err != nil {
+	if err := repository.DB().Model(&quack.CaseNotification{}).Where("id = ?", first.ID).Update("lease_expires_at", expired).Error; err != nil {
 		t.Fatal(err)
 	}
-	second, err := repository.ClaimCaseNotification(ctx, model.ClaimCaseNotificationParams{CaseID: created.Case.ID, WorkerID: "worker-2"})
+	second, err := repository.ClaimCaseNotification(ctx, quack.ClaimCaseNotificationParams{CaseID: created.Case.ID, WorkerID: "worker-2"})
 	if err != nil || second == nil || second.LeaseToken == first.LeaseToken {
 		t.Fatalf("safe pre-send recovery failed: %+v err=%v", second, err)
 	}
 	if err := repository.BeginCaseNotificationDelivery(ctx, second.ID, second.LeaseToken); err != nil {
 		t.Fatal(err)
 	}
-	if err := repository.DB().Model(&model.CaseNotification{}).Where("id = ?", second.ID).Update("lease_expires_at", expired).Error; err != nil {
+	if err := repository.DB().Model(&quack.CaseNotification{}).Where("id = ?", second.ID).Update("lease_expires_at", expired).Error; err != nil {
 		t.Fatal(err)
 	}
-	third, err := repository.ClaimCaseNotification(ctx, model.ClaimCaseNotificationParams{CaseID: created.Case.ID, WorkerID: "worker-3"})
+	third, err := repository.ClaimCaseNotification(ctx, quack.ClaimCaseNotificationParams{CaseID: created.Case.ID, WorkerID: "worker-3"})
 	if err != nil || third != nil {
 		t.Fatalf("ambiguous send was automatically repeated: %+v err=%v", third, err)
 	}
 }
 
-func TestExpiredUnsafeActionRequiresReview(t *testing.T) {
-	for _, action := range []model.CaseActionExecution{
-		{ActionType: model.ActionBanUser, SafeForRetry: true, Irreversible: true, MaxRetries: 3},
-		{ActionType: model.ActionKickUser, MaxRetries: 3},
-		{ActionType: model.ActionTimeoutUser, SafeForRetry: true, MaxRetries: 0},
+func TestExpiredLeaseRequiresReview(t *testing.T) {
+	for _, action := range []quack.CaseActionExecution{
+		{ActionType: quack.ActionBanUser, SafeForRetry: true, MaxRetries: 3},
+		{ActionType: quack.ActionKickUser, MaxRetries: 3},
+		{ActionType: quack.ActionTimeoutUser, SafeForRetry: true, MaxRetries: 0},
 	} {
 		t.Run(string(action.ActionType), func(t *testing.T) {
 			ctx := context.Background()
 			repository, guildID := templateTestStore(t)
 			action.ConfigSnapshotJSON = `{}`
-			created, err := repository.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent(), ActionExecutions: []model.CaseActionExecution{action}})
+			created, err := repository.CreateCase(ctx, quack.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent(), ActionExecutions: []quack.CaseActionExecution{action}})
 			if err != nil {
 				t.Fatal(err)
 			}
-			first, err := repository.ClaimNextCaseAction(ctx, storage.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "old"})
+			first, err := repository.ClaimNextCaseAction(ctx, quack.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "old"})
 			if err != nil || first == nil {
 				t.Fatalf("claim: %+v %v", first, err)
 			}
-			if err := repository.DB().Model(&model.CaseActionExecution{}).Where("id = ?", first.Execution.ID).Update("lease_expires_at", time.Now().Add(-time.Minute)).Error; err != nil {
+			if err := repository.DB().Model(&quack.CaseActionExecution{}).Where("id = ?", first.Execution.ID).Update("lease_expires_at", time.Now().Add(-time.Minute)).Error; err != nil {
 				t.Fatal(err)
 			}
-			second, err := repository.ClaimNextCaseAction(ctx, storage.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "new"})
+			second, err := repository.ClaimNextCaseAction(ctx, quack.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "new"})
 			if err != nil || second != nil {
 				t.Fatalf("unsafe repeat: %+v %v", second, err)
 			}
 			current, err := repository.GetCaseActionExecution(ctx, guildID, first.Execution.ID)
-			if err != nil || current.Status != model.ActionExecutionFailed || current.AttemptCount != 1 || current.LeaseToken != "" {
+			if err != nil || current.Status != quack.ActionExecutionFailed || current.AttemptCount != 1 || current.LeaseToken != "" {
 				t.Fatalf("review state: %+v %v", current, err)
 			}
-			err = repository.CompleteCaseAction(ctx, storage.CompleteCaseActionParams{ExecutionID: first.Execution.ID, LeaseToken: first.Execution.LeaseToken, AttemptNumber: 1, WorkerID: "old", AttemptStatus: model.ActionAttemptSucceeded, ExecutionStatus: model.ActionExecutionSucceeded})
+			err = repository.CompleteCaseAction(ctx, quack.CompleteCaseActionParams{ExecutionID: first.Execution.ID, LeaseToken: first.Execution.LeaseToken, AttemptNumber: 1, WorkerID: "old", AttemptStatus: quack.ActionAttemptSucceeded, ExecutionStatus: quack.ActionExecutionSucceeded})
 			if err == nil {
 				t.Fatal("expired worker overwrote review state")
 			}

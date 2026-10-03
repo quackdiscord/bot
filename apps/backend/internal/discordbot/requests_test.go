@@ -10,7 +10,6 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/actionmods"
 )
 
 // requestTransport isolates REST behavior from both network access and Discord.
@@ -34,7 +33,7 @@ func TestEnforcementCarriesContextAndDoesNotRetryBehindWorker(t *testing.T) {
 		return &http.Response{StatusCode: http.StatusBadGateway, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"message":"upstream unavailable"}`)), Request: request}, nil
 	})}
 	_, err = (&Bot{Session: session}).BanMember(ctx, "guild", "member", 0, "case")
-	var classified actionmods.DiscordError
+	var classified quack.DiscordError
 	if calls != 1 || !errors.As(err, &classified) || !classified.OutcomeUncertain || classified.Retryable {
 		t.Fatalf("expected one uncertain attempt: calls=%d error=%+v", calls, err)
 	}

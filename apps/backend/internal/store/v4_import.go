@@ -8,8 +8,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/quackdiscord/bot/internal/quack/idutil"
-	"github.com/quackdiscord/bot/internal/quack/model"
+	"github.com/quackdiscord/bot/internal/quack"
 	"github.com/quackdiscord/bot/internal/v4import"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -63,7 +62,7 @@ func (s *Store) ApplyV4Import(ctx context.Context, batch v4import.Batch, rows []
 	}
 	var decisions []v4import.Decision
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var guild model.Guild
+		var guild quack.Guild
 		result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", batch.GuildID).First(&guild)
 		if result.Error != nil {
 			return fmt.Errorf("lock import guild: %w", result.Error)
@@ -101,28 +100,19 @@ func (s *Store) ApplyV4Import(ctx context.Context, batch v4import.Batch, rows []
 				already++
 				continue
 			}
-			caseID, err := idutil.NewULID()
-			if err != nil {
-				return err
-			}
+			caseID := quack.NewID()
 			metadata, _ := json.Marshal(map[string]any{"historical": true, "v4": map[string]any{"source_name": batch.SourceName, "source_id": row.Case.SourceID, "case_number": row.Case.CaseNumber, "action_type": row.Case.ActionType, "moderator_display_name": row.Case.ModeratorDisplayName, "target_departed": row.Case.TargetDeparted, "target_missing": row.Case.TargetMissing, "action_expires_at": row.Case.ActionExpiresAt}})
 			snapshot, _ := json.Marshal(map[string]any{"historical": true, "v4_action_type": row.Case.ActionType})
-			item := model.Case{ULIDModel: model.ULIDModel{ID: caseID, CreatedAt: row.Case.CreatedAt.UTC(), UpdatedAt: row.Case.CreatedAt.UTC()}, GuildID: batch.GuildID, CaseNumber: decision.TargetCaseNumber, TemplateVersion: 0, TemplateSnapshotJSON: string(snapshot), TargetDiscordUserID: row.Case.TargetDiscordUserID, ModeratorDiscordUserID: row.Case.ModeratorDiscordUserID, Reason: row.Case.Reason, Validity: model.CaseValidityValid, Source: model.CaseSourceV4Import, ContextURL: row.Case.ContextURL, MetadataJSON: string(metadata), ContextValuesJSON: "[]"}
+			item := quack.Case{ULIDModel: quack.ULIDModel{ID: caseID, CreatedAt: row.Case.CreatedAt.UTC(), UpdatedAt: row.Case.CreatedAt.UTC()}, GuildID: batch.GuildID, CaseNumber: decision.TargetCaseNumber, TemplateVersion: 0, TemplateSnapshotJSON: string(snapshot), TargetDiscordUserID: row.Case.TargetDiscordUserID, ModeratorDiscordUserID: row.Case.ModeratorDiscordUserID, Reason: row.Case.Reason, Validity: quack.CaseValidityValid, Source: quack.CaseSourceV4Import, ContextURL: row.Case.ContextURL, MetadataJSON: string(metadata), ContextValuesJSON: "[]"}
 			if err := tx.Select("*").Create(&item).Error; err != nil {
 				return fmt.Errorf("create imported historical case: %w", err)
 			}
-			eventID, err := idutil.NewULID()
-			if err != nil {
-				return err
-			}
-			event := model.CaseEvent{ULIDModel: model.ULIDModel{ID: eventID, CreatedAt: row.Case.CreatedAt.UTC(), UpdatedAt: row.Case.CreatedAt.UTC()}, CaseID: caseID, GuildID: batch.GuildID, EventType: model.CaseEventCreated, ActorType: "system", Visibility: model.EventVisibilityStaff, Body: "Imported historical v4 case", MetadataJSON: `{"historical":true,"source":"v4_import"}`}
+			eventID := quack.NewID()
+			event := quack.CaseEvent{ULIDModel: quack.ULIDModel{ID: eventID, CreatedAt: row.Case.CreatedAt.UTC(), UpdatedAt: row.Case.CreatedAt.UTC()}, CaseID: caseID, GuildID: batch.GuildID, EventType: quack.CaseEventCreated, ActorType: "system", Visibility: quack.EventVisibilityStaff, Body: "Imported historical v4 case", MetadataJSON: `{"historical":true,"source":"v4_import"}`}
 			if err := tx.Select("*").Create(&event).Error; err != nil {
 				return fmt.Errorf("create imported case event: %w", err)
 			}
-			sourceID, err := idutil.NewULID()
-			if err != nil {
-				return err
-			}
+			sourceID := quack.NewID()
 			mapping := V4ImportSourceRecord{ID: sourceID, BatchID: batch.ID, GuildID: batch.GuildID, SourceName: batch.SourceName, SourceID: row.Case.SourceID, SourceCaseNumber: row.Case.CaseNumber, TargetCaseID: caseID, Fingerprint: row.Fingerprint, CreatedAt: now}
 			if err := tx.Create(&mapping).Error; err != nil {
 				return fmt.Errorf("record v4 source mapping: %w", err)
@@ -134,7 +124,7 @@ func (s *Store) ApplyV4Import(ctx context.Context, batch v4import.Batch, rows []
 		if err := tx.Create(&ledger).Error; err != nil {
 			return fmt.Errorf("record v4 import batch: %w", err)
 		}
-		return createAuditLogEntry(tx, &model.AuditLogEntry{GuildID: batch.GuildID, ActorDiscordUserID: batch.ActorDiscordUserID, Source: model.AuditSourceSystem, Action: "v4_import.batch", ResourceType: "v4_import_batch", ResourceID: batch.ID, Result: model.AuditResultSuccess, MetadataJSON: fmt.Sprintf(`{"checksum":"%s","records":%d,"created":%d,"already_imported":%d,"warnings":%d}`, batch.Checksum, batch.RecordCount, created, already, warnings)}, now)
+		return createAuditLogEntry(tx, &quack.AuditLogEntry{GuildID: batch.GuildID, ActorDiscordUserID: batch.ActorDiscordUserID, Source: quack.AuditSourceSystem, Action: "v4_import.batch", ResourceType: "v4_import_batch", ResourceID: batch.ID, Result: quack.AuditResultSuccess, MetadataJSON: fmt.Sprintf(`{"checksum":"%s","records":%d,"created":%d,"already_imported":%d,"warnings":%d}`, batch.Checksum, batch.RecordCount, created, already, warnings)}, now)
 	})
 	return decisions, err
 }
@@ -142,7 +132,7 @@ func (s *Store) ApplyV4Import(ctx context.Context, batch v4import.Batch, rows []
 func inspectV4Rows(db *gorm.DB, batch v4import.Batch, rows []v4import.PreparedCase) ([]v4import.Decision, error) {
 	used := map[uint64]bool{}
 	var numbers []uint64
-	if err := db.Model(&model.Case{}).Where("guild_id = ?", batch.GuildID).Pluck("case_number", &numbers).Error; err != nil {
+	if err := db.Model(&quack.Case{}).Where("guild_id = ?", batch.GuildID).Pluck("case_number", &numbers).Error; err != nil {
 		return nil, err
 	}
 	var max uint64
@@ -196,7 +186,7 @@ func inspectV4Rows(db *gorm.DB, batch v4import.Batch, rows []v4import.PreparedCa
 }
 
 func caseNumberForID(db *gorm.DB, caseID string) uint64 {
-	var item model.Case
+	var item quack.Case
 	_ = db.Select("case_number").First(&item, "id = ?", caseID).Error
 	return item.CaseNumber
 }
@@ -229,10 +219,10 @@ func (s *Store) RollbackV4Import(ctx context.Context, guildID, batchID, actorID 
 				return fmt.Errorf("cannot roll back import batch with dependent %s rows", table)
 			}
 		}
-		if err := tx.Where("case_id IN ?", ids).Delete(&model.CaseEvent{}).Error; err != nil {
+		if err := tx.Where("case_id IN ?", ids).Delete(&quack.CaseEvent{}).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("id IN ? AND source = ?", ids, model.CaseSourceV4Import).Delete(&model.Case{}).Error; err != nil {
+		if err := tx.Where("id IN ? AND source = ?", ids, quack.CaseSourceV4Import).Delete(&quack.Case{}).Error; err != nil {
 			return err
 		}
 		if err := tx.Where("guild_id = ? AND batch_id = ?", guildID, batchID).Delete(&V4ImportSourceRecord{}).Error; err != nil {
@@ -241,7 +231,7 @@ func (s *Store) RollbackV4Import(ctx context.Context, guildID, batchID, actorID 
 		if err := tx.Where("guild_id = ? AND id = ?", guildID, batchID).Delete(&V4ImportBatchRecord{}).Error; err != nil {
 			return err
 		}
-		return createAuditLogEntry(tx, &model.AuditLogEntry{GuildID: guildID, ActorDiscordUserID: actorID, Source: model.AuditSourceSystem, Action: "v4_import.rollback", ResourceType: "v4_import_batch", ResourceID: batchID, Result: model.AuditResultSuccess, MetadataJSON: fmt.Sprintf(`{"removed_cases":%d}`, len(ids))}, time.Now().UTC())
+		return createAuditLogEntry(tx, &quack.AuditLogEntry{GuildID: guildID, ActorDiscordUserID: actorID, Source: quack.AuditSourceSystem, Action: "v4_import.rollback", ResourceType: "v4_import_batch", ResourceID: batchID, Result: quack.AuditResultSuccess, MetadataJSON: fmt.Sprintf(`{"removed_cases":%d}`, len(ids))}, time.Now().UTC())
 	})
 }
 
@@ -250,5 +240,5 @@ func (s *Store) RecordV4ImportFailure(ctx context.Context, batch v4import.Batch,
 	if s == nil || s.db == nil {
 		return errors.New("database not connected")
 	}
-	return createAuditLogEntry(s.db.WithContext(ctx), &model.AuditLogEntry{GuildID: batch.GuildID, ActorDiscordUserID: batch.ActorDiscordUserID, Source: model.AuditSourceSystem, Action: "v4_import.batch", ResourceType: "v4_import_batch", ResourceID: batch.ID, Result: model.AuditResultFailure, FailureReason: code, MetadataJSON: fmt.Sprintf(`{"checksum":"%s","records":%d,"failures":%d}`, batch.Checksum, batch.RecordCount, failures)}, time.Now().UTC())
+	return createAuditLogEntry(s.db.WithContext(ctx), &quack.AuditLogEntry{GuildID: batch.GuildID, ActorDiscordUserID: batch.ActorDiscordUserID, Source: quack.AuditSourceSystem, Action: "v4_import.batch", ResourceType: "v4_import_batch", ResourceID: batch.ID, Result: quack.AuditResultFailure, FailureReason: code, MetadataJSON: fmt.Sprintf(`{"checksum":"%s","records":%d,"failures":%d}`, batch.Checksum, batch.RecordCount, failures)}, time.Now().UTC())
 }

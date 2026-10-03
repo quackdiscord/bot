@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/quackdiscord/bot/internal/quack/model"
+	"github.com/quackdiscord/bot/internal/quack"
 )
 
 func TestMySQLExecutableCaseSelectionIsGuildFair(t *testing.T) {
@@ -14,11 +14,11 @@ func TestMySQLExecutableCaseSelectionIsGuildFair(t *testing.T) {
 		t.Fatalf("migrate MySQL fairness fixture: %v", err)
 	}
 	ctx := context.Background()
-	firstGuild, err := repository.UpsertGuild(ctx, model.UpsertGuildParams{DiscordGuildID: "mysql-fair-1", Name: "Fair One", OwnerDiscordUserID: "owner-1"})
+	firstGuild, err := repository.UpsertGuild(ctx, quack.UpsertGuildParams{DiscordGuildID: "mysql-fair-1", Name: "Fair One", OwnerDiscordUserID: "owner-1"})
 	if err != nil {
 		t.Fatalf("upsert first MySQL guild: %v", err)
 	}
-	secondGuild, err := repository.UpsertGuild(ctx, model.UpsertGuildParams{DiscordGuildID: "mysql-fair-2", Name: "Fair Two", OwnerDiscordUserID: "owner-2"})
+	secondGuild, err := repository.UpsertGuild(ctx, quack.UpsertGuildParams{DiscordGuildID: "mysql-fair-2", Name: "Fair Two", OwnerDiscordUserID: "owner-2"})
 	if err != nil {
 		t.Fatalf("upsert second MySQL guild: %v", err)
 	}
@@ -39,14 +39,14 @@ func TestMySQLExecutableCaseSelectionIsGuildFair(t *testing.T) {
 
 func createMySQLExecutableCase(t *testing.T, repository *Store, guildID string) string {
 	t.Helper()
-	created, err := repository.CreateCase(context.Background(), model.CreateCaseParams{
-		Case: model.Case{
+	created, err := repository.CreateCase(context.Background(), quack.CreateCaseParams{
+		Case: quack.Case{
 			GuildID: guildID, TemplateVersion: 1, TemplateSnapshotJSON: "{}",
 			TargetDiscordUserID: "target", ModeratorDiscordUserID: "moderator",
-			Reason: "reason", Validity: model.CaseValidityValid, Source: model.CaseSourceDashboard, MetadataJSON: "{}",
+			Reason: "reason", Validity: quack.CaseValidityValid, Source: quack.CaseSourceDashboard, MetadataJSON: "{}",
 		},
-		Event:            model.CaseEvent{EventType: model.CaseEventCreated, Body: "created"},
-		ActionExecutions: []model.CaseActionExecution{{Position: 1, ActionType: model.ActionTimeoutUser, ConfigSnapshotJSON: "{}"}},
+		Event:            quack.CaseEvent{EventType: quack.CaseEventCreated, Body: "created"},
+		ActionExecutions: []quack.CaseActionExecution{{Position: 1, ActionType: quack.ActionTimeoutUser, ConfigSnapshotJSON: "{}"}},
 	})
 	if err != nil {
 		t.Fatalf("create MySQL executable case: %v", err)

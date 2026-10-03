@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/quackdiscord/bot/internal/quack/model"
+	"github.com/quackdiscord/bot/internal/quack"
 	storage "github.com/quackdiscord/bot/internal/store"
 )
 
@@ -14,24 +14,24 @@ func TestCreateCasePersistsCaseEventActionsAndAudit(t *testing.T) {
 	store, guildID := templateTestStore(t)
 	template := createCaseStorageTemplate(t, store, guildID)
 
-	created, err := store.CreateCase(ctx, storage.CreateCaseParams{
+	created, err := store.CreateCase(ctx, quack.CreateCaseParams{
 		Case: caseModel(guildID, &template.Template.ID),
-		Event: model.CaseEvent{
-			EventType:          model.CaseEventCreated,
+		Event: quack.CaseEvent{
+			EventType:          quack.CaseEventCreated,
 			ActorDiscordUserID: "moderator-1",
 			Body:               "Case created",
 		},
-		ActionExecutions: []model.CaseActionExecution{
-			{TemplateActionID: &template.Levels[0].Actions[0].ID, Position: 1, ActionType: model.ActionTimeoutUser, ConfigSnapshotJSON: `{}`},
-			{Position: 2, ActionType: model.ActionKickUser, ConfigSnapshotJSON: `{}`},
+		ActionExecutions: []quack.CaseActionExecution{
+			{TemplateActionID: &template.Levels[0].Actions[0].ID, Position: 1, ActionType: quack.ActionTimeoutUser, ConfigSnapshotJSON: `{}`},
+			{Position: 2, ActionType: quack.ActionKickUser, ConfigSnapshotJSON: `{}`},
 		},
-		Audit: &model.AuditLogEntry{
+		Audit: &quack.AuditLogEntry{
 			GuildID:            guildID,
 			ActorDiscordUserID: "moderator-1",
-			Source:             model.AuditSourceAPI,
+			Source:             quack.AuditSourceAPI,
 			Action:             "case.create",
 			ResourceType:       "case",
-			Result:             model.AuditResultSuccess,
+			Result:             quack.AuditResultSuccess,
 			MetadataJSON:       "{}",
 		},
 	})
@@ -49,7 +49,7 @@ func TestCreateCasePersistsCaseEventActionsAndAudit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list case events: %v", err)
 	}
-	if len(events) != 1 || events[0].EventType != model.CaseEventCreated {
+	if len(events) != 1 || events[0].EventType != quack.CaseEventCreated {
 		t.Fatalf("expected created event, got %+v", events)
 	}
 
@@ -60,7 +60,7 @@ func TestCreateCasePersistsCaseEventActionsAndAudit(t *testing.T) {
 	if len(actions) != 2 || actions[0].Position != 1 || actions[1].Position != 2 {
 		t.Fatalf("expected ordered actions, got %+v", actions)
 	}
-	if actions[0].Status != model.ActionExecutionPending {
+	if actions[0].Status != quack.ActionExecutionPending {
 		t.Fatalf("expected pending action, got %s", actions[0].Status)
 	}
 	audits, err := store.ListAuditLogEntries(ctx, guildID)
@@ -75,7 +75,7 @@ func TestCreateCasePersistsCaseEventActionsAndAudit(t *testing.T) {
 func TestCreateCaseAllocatesCaseNumbersPerGuild(t *testing.T) {
 	ctx := context.Background()
 	store, guildID := templateTestStore(t)
-	guildTwo, err := store.UpsertGuild(ctx, storage.UpsertGuildParams{
+	guildTwo, err := store.UpsertGuild(ctx, quack.UpsertGuildParams{
 		DiscordGuildID:     "guild-2",
 		Name:               "Guild Two",
 		OwnerDiscordUserID: "owner-2",
@@ -84,15 +84,15 @@ func TestCreateCaseAllocatesCaseNumbersPerGuild(t *testing.T) {
 		t.Fatalf("upsert second guild: %v", err)
 	}
 
-	first, err := store.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent()})
+	first, err := store.CreateCase(ctx, quack.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent()})
 	if err != nil {
 		t.Fatalf("create first case: %v", err)
 	}
-	second, err := store.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent()})
+	second, err := store.CreateCase(ctx, quack.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent()})
 	if err != nil {
 		t.Fatalf("create second case: %v", err)
 	}
-	otherGuild, err := store.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildTwo.ID, nil), Event: caseEvent()})
+	otherGuild, err := store.CreateCase(ctx, quack.CreateCaseParams{Case: caseModel(guildTwo.ID, nil), Event: caseEvent()})
 	if err != nil {
 		t.Fatalf("create other guild case: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestCountTemplateCasesForTargetFiltersHistory(t *testing.T) {
 	ctx := context.Background()
 	store, guildID := templateTestStore(t)
 	template := createCaseStorageTemplate(t, store, guildID)
-	otherTemplate, err := store.CreateCaseTemplate(ctx, storage.CreateCaseTemplateParams{
+	otherTemplate, err := store.CreateCaseTemplate(ctx, quack.CreateCaseTemplateParams{
 		Template: templateModel(guildID, "other"),
 		Levels:   templateLevels(),
 	})
@@ -114,37 +114,37 @@ func TestCountTemplateCasesForTargetFiltersHistory(t *testing.T) {
 		t.Fatalf("create other template: %v", err)
 	}
 
-	matching, err := store.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildID, &template.Template.ID), Event: caseEvent()})
+	matching, err := store.CreateCase(ctx, quack.CreateCaseParams{Case: caseModel(guildID, &template.Template.ID), Event: caseEvent()})
 	if err != nil {
 		t.Fatalf("create matching case: %v", err)
 	}
-	oldMatching, err := store.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildID, &template.Template.ID), Event: caseEvent()})
+	oldMatching, err := store.CreateCase(ctx, quack.CreateCaseParams{Case: caseModel(guildID, &template.Template.ID), Event: caseEvent()})
 	if err != nil {
 		t.Fatalf("create old matching case: %v", err)
 	}
 	oldTime := time.Now().UTC().Add(-2 * time.Hour)
-	if err := store.DB().Model(&model.Case{}).Where("id = ?", oldMatching.Case.ID).Update("created_at", oldTime).Error; err != nil {
+	if err := store.DB().Model(&quack.Case{}).Where("id = ?", oldMatching.Case.ID).Update("created_at", oldTime).Error; err != nil {
 		t.Fatalf("age matching case: %v", err)
 	}
 
-	voided, err := store.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildID, &template.Template.ID), Event: caseEvent()})
+	voided, err := store.CreateCase(ctx, quack.CreateCaseParams{Case: caseModel(guildID, &template.Template.ID), Event: caseEvent()})
 	if err != nil {
 		t.Fatalf("create voided case: %v", err)
 	}
-	if err := store.DB().Model(&model.Case{}).Where("id = ?", voided.Case.ID).Update("status", model.CaseValidityVoided).Error; err != nil {
+	if err := store.DB().Model(&quack.Case{}).Where("id = ?", voided.Case.ID).Update("status", quack.CaseValidityVoided).Error; err != nil {
 		t.Fatalf("void case: %v", err)
 	}
 
 	otherTarget := caseModel(guildID, &template.Template.ID)
 	otherTarget.TargetDiscordUserID = "target-2"
-	if _, err := store.CreateCase(ctx, storage.CreateCaseParams{Case: otherTarget, Event: caseEvent()}); err != nil {
+	if _, err := store.CreateCase(ctx, quack.CreateCaseParams{Case: otherTarget, Event: caseEvent()}); err != nil {
 		t.Fatalf("create other target case: %v", err)
 	}
-	if _, err := store.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildID, &otherTemplate.Template.ID), Event: caseEvent()}); err != nil {
+	if _, err := store.CreateCase(ctx, quack.CreateCaseParams{Case: caseModel(guildID, &otherTemplate.Template.ID), Event: caseEvent()}); err != nil {
 		t.Fatalf("create other template case: %v", err)
 	}
 
-	count, err := store.CountTemplateCasesForTarget(ctx, storage.CountTemplateCasesForTargetParams{
+	count, err := store.CountTemplateCasesForTarget(ctx, quack.CountTemplateCasesForTargetParams{
 		GuildID:             guildID,
 		TemplateID:          template.Template.ID,
 		TargetDiscordUserID: "target-1",
@@ -162,7 +162,7 @@ func TestListCasesFilteredAndGetCaseByReference(t *testing.T) {
 	ctx := context.Background()
 	store, guildID := templateTestStore(t)
 	template := createCaseStorageTemplate(t, store, guildID)
-	otherGuild, err := store.UpsertGuild(ctx, storage.UpsertGuildParams{
+	otherGuild, err := store.UpsertGuild(ctx, quack.UpsertGuildParams{
 		DiscordGuildID:     "guild-2",
 		Name:               "Guild Two",
 		OwnerDiscordUserID: "owner-2",
@@ -172,23 +172,23 @@ func TestListCasesFilteredAndGetCaseByReference(t *testing.T) {
 	}
 
 	firstCase := caseModel(guildID, &template.Template.ID)
-	first, err := store.CreateCase(ctx, storage.CreateCaseParams{Case: firstCase, Event: caseEvent()})
+	first, err := store.CreateCase(ctx, quack.CreateCaseParams{Case: firstCase, Event: caseEvent()})
 	if err != nil {
 		t.Fatalf("create first case: %v", err)
 	}
 	secondCase := caseModel(guildID, &template.Template.ID)
 	secondCase.TargetDiscordUserID = "target-2"
 	secondCase.ModeratorDiscordUserID = "moderator-2"
-	secondCase.Validity = model.CaseValidityVoided
-	second, err := store.CreateCase(ctx, storage.CreateCaseParams{Case: secondCase, Event: caseEvent()})
+	secondCase.Validity = quack.CaseValidityVoided
+	second, err := store.CreateCase(ctx, quack.CreateCaseParams{Case: secondCase, Event: caseEvent()})
 	if err != nil {
 		t.Fatalf("create second case: %v", err)
 	}
-	if _, err := store.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(otherGuild.ID, &template.Template.ID), Event: caseEvent()}); err != nil {
+	if _, err := store.CreateCase(ctx, quack.CreateCaseParams{Case: caseModel(otherGuild.ID, &template.Template.ID), Event: caseEvent()}); err != nil {
 		t.Fatalf("create other guild case: %v", err)
 	}
 
-	list, err := store.ListCasesFiltered(ctx, storage.ListCasesParams{GuildID: guildID, Limit: 10})
+	list, err := store.ListCasesFiltered(ctx, quack.ListCasesParams{GuildID: guildID, Limit: 10})
 	if err != nil {
 		t.Fatalf("list filtered cases: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestListCasesFilteredAndGetCaseByReference(t *testing.T) {
 		t.Fatalf("expected newest-first cases for guild only, got %+v", list)
 	}
 
-	list, err = store.ListCasesFiltered(ctx, storage.ListCasesParams{GuildID: guildID, TargetDiscordUserID: "target-2", ModeratorDiscordUserID: "moderator-2", TemplateID: template.Template.ID, Validity: model.CaseValidityVoided, Limit: 10})
+	list, err = store.ListCasesFiltered(ctx, quack.ListCasesParams{GuildID: guildID, TargetDiscordUserID: "target-2", ModeratorDiscordUserID: "moderator-2", TemplateID: template.Template.ID, Validity: quack.CaseValidityVoided, Limit: 10})
 	if err != nil {
 		t.Fatalf("list filtered cases with filters: %v", err)
 	}
@@ -231,26 +231,26 @@ func TestListCaseActionAttemptsAndTargetSummary(t *testing.T) {
 	ctx := context.Background()
 	store, guildID := templateTestStore(t)
 
-	created, err := store.CreateCase(ctx, storage.CreateCaseParams{
+	created, err := store.CreateCase(ctx, quack.CreateCaseParams{
 		Case:  caseModel(guildID, nil),
 		Event: caseEvent(),
-		ActionExecutions: []model.CaseActionExecution{
-			{Position: 1, ActionType: model.ActionSendDM, ConfigSnapshotJSON: `{}`},
+		ActionExecutions: []quack.CaseActionExecution{
+			{Position: 1, ActionType: quack.ActionSendDM, ConfigSnapshotJSON: `{}`},
 		},
 	})
 	if err != nil {
 		t.Fatalf("create case: %v", err)
 	}
 	action := created.ActionExecutions[0]
-	if _, err := store.ClaimNextCaseAction(ctx, storage.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "worker-1"}); err != nil {
+	if _, err := store.ClaimNextCaseAction(ctx, quack.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "worker-1"}); err != nil {
 		t.Fatalf("claim action: %v", err)
 	}
-	if err := store.CompleteCaseAction(ctx, storage.CompleteCaseActionParams{
+	if err := store.CompleteCaseAction(ctx, quack.CompleteCaseActionParams{
 		ExecutionID:         action.ID,
 		AttemptNumber:       1,
 		WorkerID:            "worker-1",
-		AttemptStatus:       model.ActionAttemptSucceeded,
-		ExecutionStatus:     model.ActionExecutionSucceeded,
+		AttemptStatus:       quack.ActionAttemptSucceeded,
+		ExecutionStatus:     quack.ActionExecutionSucceeded,
 		RequestPayloadJSON:  `{}`,
 		ResponsePayloadJSON: `{}`,
 	}); err != nil {
@@ -269,7 +269,7 @@ func TestListCaseActionAttemptsAndTargetSummary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("target summary: %v", err)
 	}
-	if summary.Total != 1 || summary.ByValidity[model.CaseValidityValid] != 1 {
+	if summary.Total != 1 || summary.ByValidity[quack.CaseValidityValid] != 1 {
 		t.Fatalf("unexpected target summary: %+v", summary)
 	}
 }
@@ -277,7 +277,7 @@ func TestListCaseActionAttemptsAndTargetSummary(t *testing.T) {
 func TestListAuditLogEntriesFiltered(t *testing.T) {
 	ctx := context.Background()
 	store, guildID := templateTestStore(t)
-	otherGuild, err := store.UpsertGuild(ctx, storage.UpsertGuildParams{
+	otherGuild, err := store.UpsertGuild(ctx, quack.UpsertGuildParams{
 		DiscordGuildID:     "guild-2",
 		Name:               "Guild Two",
 		OwnerDiscordUserID: "owner-2",
@@ -286,10 +286,10 @@ func TestListAuditLogEntriesFiltered(t *testing.T) {
 		t.Fatalf("upsert other guild: %v", err)
 	}
 
-	entries := []model.AuditLogEntry{
-		{GuildID: guildID, ActorDiscordUserID: "actor-1", Source: model.AuditSourceAPI, Action: "case.create", ResourceType: "case", ResourceID: "case-1", Result: model.AuditResultSuccess, MetadataJSON: "{}"},
-		{GuildID: guildID, ActorDiscordUserID: "actor-2", Source: model.AuditSourceSystem, Action: "case_action.failed", ResourceType: "case_action_execution", ResourceID: "action-1", Result: model.AuditResultFailure, MetadataJSON: "{}"},
-		{GuildID: otherGuild.ID, ActorDiscordUserID: "actor-1", Source: model.AuditSourceAPI, Action: "case.create", ResourceType: "case", ResourceID: "case-2", Result: model.AuditResultSuccess, MetadataJSON: "{}"},
+	entries := []quack.AuditLogEntry{
+		{GuildID: guildID, ActorDiscordUserID: "actor-1", Source: quack.AuditSourceAPI, Action: "case.create", ResourceType: "case", ResourceID: "case-1", Result: quack.AuditResultSuccess, MetadataJSON: "{}"},
+		{GuildID: guildID, ActorDiscordUserID: "actor-2", Source: quack.AuditSourceSystem, Action: "case_action.failed", ResourceType: "case_action_execution", ResourceID: "action-1", Result: quack.AuditResultFailure, MetadataJSON: "{}"},
+		{GuildID: otherGuild.ID, ActorDiscordUserID: "actor-1", Source: quack.AuditSourceAPI, Action: "case.create", ResourceType: "case", ResourceID: "case-2", Result: quack.AuditResultSuccess, MetadataJSON: "{}"},
 	}
 	for i := range entries {
 		if err := store.CreateAuditLogEntry(ctx, &entries[i]); err != nil {
@@ -297,7 +297,7 @@ func TestListAuditLogEntriesFiltered(t *testing.T) {
 		}
 	}
 
-	list, err := store.ListAuditLogEntriesFiltered(ctx, storage.ListAuditLogEntriesParams{GuildID: guildID, Limit: 10})
+	list, err := store.ListAuditLogEntriesFiltered(ctx, quack.ListAuditLogEntriesParams{GuildID: guildID, Limit: 10})
 	if err != nil {
 		t.Fatalf("list filtered audits: %v", err)
 	}
@@ -305,13 +305,13 @@ func TestListAuditLogEntriesFiltered(t *testing.T) {
 		t.Fatalf("expected newest-first guild audits, got %+v", list)
 	}
 
-	list, err = store.ListAuditLogEntriesFiltered(ctx, storage.ListAuditLogEntriesParams{
+	list, err = store.ListAuditLogEntriesFiltered(ctx, quack.ListAuditLogEntriesParams{
 		GuildID:            guildID,
 		ActorDiscordUserID: "actor-1",
 		Action:             "case.create",
 		ResourceType:       "case",
 		ResourceID:         "case-1",
-		Result:             model.AuditResultSuccess,
+		Result:             quack.AuditResultSuccess,
 		Limit:              10,
 	})
 	if err != nil {
@@ -325,7 +325,7 @@ func TestListAuditLogEntriesFiltered(t *testing.T) {
 func TestActionQueueSnapshot(t *testing.T) {
 	ctx := context.Background()
 	store, guildID := templateTestStore(t)
-	otherGuild, err := store.UpsertGuild(ctx, storage.UpsertGuildParams{
+	otherGuild, err := store.UpsertGuild(ctx, quack.UpsertGuildParams{
 		DiscordGuildID:     "guild-2",
 		Name:               "Guild Two",
 		OwnerDiscordUserID: "owner-2",
@@ -334,22 +334,22 @@ func TestActionQueueSnapshot(t *testing.T) {
 		t.Fatalf("upsert other guild: %v", err)
 	}
 
-	created, err := store.CreateCase(ctx, storage.CreateCaseParams{
+	created, err := store.CreateCase(ctx, quack.CreateCaseParams{
 		Case:  caseModel(guildID, nil),
 		Event: caseEvent(),
-		ActionExecutions: []model.CaseActionExecution{
-			{Position: 1, ActionType: model.ActionSendDM, Status: model.ActionExecutionPending, ConfigSnapshotJSON: `{}`},
-			{Position: 2, ActionType: model.ActionBanUser, Status: model.ActionExecutionFailed, ConfigSnapshotJSON: `{}`, LastErrorCode: "action_not_implemented", LastError: "ban_user action module is not implemented"},
+		ActionExecutions: []quack.CaseActionExecution{
+			{Position: 1, ActionType: quack.ActionSendDM, Status: quack.ActionExecutionPending, ConfigSnapshotJSON: `{}`},
+			{Position: 2, ActionType: quack.ActionBanUser, Status: quack.ActionExecutionFailed, ConfigSnapshotJSON: `{}`, LastErrorCode: "action_not_implemented", LastError: "ban_user action module is not implemented"},
 		},
 	})
 	if err != nil {
 		t.Fatalf("create case: %v", err)
 	}
-	if _, err := store.CreateCase(ctx, storage.CreateCaseParams{
+	if _, err := store.CreateCase(ctx, quack.CreateCaseParams{
 		Case:  caseModel(otherGuild.ID, nil),
 		Event: caseEvent(),
-		ActionExecutions: []model.CaseActionExecution{
-			{Position: 1, ActionType: model.ActionSendDM, Status: model.ActionExecutionPending, ConfigSnapshotJSON: `{}`},
+		ActionExecutions: []quack.CaseActionExecution{
+			{Position: 1, ActionType: quack.ActionSendDM, Status: quack.ActionExecutionPending, ConfigSnapshotJSON: `{}`},
 		},
 	}); err != nil {
 		t.Fatalf("create other guild case: %v", err)
@@ -359,11 +359,11 @@ func TestActionQueueSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("action queue snapshot: %v", err)
 	}
-	counts := map[model.ActionExecutionStatus]int64{}
+	counts := map[quack.ActionExecutionStatus]int64{}
 	for _, row := range snapshot.StatusCounts {
 		counts[row.Status] = row.Count
 	}
-	if counts[model.ActionExecutionPending] != 1 || counts[model.ActionExecutionFailed] != 1 {
+	if counts[quack.ActionExecutionPending] != 1 || counts[quack.ActionExecutionFailed] != 1 {
 		t.Fatalf("unexpected status counts: %+v", snapshot.StatusCounts)
 	}
 	if snapshot.OldestPendingOrRetry == nil || snapshot.OldestPendingOrRetry.CaseID != created.Case.ID {
@@ -378,19 +378,19 @@ func TestCreateCaseRollsBackOnActionFailure(t *testing.T) {
 	ctx := context.Background()
 	store, guildID := templateTestStore(t)
 
-	_, err := store.CreateCase(ctx, storage.CreateCaseParams{
+	_, err := store.CreateCase(ctx, quack.CreateCaseParams{
 		Case:  caseModel(guildID, nil),
 		Event: caseEvent(),
-		ActionExecutions: []model.CaseActionExecution{
-			{Position: 1, ActionType: model.ActionTimeoutUser, IdempotencyKey: "duplicate-key", ConfigSnapshotJSON: `{}`},
-			{Position: 2, ActionType: model.ActionKickUser, IdempotencyKey: "duplicate-key", ConfigSnapshotJSON: `{}`},
+		ActionExecutions: []quack.CaseActionExecution{
+			{Position: 1, ActionType: quack.ActionTimeoutUser, IdempotencyKey: "duplicate-key", ConfigSnapshotJSON: `{}`},
+			{Position: 2, ActionType: quack.ActionKickUser, IdempotencyKey: "duplicate-key", ConfigSnapshotJSON: `{}`},
 		},
-		Audit: &model.AuditLogEntry{
+		Audit: &quack.AuditLogEntry{
 			GuildID:      guildID,
-			Source:       model.AuditSourceAPI,
+			Source:       quack.AuditSourceAPI,
 			Action:       "case.create",
 			ResourceType: "case",
-			Result:       model.AuditResultSuccess,
+			Result:       quack.AuditResultSuccess,
 			MetadataJSON: "{}",
 		},
 	})
@@ -414,82 +414,74 @@ func TestCreateCaseRollsBackOnActionFailure(t *testing.T) {
 	}
 }
 
-func TestCaseActionStateMachineClaimCompleteAndSkip(t *testing.T) {
+func TestCaseActionStateMachineClaimAndComplete(t *testing.T) {
 	ctx := context.Background()
 	store, guildID := templateTestStore(t)
 
-	created, err := store.CreateCase(ctx, storage.CreateCaseParams{
+	created, err := store.CreateCase(ctx, quack.CreateCaseParams{
 		Case:  caseModel(guildID, nil),
 		Event: caseEvent(),
-		ActionExecutions: []model.CaseActionExecution{
-			{Position: 1, ActionType: model.ActionSendDM, ConfigSnapshotJSON: `{}`},
-			{Position: 2, ActionType: model.ActionTimeoutUser, ConfigSnapshotJSON: `{}`},
+		ActionExecutions: []quack.CaseActionExecution{
+			{Position: 1, ActionType: quack.ActionSendDM, ConfigSnapshotJSON: `{}`},
+			{Position: 2, ActionType: quack.ActionTimeoutUser, ConfigSnapshotJSON: `{}`},
 		},
 	})
 	if err != nil {
 		t.Fatalf("create case: %v", err)
 	}
 
-	claimed, err := store.ClaimNextCaseAction(ctx, storage.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "worker-1"})
+	claimed, err := store.ClaimNextCaseAction(ctx, quack.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "worker-1"})
 	if err != nil {
 		t.Fatalf("claim action: %v", err)
 	}
-	if claimed == nil || claimed.Execution.Position != 1 || claimed.Execution.AttemptCount != 1 || claimed.Execution.Status != model.ActionExecutionRunning {
+	if claimed == nil || claimed.Execution.Position != 1 || claimed.Execution.AttemptCount != 1 || claimed.Execution.Status != quack.ActionExecutionRunning {
 		t.Fatalf("unexpected claimed action: %+v", claimed)
 	}
 
-	if err := store.CompleteCaseAction(ctx, storage.CompleteCaseActionParams{
+	if err := store.CompleteCaseAction(ctx, quack.CompleteCaseActionParams{
 		ExecutionID:         claimed.Execution.ID,
 		AttemptNumber:       claimed.Execution.AttemptCount,
 		WorkerID:            "worker-1",
-		AttemptStatus:       model.ActionAttemptFailed,
-		ExecutionStatus:     model.ActionExecutionFailed,
+		AttemptStatus:       quack.ActionAttemptFailed,
+		ExecutionStatus:     quack.ActionExecutionFailed,
 		ErrorCode:           "dm_closed",
 		ErrorMessage:        "user cannot receive DMs",
 		RequestPayloadJSON:  `{}`,
 		ResponsePayloadJSON: `{}`,
-		EventType:           model.CaseEventActionFailed,
+		EventType:           quack.CaseEventActionFailed,
 		EventBody:           "DM failed",
 		EventMetadataJSON:   `{}`,
 	}); err != nil {
 		t.Fatalf("complete failed action: %v", err)
 	}
-	if err := store.SkipCaseActions(ctx, storage.SkipCaseActionsParams{
-		CaseID:        created.Case.ID,
-		AfterPosition: claimed.Execution.Position,
-		Reason:        "previous action failed",
-	}); err != nil {
-		t.Fatalf("skip remaining actions: %v", err)
-	}
-
 	actions, err := store.ListCaseActionExecutions(ctx, created.Case.ID)
 	if err != nil {
 		t.Fatalf("list actions: %v", err)
 	}
-	if actions[0].Status != model.ActionExecutionFailed || actions[1].Status != model.ActionExecutionSkipped {
-		t.Fatalf("expected failed then skipped actions, got %+v", actions)
+	if actions[0].Status != quack.ActionExecutionFailed || actions[1].Status != quack.ActionExecutionPending {
+		t.Fatalf("expected failed then pending actions, got %+v", actions)
 	}
 
-	var attempts []model.CaseActionAttempt
+	var attempts []quack.CaseActionAttempt
 	if err := store.DB().Where("execution_id = ?", claimed.Execution.ID).Find(&attempts).Error; err != nil {
 		t.Fatalf("list attempts: %v", err)
 	}
-	if len(attempts) != 1 || attempts[0].Status != model.ActionAttemptFailed || attempts[0].AttemptNumber != 1 {
+	if len(attempts) != 1 || attempts[0].Status != quack.ActionAttemptFailed || attempts[0].AttemptNumber != 1 {
 		t.Fatalf("unexpected attempts: %+v", attempts)
 	}
 	audits, err := store.ListAuditLogEntries(ctx, guildID)
 	if err != nil {
 		t.Fatalf("list audits: %v", err)
 	}
-	if len(audits) != 3 || audits[0].Action != string(model.AuditActionActionAttempt) || audits[1].Action != "case_action.failed" || audits[2].Action != "case_action.skipped" {
-		t.Fatalf("expected action attempt, failure, and skip audits, got %+v", audits)
+	if len(audits) != 2 || audits[0].Action != string(quack.AuditActionActionAttempt) || audits[1].Action != "case_action.failed" {
+		t.Fatalf("expected action attempt and failure audits, got %+v", audits)
 	}
 
 	cases, err := store.ListCases(ctx, guildID)
 	if err != nil {
 		t.Fatalf("list cases: %v", err)
 	}
-	if cases[0].Validity != model.CaseValidityValid {
+	if cases[0].Validity != quack.CaseValidityValid {
 		t.Fatalf("expected action failure not to change case validity, got %+v", cases[0])
 	}
 }
@@ -498,34 +490,34 @@ func TestCaseActionRetryScheduling(t *testing.T) {
 	ctx := context.Background()
 	store, guildID := templateTestStore(t)
 
-	created, err := store.CreateCase(ctx, storage.CreateCaseParams{
+	created, err := store.CreateCase(ctx, quack.CreateCaseParams{
 		Case:  caseModel(guildID, nil),
 		Event: caseEvent(),
-		ActionExecutions: []model.CaseActionExecution{
-			{Position: 1, ActionType: model.ActionSendDM, ConfigSnapshotJSON: `{}`, MaxRetries: 1, RetryBackoffMS: 100},
+		ActionExecutions: []quack.CaseActionExecution{
+			{Position: 1, ActionType: quack.ActionSendDM, ConfigSnapshotJSON: `{}`, MaxRetries: 1, RetryBackoffMS: 100},
 		},
 	})
 	if err != nil {
 		t.Fatalf("create case: %v", err)
 	}
 
-	claimed, err := store.ClaimNextCaseAction(ctx, storage.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "worker-1"})
+	claimed, err := store.ClaimNextCaseAction(ctx, quack.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "worker-1"})
 	if err != nil {
 		t.Fatalf("claim action: %v", err)
 	}
 	nextRetryAt := time.Now().UTC().Add(time.Hour)
-	if err := store.CompleteCaseAction(ctx, storage.CompleteCaseActionParams{
+	if err := store.CompleteCaseAction(ctx, quack.CompleteCaseActionParams{
 		ExecutionID:         claimed.Execution.ID,
 		AttemptNumber:       claimed.Execution.AttemptCount,
 		WorkerID:            "worker-1",
-		AttemptStatus:       model.ActionAttemptFailed,
-		ExecutionStatus:     model.ActionExecutionRetrying,
+		AttemptStatus:       quack.ActionAttemptFailed,
+		ExecutionStatus:     quack.ActionExecutionRetrying,
 		ErrorCode:           "rate_limited",
 		ErrorMessage:        "rate limited",
 		RequestPayloadJSON:  `{}`,
 		ResponsePayloadJSON: `{}`,
 		NextRetryAt:         &nextRetryAt,
-		EventType:           model.CaseEventActionFailed,
+		EventType:           quack.CaseEventActionFailed,
 		EventBody:           "will retry",
 		EventMetadataJSON:   `{}`,
 	}); err != nil {
@@ -541,7 +533,7 @@ func TestCaseActionRetryScheduling(t *testing.T) {
 	}
 
 	past := time.Now().UTC().Add(-time.Minute)
-	if err := store.DB().Model(&model.CaseActionExecution{}).Where("id = ?", claimed.Execution.ID).Update("next_retry_at", past).Error; err != nil {
+	if err := store.DB().Model(&quack.CaseActionExecution{}).Where("id = ?", claimed.Execution.ID).Update("next_retry_at", past).Error; err != nil {
 		t.Fatalf("make retry eligible: %v", err)
 	}
 	caseIDs, err = store.ListExecutableCaseIDs(ctx, 10)
@@ -556,11 +548,11 @@ func TestCaseActionRetryScheduling(t *testing.T) {
 func TestListExecutableCaseIDsRotatesBoundedBatchesAcrossGuilds(t *testing.T) {
 	ctx := context.Background()
 	store, guildOneID := templateTestStore(t)
-	guildTwo, err := store.UpsertGuild(ctx, storage.UpsertGuildParams{DiscordGuildID: "fair-guild-2", Name: "Fair Two", OwnerDiscordUserID: "owner-2"})
+	guildTwo, err := store.UpsertGuild(ctx, quack.UpsertGuildParams{DiscordGuildID: "fair-guild-2", Name: "Fair Two", OwnerDiscordUserID: "owner-2"})
 	if err != nil {
 		t.Fatalf("upsert second guild: %v", err)
 	}
-	guildThree, err := store.UpsertGuild(ctx, storage.UpsertGuildParams{DiscordGuildID: "fair-guild-3", Name: "Fair Three", OwnerDiscordUserID: "owner-3"})
+	guildThree, err := store.UpsertGuild(ctx, quack.UpsertGuildParams{DiscordGuildID: "fair-guild-3", Name: "Fair Three", OwnerDiscordUserID: "owner-3"})
 	if err != nil {
 		t.Fatalf("upsert third guild: %v", err)
 	}
@@ -615,32 +607,32 @@ func TestListExecutableCaseIDsPreservesPriorityWithinGuild(t *testing.T) {
 
 func createExecutableFairnessCase(t *testing.T, store *storage.Store, guildID string, position int, readyAt time.Time) string {
 	t.Helper()
-	created, err := store.CreateCase(context.Background(), storage.CreateCaseParams{
+	created, err := store.CreateCase(context.Background(), quack.CreateCaseParams{
 		Case:  caseModel(guildID, nil),
 		Event: caseEvent(),
-		ActionExecutions: []model.CaseActionExecution{{
-			Position: position, ActionType: model.ActionTimeoutUser, ConfigSnapshotJSON: `{}`,
+		ActionExecutions: []quack.CaseActionExecution{{
+			Position: position, ActionType: quack.ActionTimeoutUser, ConfigSnapshotJSON: `{}`,
 		}},
 	})
 	if err != nil {
 		t.Fatalf("create executable fairness case: %v", err)
 	}
-	if err := store.DB().Model(&model.CaseActionExecution{}).Where("case_id = ?", created.Case.ID).Update("created_at", readyAt).Error; err != nil {
+	if err := store.DB().Model(&quack.CaseActionExecution{}).Where("case_id = ?", created.Case.ID).Update("created_at", readyAt).Error; err != nil {
 		t.Fatalf("set executable fairness priority: %v", err)
 	}
 	return created.Case.ID
 }
 
-func createCaseStorageTemplate(t *testing.T, store *storage.Store, guildID string) *storage.ExpandedCaseTemplate {
+func createCaseStorageTemplate(t *testing.T, store *storage.Store, guildID string) *quack.ExpandedCaseTemplate {
 	t.Helper()
 
-	created, err := store.CreateCaseTemplate(context.Background(), storage.CreateCaseTemplateParams{
+	created, err := store.CreateCaseTemplate(context.Background(), quack.CreateCaseTemplateParams{
 		Template: templateModel(guildID, "spam"),
-		Levels: []storage.ExpandedCaseTemplateLevel{
+		Levels: []quack.ExpandedCaseTemplateLevel{
 			{
-				Level: model.CaseTemplateLevel{Position: 1, Name: "Default", IsDefault: true},
-				Actions: []model.CaseTemplateLevelAction{
-					{ActionType: model.ActionTimeoutUser, ConfigJSON: `{"duration_seconds":3600}`},
+				Level: quack.CaseTemplateLevel{Position: 1, Name: "Default", IsDefault: true},
+				Actions: []quack.CaseTemplateLevelAction{
+					{ActionType: quack.ActionTimeoutUser, ConfigJSON: `{"duration_seconds":3600}`},
 				},
 			},
 		},
@@ -651,8 +643,8 @@ func createCaseStorageTemplate(t *testing.T, store *storage.Store, guildID strin
 	return created
 }
 
-func caseModel(guildID string, templateID *string) model.Case {
-	return model.Case{
+func caseModel(guildID string, templateID *string) quack.Case {
+	return quack.Case{
 		GuildID:                guildID,
 		TemplateID:             templateID,
 		TemplateVersion:        1,
@@ -660,15 +652,15 @@ func caseModel(guildID string, templateID *string) model.Case {
 		TargetDiscordUserID:    "target-1",
 		ModeratorDiscordUserID: "moderator-1",
 		Reason:                 "No spam",
-		Validity:               model.CaseValidityValid,
-		Source:                 model.CaseSourceDashboard,
+		Validity:               quack.CaseValidityValid,
+		Source:                 quack.CaseSourceDashboard,
 		MetadataJSON:           "{}",
 	}
 }
 
-func caseEvent() model.CaseEvent {
-	return model.CaseEvent{
-		EventType:          model.CaseEventCreated,
+func caseEvent() quack.CaseEvent {
+	return quack.CaseEvent{
+		EventType:          quack.CaseEventCreated,
 		ActorDiscordUserID: "moderator-1",
 		Body:               "Case created",
 		MetadataJSON:       "{}",

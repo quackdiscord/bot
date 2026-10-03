@@ -10,7 +10,6 @@ import (
 	"github.com/quackdiscord/bot/internal/discordbot/interactions"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 func TestCaseComponentRegistrarInstallsRealRecoveryAndPaginationHandlers(t *testing.T) {
@@ -33,7 +32,7 @@ func TestCaseComponentRegistrarInstallsRealRecoveryAndPaginationHandlers(t *test
 func TestCaseAddUsesStructuredModalAndKeepsPublicSummaryLimited(t *testing.T) {
 	_, services, _ := newCaseCommandHarness(t)
 	guildContext := caseCommandGuildContext(t, services)
-	template := createCaseCommandTemplate(t, services, guildContext, quack.TemplateInput{Slug: "abuse", Name: "Abuse", ReasonTemplate: "Abusive behavior", ContextFields: []quack.TemplateContextFieldInput{{Key: "details", Label: "What happened?", FieldType: model.ContextFieldLongText, Position: 1, Required: true}}, Levels: []quack.TemplateLevelInput{{Name: "Default", Position: 1, IsDefault: true}}})
+	template := createCaseCommandTemplate(t, services, guildContext, quack.TemplateInput{Slug: "abuse", Name: "Abuse", ReasonTemplate: "Abusive behavior", ContextFields: []quack.TemplateContextFieldInput{{Key: "details", Label: "What happened?", FieldType: quack.ContextFieldLongText, Position: 1, Required: true}}, Levels: []quack.TemplateLevelInput{{Name: "Default", Position: 1, IsDefault: true}}})
 
 	result := HandleCaseInteraction(ui.Context{Context: context.Background(), Services: services, Interaction: caseAddInteraction(template.ID, "target-2", uint64(discordgo.PermissionModerateMembers))})
 	if result.Response == nil || result.Response.Type != discordgo.InteractionResponseModal || len(result.Response.Data.Components) != 1 {
@@ -88,7 +87,7 @@ func TestCaseContextWizardSupportsMoreThanFiveStructuredFields(t *testing.T) {
 	guildContext := caseCommandGuildContext(t, services)
 	fields := make([]quack.TemplateContextFieldInput, 0, 6)
 	for index := 1; index <= 6; index++ {
-		fields = append(fields, quack.TemplateContextFieldInput{Key: fmt.Sprintf("field_%d", index), Label: fmt.Sprintf("Field %d", index), FieldType: model.ContextFieldShortText, Position: index, Required: true})
+		fields = append(fields, quack.TemplateContextFieldInput{Key: fmt.Sprintf("field_%d", index), Label: fmt.Sprintf("Field %d", index), FieldType: quack.ContextFieldShortText, Position: index, Required: true})
 	}
 	template := createCaseCommandTemplate(t, services, guildContext, quack.TemplateInput{Slug: "many-fields", Name: "Many Fields", ReasonTemplate: "Many fields", ContextFields: fields, Levels: []quack.TemplateLevelInput{{Name: "Default", Position: 1, IsDefault: true}}})
 	command := caseAddInteraction(template.ID, "target-many", uint64(discordgo.PermissionModerateMembers))

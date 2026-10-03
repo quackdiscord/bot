@@ -10,11 +10,10 @@ import (
 	"github.com/quackdiscord/bot/internal/httpapi/middleware"
 	httpplatform "github.com/quackdiscord/bot/internal/httpapi/platform"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 // RegisterAppealAndMemberRoutes mounts target-owned case and appeal routes on an authenticated member group.
-func RegisterAppealAndMemberRoutes(group *gin.RouterGroup, services *quack.Services, appeals *quack.AppealService, primitives httpplatform.Primitives) error {
+func RegisterAppealAndMemberRoutes(group *gin.RouterGroup, services *Deps, appeals *quack.AppealService, primitives httpplatform.Primitives) error {
 	if group == nil || services == nil || appeals == nil || primitives.RateLimits == nil || primitives.Idempotency == nil {
 		return errors.New("appeal member route dependencies are not configured")
 	}
@@ -29,12 +28,12 @@ func RegisterAppealAndMemberRoutes(group *gin.RouterGroup, services *quack.Servi
 }
 
 // RegisterAppealStaffRoutes mounts appeal settings, queue, decisions, and explicit reversal routes on an authenticated guild group.
-func RegisterAppealStaffRoutes(group *gin.RouterGroup, services *quack.Services, appeals *quack.AppealService, primitives httpplatform.Primitives) error {
+func RegisterAppealStaffRoutes(group *gin.RouterGroup, services *Deps, appeals *quack.AppealService, primitives httpplatform.Primitives) error {
 	if group == nil || services == nil || appeals == nil || primitives.RateLimits == nil || primitives.Idempotency == nil {
 		return errors.New("appeal staff route dependencies are not configured")
 	}
 	staff := group.Group("/:discordGuildID")
-	staff.Use(middleware.RequireGuildContext(services, ""))
+	staff.Use(middleware.RequireGuildContext(services.Services, ""))
 	staff.Use(primitives.RateLimits.Limit("appeal-staff", memberReadLimit(services), staffAppealSubject))
 	staff.GET("/appeal-settings", func(c *gin.Context) { getAppealSettings(c, appeals) })
 	staff.PUT("/appeal-settings", staffWriteIdempotency(primitives, services, "appeal-settings"), func(c *gin.Context) { updateAppealSettings(c, appeals) })
@@ -60,7 +59,7 @@ func RegisterAppealStaffRoutes(group *gin.RouterGroup, services *quack.Services,
 // @Router /guilds/{discordGuildID}/appeal-settings [get]
 func getAppealSettings(c *gin.Context, appeals *quack.AppealService) {
 	guildContext := middleware.GetGuildContext(c)
-	if guildContext == nil || guildContext.Guild == nil || !guildContext.Can(model.PermissionActionGuildSettingsRead) {
+	if guildContext == nil || guildContext.Guild == nil || !guildContext.Can(quack.PermissionActionGuildSettingsRead) {
 		writeAppealError(c, quack.ErrAppealPermissionDenied)
 		return
 	}
@@ -73,7 +72,7 @@ func getAppealSettings(c *gin.Context, appeals *quack.AppealService) {
 }
 
 type appealSettingsRequest struct {
-	Questions []model.AppealQuestion `json:"questions"`
+	Questions []quack.AppealQuestion `json:"questions"`
 }
 
 // updateAppealSettings replaces the form snapshotted by future appeals.
@@ -122,7 +121,7 @@ func listStaffAppeals(c *gin.Context, appeals *quack.AppealService) {
 		apierror.Write(c, http.StatusBadRequest, apierror.CodeValidation, "invalid pagination")
 		return
 	}
-	result, err := appeals.ListStaff(c.Request.Context(), middleware.GetGuildContext(c), model.AppealStatus(strings.TrimSpace(c.Query("status"))), limit, offset)
+	result, err := appeals.ListStaff(c.Request.Context(), middleware.GetGuildContext(c), quack.AppealStatus(strings.TrimSpace(c.Query("status"))), limit, offset)
 	if err != nil {
 		writeAppealError(c, err)
 		return

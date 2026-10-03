@@ -10,14 +10,35 @@ import (
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
+type fakeEvidenceClient struct {
+	message   quack.DiscordMessageSnapshot
+	preserved quack.PreservedDiscordAttachment
+}
+
+func (f *fakeEvidenceClient) FetchMessageEvidence(context.Context, quack.DiscordMessageReference) (*quack.DiscordMessageSnapshot, error) {
+	copyValue := f.message
+	return &copyValue, nil
+}
+
+func (f *fakeEvidenceClient) PreserveEvidenceAttachment(context.Context, string, string, quack.DiscordAttachmentSnapshot) (*quack.PreservedDiscordAttachment, error) {
+	copyValue := f.preserved
+	return &copyValue, nil
+}
+
+func (f *fakeEvidenceClient) EnsureEvidenceChannel(context.Context, string, string) (string, error) {
+	return "999999999999999999", nil
+}
+
 type unavailableEvidenceClient struct{ err error }
 
 func (f unavailableEvidenceClient) FetchMessageEvidence(context.Context, quack.DiscordMessageReference) (*quack.DiscordMessageSnapshot, error) {
 	return nil, f.err
 }
+
 func (unavailableEvidenceClient) PreserveEvidenceAttachment(context.Context, string, string, quack.DiscordAttachmentSnapshot) (*quack.PreservedDiscordAttachment, error) {
 	return nil, nil
 }
+
 func (unavailableEvidenceClient) EnsureEvidenceChannel(context.Context, string, string) (string, error) {
 	return "", nil
 }
@@ -52,7 +73,7 @@ func TestParseDiscordMessageLinkRejectsLookalikesAndCrossGuildCapture(t *testing
 			t.Fatalf("accepted invalid link %q: %v", invalid, err)
 		}
 	}
-	service := quack.NewEvidenceService(unavailableEvidenceClient{})
+	service := quack.NewEvidenceService(nil, unavailableEvidenceClient{})
 	if _, err := service.Capture(context.Background(), "999999999999999999", "actor", "target", "", []string{valid}, false); !errors.Is(err, quack.ErrEvidenceValidation) {
 		t.Fatalf("cross-guild capture accepted: %v", err)
 	}
@@ -61,7 +82,7 @@ func TestParseDiscordMessageLinkRejectsLookalikesAndCrossGuildCapture(t *testing
 func TestUnavailableEvidenceRequiresOtherVisibleContext(t *testing.T) {
 	link := "https://discord.com/channels/111111111111111111/222222222222222222/333333333333333333"
 	for _, outcome := range []string{"deleted", "inaccessible"} {
-		service := quack.NewEvidenceService(unavailableEvidenceClient{err: &quack.EvidenceUnavailableError{Outcome: outcome, Message: "message " + outcome}})
+		service := quack.NewEvidenceService(nil, unavailableEvidenceClient{err: &quack.EvidenceUnavailableError{Outcome: outcome, Message: "message " + outcome}})
 		if _, err := service.Capture(context.Background(), "111111111111111111", "actor", "target", "", []string{link}, false); err == nil {
 			t.Fatalf("%s message continued without visible fallback context", outcome)
 		}
@@ -92,7 +113,7 @@ func TestLiveEvidencePreservesSupportedAndRetainsUnsupportedOrOversizedMetadata(
 		},
 		preserved: quack.PreservedDiscordAttachment{URL: "https://cdn.example/preserved", MessageID: "copy-message", AttachmentID: "copy-attachment"},
 	}
-	captured, err := quack.NewEvidenceService(client).Capture(context.Background(), guildID, "actor", targetID, "evidence-channel", []string{link}, false)
+	captured, err := quack.NewEvidenceService(nil, client).Capture(context.Background(), guildID, "actor", targetID, "evidence-channel", []string{link}, false)
 	if err != nil {
 		t.Fatalf("capture live evidence: %v", err)
 	}

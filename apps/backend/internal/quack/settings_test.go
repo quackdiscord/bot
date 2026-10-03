@@ -8,13 +8,12 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 func TestGuildSettingsServiceAuthorizationAuditAndNotice(t *testing.T) {
 	ctx := context.Background()
 	repositories := newMigratedStore(t)
-	bootstrap, err := repositories.BootstrapGuild(ctx, model.BootstrapGuildParams{
+	bootstrap, err := repositories.BootstrapGuild(ctx, quack.BootstrapGuildParams{Starter: quack.StarterTemplate(),
 		DiscordGuildID: "settings-guild", Name: "Settings Guild", OwnerDiscordUserID: "owner-1",
 	})
 	if err != nil {
@@ -22,7 +21,7 @@ func TestGuildSettingsServiceAuthorizationAuditAndNotice(t *testing.T) {
 	}
 	manager := templateGuildContext(t, repositories, "settings-guild", "manager-1", uint64(discordgo.PermissionManageGuild))
 	moderator := templateGuildContext(t, repositories, "settings-guild", "moderator-1", uint64(discordgo.PermissionModerateMembers))
-	service := quack.NewGuildSettingsService(repositories).WithStaffChannelValidator(allowStaffChannel{})
+	service := quack.NewGuildSettingsService(repositories, allowStaffChannel{})
 
 	auditChannel := "100000000000000001"
 	intro, footer := "Welcome to this guild", "Review case details in Quack"
@@ -43,7 +42,7 @@ func TestGuildSettingsServiceAuthorizationAuditAndNotice(t *testing.T) {
 	if _, err := service.Update(ctx, manager, quack.GuildSettingsInput{ManagedEvidenceChannelDiscordID: &evidenceChannel}); !errors.Is(err, quack.ErrGuildSettingsValidation) {
 		t.Fatalf("manual evidence destination accepted: %v", err)
 	}
-	unvalidated := quack.NewGuildSettingsService(repositories)
+	unvalidated := quack.NewGuildSettingsService(repositories, nil)
 	if _, err := unvalidated.Update(ctx, manager, quack.GuildSettingsInput{AuditMirrorChannelDiscordID: &auditChannel}); !errors.Is(err, quack.ErrGuildSettingsValidation) {
 		t.Fatalf("unvalidated audit destination accepted: %v", err)
 	}
@@ -64,13 +63,13 @@ func TestGuildSettingsServiceAuthorizationAuditAndNotice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list settings audits: %v", err)
 	}
-	results := map[model.AuditResult]bool{}
+	results := map[quack.AuditResult]bool{}
 	for _, audit := range audits {
 		if audit.Action == "guild_settings.update" {
 			results[audit.Result] = true
 		}
 	}
-	for _, result := range []model.AuditResult{model.AuditResultSuccess, model.AuditResultFailure, model.AuditResultDenied} {
+	for _, result := range []quack.AuditResult{quack.AuditResultSuccess, quack.AuditResultFailure, quack.AuditResultDenied} {
 		if !results[result] {
 			t.Fatalf("missing %s settings audit in %+v", result, audits)
 		}
