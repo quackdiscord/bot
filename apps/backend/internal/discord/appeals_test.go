@@ -287,7 +287,7 @@ func TestAppealDecisionRejoinButton(t *testing.T) {
 // TestLongAppealStatementUsesPages keeps a whole Unicode statement readable
 // in pages that each keep the decision buttons, never as an attachment.
 func TestLongAppealStatementUsesPages(t *testing.T) {
-	appeal := &quack.AppealResponse{ID: "appeal", CaseNumber: 12, Status: quack.AppealStatusPending, Answers: []quack.AppealAnswer{{QuestionID: "reason", Value: strings.Repeat("🦆", 3000) + "FINAL STATEMENT"}}}
+	appeal := &quack.AppealResponse{ID: "appeal", CaseNumber: 12, Status: quack.AppealStatusPending, Statement: strings.Repeat("🦆", 3000) + "FINAL STATEMENT"}
 	const app = "968198214450831370"
 	var all strings.Builder
 	for page := 1; ; page++ {
@@ -324,7 +324,7 @@ func TestAppealStaffMessageOffersOnlyExplicitReversalControls(t *testing.T) {
 }
 
 func TestAppealStaffMessageDecisionControls(t *testing.T) {
-	appeal := &quack.AppealResponse{ID: "appeal", CaseID: "case", CaseNumber: 12, TemplateName: "Spam", TargetDiscordUserID: "member", Status: quack.AppealStatusPending, Answers: []quack.AppealAnswer{{QuestionID: "reason", Value: "I am sorry for repeating messages."}}}
+	appeal := &quack.AppealResponse{ID: "appeal", CaseID: "case", CaseNumber: 12, TemplateName: "Spam", TargetDiscordUserID: "member", Status: quack.AppealStatusPending, Statement: "I am sorry for repeating messages."}
 	pending := appealStaffMessage(appeal)
 	for _, want := range []string{"Received an appeal from <@member>", "I am sorry", "Case #12 · Spam"} {
 		if !strings.Contains(pending.Content, want) {
@@ -354,7 +354,7 @@ func TestAppealStaffMessageDecisionControls(t *testing.T) {
 func TestAppealViewsMatchGolden(t *testing.T) {
 	pending := &quack.AppealResponse{
 		ID: "appeal", CaseID: "case", CaseNumber: 12, TemplateName: "Spam", TargetDiscordUserID: "target",
-		Status: quack.AppealStatusPending, Answers: []quack.AppealAnswer{{QuestionID: "reason", Value: "Please *reconsider*."}},
+		Status: quack.AppealStatusPending, Statement: "Please *reconsider*.",
 	}
 	accepted := &quack.AppealResponse{
 		ID: "appeal", CaseID: "case", CaseNumber: 12, TemplateName: "Spam", TargetDiscordUserID: "target",

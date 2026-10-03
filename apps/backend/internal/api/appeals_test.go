@@ -40,7 +40,7 @@ func TestAppealSubmissionReplaysOriginal(t *testing.T) {
 		},
 		Store: sessionStore{session: session},
 	})
-	body := `{"answers":[{"question_id":"reason","value":"Please reconsider."}]}`
+	body := `{"statement":"Please reconsider."}`
 	for attempt := range 2 {
 		response := send(t, server, http.MethodPost, "/members/me/cases/case-1/appeal", body, session.ID,
 			idempotencyKeyHeader, "same-submission")
@@ -75,14 +75,6 @@ func newAppealRepository() *appealRepository {
 		Validity:             quack.CaseValidityValid,
 		TemplateSnapshotJSON: `{"template":{"appealable":true}}`,
 	}}
-}
-
-func (r *appealRepository) GetGuildAppealSettings(context.Context, string) (*quack.GuildAppealSettings, error) {
-	return nil, nil
-}
-
-func (r *appealRepository) UpdateGuildAppealSettings(context.Context, quack.UpdateGuildAppealSettingsParams) (*quack.GuildAppealSettings, error) {
-	return nil, nil
 }
 
 func (r *appealRepository) CreateAppeal(_ context.Context, params quack.CreateAppealParams) (*quack.Appeal, error) {

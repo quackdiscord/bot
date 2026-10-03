@@ -44,7 +44,7 @@ func (h *appealHarness) openCase(t *testing.T) *quack.CaseResponse {
 func (h *appealHarness) appeal(t *testing.T, statement string) *quack.AppealResponse {
 	t.Helper()
 	appeal, err := h.services.Appeals.Submit(context.Background(), h.openCase(t).ID, "target-1", quack.AppealSubmissionInput{
-		Answers: []quack.AppealAnswer{{QuestionID: "reason", Value: statement}},
+		Statement: statement,
 	})
 	if err != nil {
 		t.Fatalf("submit appeal: %v", err)
@@ -125,7 +125,7 @@ func TestAppealDMFormOwnershipAndSingleSubmission(t *testing.T) {
 		t.Fatalf("duplicate lost feedback: %s", text)
 	}
 	saved, err := h.store.GetAppealByCaseID(ctx, created.ID)
-	if err != nil || saved == nil || !strings.Contains(saved.AnswersJSON, "sorry") {
+	if err != nil || saved == nil || !strings.Contains(saved.Statement, "sorry") {
 		t.Fatalf("statement not saved: %+v %v", saved, err)
 	}
 	if response := click("target-1"); response.Type == discordgo.InteractionResponseModal {

@@ -13,6 +13,13 @@ struct tags cannot express: at most one default level per template. MySQL has
 no partial indexes, so there it is a unique index on a generated
 `default_template_id` column; SQLite (tests only) uses a partial unique index.
 
+The schema is unreleased, so the baseline is edited in place. A database that
+recorded an older baseline is brought up to date on every migrate: re-running
+AutoMigrate adds missing tables and columns, and `retireAppealForms` first
+removes what custom appeal forms left behind (`guild_appeal_settings`,
+`appeals.question_snapshot_json` and `answers_json`, with `appeals.content`
+renamed to `statement` and filled from the old answers).
+
 On MySQL, migrators take a named lock (`GET_LOCK`), so several processes can
 start at once and run migrations one at a time.
 

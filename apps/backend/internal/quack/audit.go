@@ -117,7 +117,6 @@ const (
 	AuditActionNotificationSent           AuditAction = "case_notification.sent"
 	AuditActionNotificationFailed         AuditAction = "case_notification.failed"
 	AuditActionAppealRead                 AuditAction = "appeal.read"
-	AuditActionAppealSettingsUpdate       AuditAction = "appeal.settings.update"
 	AuditActionAppealSubmit               AuditAction = "appeal.submit"
 	AuditActionAppealInformationSubmit    AuditAction = "appeal.information.submit"
 	AuditActionAppealQueueRead            AuditAction = "appeal.queue.read"
@@ -156,7 +155,6 @@ var importantAuditActions = []AuditAction{
 	AuditActionActionReverse,
 	AuditActionActionRecovered,
 	AuditActionNotificationFailed,
-	AuditActionAppealSettingsUpdate,
 	AuditActionAppealSubmit,
 	AuditActionAppealInformationSubmit,
 	AuditActionAppealInformationRequested,

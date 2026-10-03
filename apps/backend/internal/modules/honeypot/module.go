@@ -80,14 +80,6 @@ func New(db *gorm.DB, registry *modules.Registry, audit modules.Auditor, guilds 
 	return m
 }
 
-// NewPool returns the bounded queue that runs trap messages through
-// service, without the cleanup that follows each one in a Module.
-func NewPool(service *Service) *modules.Pool[Message] {
-	return modules.NewPool("honeypot", queueCapacity, queueWorkers, func(ctx context.Context, message Message) {
-		handleMessage(ctx, service, message)
-	})
-}
-
 // handle runs one trap message, then deletes whatever bait is already due,
 // so the message usually disappears right away rather than on the next
 // Sweep.

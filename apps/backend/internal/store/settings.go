@@ -104,41 +104,6 @@ func (s *Store) updateSettings(ctx context.Context, guildID string, audit *quack
 	return &settings, nil
 }
 
-// GetGuildAppealSettings returns a guild's appeal form, or nil when the guild
-// uses the default form.
-func (s *Store) GetGuildAppealSettings(ctx context.Context, guildID string) (*quack.GuildAppealSettings, error) {
-	query := s.db.WithContext(ctx).Where("guild_id = ?", guildID)
-	return findOne(query, "get appeal settings", appealSettingsRecord.model)
-}
-
-// UpdateGuildAppealSettings replaces the form future appeals use. Existing
-// appeals keep the questions they were submitted with.
-func (s *Store) UpdateGuildAppealSettings(ctx context.Context, params quack.UpdateGuildAppealSettingsParams) (*quack.GuildAppealSettings, error) {
-	now := time.Now().UTC()
-	var record appealSettingsRecord
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		found, err := first(forUpdate(tx).Where("guild_id = ?", params.Settings.GuildID), &record)
-		if err != nil {
-			return fmt.Errorf("get appeal settings: %w", err)
-		}
-		if !found {
-			record = appealSettingsRecord{ID: quack.NewID(), CreatedAt: now, GuildID: params.Settings.GuildID}
-		}
-		record.QuestionsJSON = params.Settings.QuestionsJSON
-		record.UpdatedByDiscordUserID = params.Settings.UpdatedByDiscordUserID
-		record.UpdatedAt = now
-		if err := tx.Save(&record).Error; err != nil {
-			return fmt.Errorf("save appeal settings: %w", err)
-		}
-		return writeAudit(tx, &params.Audit, record.ID, now)
-	})
-	if err != nil {
-		return nil, err
-	}
-	settings := record.model()
-	return &settings, nil
-}
-
 func (r guildSettingsRecord) model() quack.GuildSettings {
 	return quack.GuildSettings{
 		ULIDModel:                         ulid(r.ID, r.CreatedAt, r.UpdatedAt),
@@ -153,14 +118,5 @@ func (r guildSettingsRecord) model() quack.GuildSettings {
 		StarterPolicyTemplateID:           r.StarterPolicyTemplateID,
 		StarterPolicyNoticePending:        r.StarterPolicyNoticePending,
 		StarterPolicyNoticeAcknowledgedAt: r.StarterPolicyNoticeAcknowledgedAt,
-	}
-}
-
-func (r appealSettingsRecord) model() quack.GuildAppealSettings {
-	return quack.GuildAppealSettings{
-		ULIDModel:              ulid(r.ID, r.CreatedAt, r.UpdatedAt),
-		GuildID:                r.GuildID,
-		QuestionsJSON:          r.QuestionsJSON,
-		UpdatedByDiscordUserID: r.UpdatedByDiscordUserID,
 	}
 }

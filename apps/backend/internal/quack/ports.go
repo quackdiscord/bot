@@ -129,14 +129,12 @@ type AppealStore interface {
 	GetAppealByCaseID(ctx context.Context, caseID string) (*Appeal, error)
 	GetAppealByID(ctx context.Context, appealID string) (*Appeal, error)
 	GetCaseByID(ctx context.Context, caseID string) (*Case, error)
-	GetGuildAppealSettings(ctx context.Context, guildID string) (*GuildAppealSettings, error)
 	GetGuildByDiscordID(ctx context.Context, discordGuildID string) (*Guild, error)
 	GetGuildSettings(ctx context.Context, guildID string) (*GuildSettings, error)
 	ListAppealEvents(ctx context.Context, appealID string) ([]AppealEvent, error)
 	ListAppeals(context.Context, AppealListParams) (*AppealListResult, error)
 	ListCaseActionExecutions(ctx context.Context, caseID string) ([]CaseActionExecution, error)
 	TransitionAppeal(context.Context, TransitionAppealParams) (*Appeal, error)
-	UpdateGuildAppealSettings(context.Context, UpdateGuildAppealSettingsParams) (*GuildAppealSettings, error)
 }
 
 // AppealNotificationStore is the appeal outbox drained by
@@ -459,12 +457,6 @@ type AppealListParams struct {
 type AppealListResult struct {
 	Appeals []Appeal
 	Total   int64
-}
-
-// UpdateGuildAppealSettingsParams replaces a guild's appeal form.
-type UpdateGuildAppealSettingsParams struct {
-	Settings GuildAppealSettings
-	Audit    AuditLogEntry
 }
 
 // CompleteAppealNotificationParams records a delivery outcome. Empty

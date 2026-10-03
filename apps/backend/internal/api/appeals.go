@@ -8,10 +8,6 @@ import (
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
-type appealSettingsRequest struct {
-	Questions []quack.AppealQuestion `json:"questions"`
-}
-
 // appealReversalRequest names the execution to undo on the appealed case.
 type appealReversalRequest struct {
 	OriginalExecutionID string           `json:"original_execution_id"`
@@ -22,37 +18,6 @@ type appealReversalRequest struct {
 // appealDecision is one staff decision on an appeal, such as
 // AppealService.Accept.
 type appealDecision func(ctx context.Context, staff *quack.GuildStaffContext, appealID, reason string) (*quack.AppealResponse, error)
-
-// getAppealSettings returns the guild's appeal form. Appeal routes only
-// require guild membership up front, so the read capability is checked here.
-func (s *Server) getAppealSettings(w http.ResponseWriter, r *http.Request) {
-	staff := quack.StaffFromContext(r.Context())
-	if !staff.Can(quack.PermissionActionGuildSettingsRead) {
-		appealErrors.write(w, r, quack.ErrAppealPermissionDenied)
-		return
-	}
-	result, err := s.services.Appeals.GetSettings(r.Context(), staff.Guild.ID)
-	if err != nil {
-		appealErrors.write(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, result)
-}
-
-// updateAppealSettings replaces the appeal form. Existing appeals keep the
-// form they were submitted with.
-func (s *Server) updateAppealSettings(w http.ResponseWriter, r *http.Request) {
-	var input appealSettingsRequest
-	if !decode(w, r, &input, "invalid appeal settings payload") {
-		return
-	}
-	result, err := s.services.Appeals.UpdateSettings(r.Context(), quack.StaffFromContext(r.Context()), input.Questions)
-	if err != nil {
-		appealErrors.write(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, result)
-}
 
 func (s *Server) listStaffAppeals(w http.ResponseWriter, r *http.Request) {
 	limit, offset := pageParams(r)

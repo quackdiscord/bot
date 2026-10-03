@@ -73,7 +73,7 @@ func TestAppealQueuePostIsEditedInPlaceAndDecisionsCarryIntent(t *testing.T) {
 	if err := appeals.CanSubmit(ctx, created.ID, "target-1"); err != nil {
 		t.Fatalf("target can submit = %v", err)
 	}
-	answers := quack.AppealSubmissionInput{Answers: []quack.AppealAnswer{{QuestionID: "reason", Value: "Please reconsider."}}}
+	answers := quack.AppealSubmissionInput{Statement: "Please reconsider."}
 	appeal, err := appeals.Submit(ctx, created.ID, "target-1", answers)
 	if err != nil {
 		t.Fatal(err)

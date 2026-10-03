@@ -330,9 +330,7 @@ type appealRecord struct {
 	CaseID                  *string            `gorm:"type:char(26);uniqueIndex"`
 	TargetDiscordUserID     string             `gorm:"size:32;not null;index:idx_appeals_guild_target,priority:2"`
 	Status                  quack.AppealStatus `gorm:"size:32;not null;default:'pending';index:idx_appeals_guild_status,priority:2"`
-	Content                 string             `gorm:"type:text;not null"`
-	QuestionSnapshotJSON    string             `gorm:"type:json;not null"`
-	AnswersJSON             string             `gorm:"type:json;not null"`
+	Statement               string             `gorm:"type:text;not null"`
 	Version                 uint64             `gorm:"type:bigint unsigned;not null;default:1"`
 	DecisionReason          string             `gorm:"type:text"`
 	ReviewedByDiscordUserID string             `gorm:"size:32;not null;default:''"`
@@ -358,19 +356,6 @@ type appealEventRecord struct {
 }
 
 func (appealEventRecord) TableName() string { return "appeal_events" }
-
-// appealSettingsRecord is a guild's custom appeal form. Guilds without one
-// use the default questions.
-type appealSettingsRecord struct {
-	ID                     string    `gorm:"type:char(26);primaryKey"`
-	CreatedAt              time.Time `gorm:"not null"`
-	UpdatedAt              time.Time `gorm:"not null"`
-	GuildID                string    `gorm:"type:char(26);not null;uniqueIndex"`
-	QuestionsJSON          string    `gorm:"type:json;not null"`
-	UpdatedByDiscordUserID string    `gorm:"size:32;not null"`
-}
-
-func (appealSettingsRecord) TableName() string { return "guild_appeal_settings" }
 
 // appealNotificationRecord is an outbox row. The unique event_id means each
 // appeal timeline event notifies at most once.
@@ -471,7 +456,6 @@ func tables() []any {
 		&casePublicationRecord{},
 		&appealRecord{},
 		&appealEventRecord{},
-		&appealSettingsRecord{},
 		&appealNotificationRecord{},
 		&auditRecord{},
 		&v4BatchRecord{},

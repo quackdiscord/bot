@@ -37,38 +37,23 @@ func TestAppealLifecycleAndAtomicAcceptance(t *testing.T) {
 	)
 	service := quack.NewAppealService(s)
 
-	settings, err := service.GetSettings(ctx, guildID)
-	if err != nil || !settings.Default || len(settings.Questions) == 0 {
-		t.Fatalf("default settings: %+v err=%v", settings, err)
+	for _, statement := range []string{"", "   ", strings.Repeat("a", quack.AppealStatementMaxLength+1)} {
+		if _, err := service.Submit(ctx, c.ID, "target", quack.AppealSubmissionInput{Statement: statement}); !errors.Is(err, quack.ErrAppealValidation) {
+			t.Fatalf("submit %d-character statement = %v, want ErrAppealValidation", len(statement), err)
+		}
 	}
-	manager := &quack.GuildStaffContext{Guild: guild, Staff: &quack.StaffMember{GuildID: guildID, DiscordUserID: "manager"},
-		Permissions: map[quack.PermissionAction]bool{quack.PermissionActionGuildSettingsWrite: true}}
-	questions := []quack.AppealQuestion{
-		{ID: "explanation", Prompt: "Explain your appeal", Type: quack.AppealQuestionLongText, Required: true, Position: 0},
-		{ID: "contact", Prompt: "May staff contact you?", Type: quack.AppealQuestionBoolean, Position: 1},
-	}
-	if configured, err := service.UpdateSettings(ctx, manager, questions); err != nil || configured.Default || len(configured.Questions) != 2 {
-		t.Fatalf("configure appeal form: %+v err=%v", configured, err)
-	}
-	answers := []quack.AppealAnswer{
-		{QuestionID: "explanation", Value: "The decision should be reconsidered."},
-		{QuestionID: "contact", Value: true},
-	}
-	appeal, err := service.Submit(ctx, c.ID, "target", quack.AppealSubmissionInput{Answers: answers})
+	input := quack.AppealSubmissionInput{Statement: "  The decision should be reconsidered.  "}
+	appeal, err := service.Submit(ctx, c.ID, "target", input)
 	if err != nil {
 		t.Fatalf("submit appeal: %v", err)
 	}
-	if appeal.Status != quack.AppealStatusPending || len(appeal.Questions) != 2 || len(appeal.Events) != 1 {
+	if appeal.Status != quack.AppealStatusPending || appeal.Statement != "The decision should be reconsidered." || len(appeal.Events) != 1 {
 		t.Fatalf("unexpected submitted appeal: %+v", appeal)
 	}
-	replacement := []quack.AppealQuestion{{ID: "replacement", Prompt: "Replacement", Type: quack.AppealQuestionShortText, Required: true}}
-	if _, err := service.UpdateSettings(ctx, manager, replacement); err != nil {
-		t.Fatalf("replace appeal form: %v", err)
+	if got, err := service.GetMember(ctx, appeal.ID, "target"); err != nil || got.Statement != appeal.Statement {
+		t.Fatalf("member appeal = %+v err=%v", got, err)
 	}
-	if got, err := service.GetMember(ctx, appeal.ID, "target"); err != nil || len(got.Questions) != 2 || got.Questions[0].ID != "explanation" {
-		t.Fatalf("appeal kept no snapshot of its form: %+v err=%v", got, err)
-	}
-	if _, err := service.Submit(ctx, c.ID, "target", quack.AppealSubmissionInput{Answers: answers}); !errors.Is(err, quack.ErrAppealConflict) {
+	if _, err := service.Submit(ctx, c.ID, "target", input); !errors.Is(err, quack.ErrAppealConflict) {
 		t.Fatalf("second appeal for one case = %v, want ErrAppealConflict", err)
 	}
 	if _, err := service.GetMember(ctx, appeal.ID, "other"); !errors.Is(err, quack.ErrAppealNotFound) {
@@ -176,7 +161,7 @@ func TestAppealRejectsIneligibleCasesAndConcurrentDecisions(t *testing.T) {
 		t.Fatalf("non-appealable case = %v, want ErrAppealCaseIneligible", err)
 	}
 	open := createAppealableCase(t, s, guildID, true)
-	appeal, err := service.Submit(ctx, open.ID, "target", reasonAnswer())
+	appeal, err := service.Submit(ctx, open.ID, "target", appealStatement())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +182,7 @@ func TestAppealAcceptanceRacingDirectVoid(t *testing.T) {
 	guild, _ := s.GetGuildByID(ctx, guildID)
 	service := quack.NewAppealService(s)
 	c := createAppealableCase(t, s, guildID, true)
-	appeal, err := service.Submit(ctx, c.ID, "target", reasonAnswer())
+	appeal, err := service.Submit(ctx, c.ID, "target", appealStatement())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +205,7 @@ func TestAppealRejectReopenClose(t *testing.T) {
 	guild, _ := s.GetGuildByID(ctx, guildID)
 	service := quack.NewAppealService(s)
 	c := createAppealableCase(t, s, guildID, true)
-	appeal, err := service.Submit(ctx, c.ID, "target", reasonAnswer())
+	appeal, err := service.Submit(ctx, c.ID, "target", appealStatement())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +237,7 @@ func TestAppealNotificationLeaseFencing(t *testing.T) {
 	ctx := context.Background()
 	s, guildID := newTestStore(t)
 	c := createAppealableCase(t, s, guildID, true)
-	if _, err := quack.NewAppealService(s).Submit(ctx, c.ID, "target", reasonAnswer()); err != nil {
+	if _, err := quack.NewAppealService(s).Submit(ctx, c.ID, "target", appealStatement()); err != nil {
 		t.Fatal(err)
 	}
 	first, err := s.ClaimPendingAppealNotifications(ctx, 1)
@@ -324,7 +309,7 @@ func TestAppealQueuePostFollowsTheAppeal(t *testing.T) {
 	}
 	c := createAppealableCase(t, s, guildID, true)
 	service := quack.NewAppealService(s)
-	appeal, err := service.Submit(ctx, c.ID, "target", reasonAnswer())
+	appeal, err := service.Submit(ctx, c.ID, "target", appealStatement())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -420,7 +405,7 @@ func createAppeal(t *testing.T, s *store.Store, guildID, caseID string) *quack.A
 	appeal, err := s.CreateAppeal(context.Background(), quack.CreateAppealParams{
 		Appeal: quack.Appeal{
 			GuildID: guildID, CaseID: &caseID, TargetDiscordUserID: c.TargetDiscordUserID, Status: quack.AppealStatusPending,
-			Content: "Please reconsider", QuestionSnapshotJSON: "[]", AnswersJSON: "[]", Version: 1, MetadataJSON: "{}",
+			Statement: "Please reconsider", Version: 1, MetadataJSON: "{}",
 		},
 		Event:     quack.AppealEvent{EventType: "submitted", ActorType: "member", Body: "Submitted"},
 		CaseEvent: quack.CaseEvent{EventType: quack.CaseEventAppealCreated, Visibility: quack.EventVisibilityPublic, Body: "Appeal submitted"},
@@ -435,8 +420,8 @@ func createAppeal(t *testing.T, s *store.Store, guildID, caseID string) *quack.A
 	return appeal
 }
 
-func reasonAnswer() quack.AppealSubmissionInput {
-	return quack.AppealSubmissionInput{Answers: []quack.AppealAnswer{{QuestionID: "reason", Value: "Please reconsider."}}}
+func appealStatement() quack.AppealSubmissionInput {
+	return quack.AppealSubmissionInput{Statement: "Please reconsider."}
 }
 
 func reviewer(guild *quack.Guild) *quack.GuildStaffContext {

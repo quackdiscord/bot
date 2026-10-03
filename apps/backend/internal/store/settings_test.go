@@ -97,30 +97,3 @@ func TestSetManagedEvidenceChannelKeepsConcurrentChanges(t *testing.T) {
 		t.Fatal("set an empty evidence channel")
 	}
 }
-
-func TestGuildAppealSettingsUpsert(t *testing.T) {
-	ctx := context.Background()
-	s, guildID := newTestStore(t)
-	if err := notFound(s.GetGuildAppealSettings(ctx, guildID)); err != nil {
-		t.Fatalf("settings before configuration: %v", err)
-	}
-	audit := quack.AuditLogEntry{GuildID: guildID, Source: quack.AuditSourceAPI, Action: "appeal_settings.update",
-		ResourceType: "guild_appeal_settings", Result: quack.AuditResultSuccess}
-	first, err := s.UpdateGuildAppealSettings(ctx, quack.UpdateGuildAppealSettingsParams{
-		Settings: quack.GuildAppealSettings{GuildID: guildID, QuestionsJSON: `[{"id":"a"}]`, UpdatedByDiscordUserID: "one"},
-		Audit:    audit,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := s.UpdateGuildAppealSettings(ctx, quack.UpdateGuildAppealSettingsParams{
-		Settings: quack.GuildAppealSettings{GuildID: guildID, QuestionsJSON: `[{"id":"b"}]`, UpdatedByDiscordUserID: "two"},
-		Audit:    audit,
-	})
-	if err != nil || second.ID != first.ID || second.QuestionsJSON != `[{"id":"b"}]` || second.UpdatedByDiscordUserID != "two" {
-		t.Fatalf("second update = %+v, %v", second, err)
-	}
-	if got, err := s.GetGuildAppealSettings(ctx, guildID); err != nil || got.QuestionsJSON != second.QuestionsJSON {
-		t.Fatalf("GetGuildAppealSettings = %+v, %v", got, err)
-	}
-}

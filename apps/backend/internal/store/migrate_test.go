@@ -18,7 +18,7 @@ var tables = []string{
 	"case_templates", "case_template_context_fields", "case_template_levels", "case_template_level_actions",
 	"cases", "case_action_executions", "case_action_attempts", "case_evidence_snapshots", "case_evidence_attachments",
 	"case_notifications", "case_events",
-	"appeals", "appeal_events", "guild_appeal_settings", "appeal_notifications",
+	"appeals", "appeal_events", "appeal_notifications",
 	"audit_log_entries", "v4_import_batches", "v4_import_sources",
 	"module_configurations", "tickets", "ticket_events", "ticket_transcripts", "ticket_member_states", "ticket_message_journal",
 	"honeypot_triggers", "honeypot_message_cleanups", "honeypot_warning_refreshes",
@@ -63,7 +63,7 @@ func TestMigrateCreatesSchemaOnce(t *testing.T) {
 }
 
 // TestMigrateCatchesUpOlderBaseline covers a database that recorded the
-// baseline before the record structs gained tables and columns.
+// baseline before the record structs gained or lost tables and columns.
 func TestMigrateCatchesUpOlderBaseline(t *testing.T) {
 	db := testutil.NewSQLiteDB(t)
 	if err := db.Migrator().DropTable("case_publications"); err != nil {
@@ -72,8 +72,35 @@ func TestMigrateCatchesUpOlderBaseline(t *testing.T) {
 	if err := db.Exec("ALTER TABLE guild_settings DROP COLUMN appeal_queue_channel_discord_id").Error; err != nil {
 		t.Fatal(err)
 	}
+	// Custom appeal forms kept their questions in guild_appeal_settings and
+	// each appeal's statement in answers_json, beside an unused content.
+	for _, statement := range []string{
+		"ALTER TABLE appeals RENAME COLUMN statement TO content",
+		"CREATE TABLE guild_appeal_settings (id CHAR(26) PRIMARY KEY, questions_json TEXT NOT NULL)",
+		"ALTER TABLE appeals ADD COLUMN question_snapshot_json TEXT NOT NULL DEFAULT '[]'",
+		"ALTER TABLE appeals ADD COLUMN answers_json TEXT NOT NULL DEFAULT '[]'",
+		`INSERT INTO appeals (id, created_at, updated_at, guild_id, target_discord_user_id, status, content, answers_json, metadata_json)
+			VALUES ('appeal', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'guild', 'member', 'pending', '',
+			'[{"question_id":"reason","value":" Please reconsider. "},{"question_id":"contact","value":true}]', '{}')`,
+	} {
+		if err := db.Exec(statement).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := store.New(db, nil).Migrate(); err != nil {
 		t.Fatalf("migrate: %v", err)
+	}
+	if db.Migrator().HasTable("guild_appeal_settings") {
+		t.Error("guild_appeal_settings was not dropped")
+	}
+	for _, column := range []string{"question_snapshot_json", "answers_json"} {
+		if db.Migrator().HasColumn("appeals", column) {
+			t.Errorf("appeals.%s was not dropped", column)
+		}
+	}
+	var statement string
+	if err := db.Raw("SELECT statement FROM appeals WHERE id = 'appeal'").Scan(&statement).Error; err != nil || statement != "Please reconsider." {
+		t.Errorf("appeal statement = %q, %v; want the reason answer", statement, err)
 	}
 	if !db.Migrator().HasTable("case_publications") {
 		t.Error("case_publications was not created")

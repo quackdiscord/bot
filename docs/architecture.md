@@ -342,9 +342,9 @@ rest. The database is the source of truth; the queue only saves latency.
   membership is not required, so a banned member can still appeal. The case
   must be valid, its snapshot must say the template was appealable, and it
   must not already have an appeal. A case gets at most one appeal.
-- **Form.** Guilds can set up to ten `short_text`, `long_text`, or `boolean`
-  questions (`guild_appeal_settings`); otherwise a two-question default
-  applies. The form and answers are snapshotted on the appeal.
+- **Form.** Every appeal uses one fixed form with one question: why the
+  case should be reconsidered. Guilds cannot customize it. The answer is the
+  appeal's `statement` (1 to 4,000 characters, trimmed).
 - **Statuses.** `pending`, `needs_information`, `accepted`, `rejected`,
   `closed`. Staff can request information (pending to needs_information), and
   the member's reply returns it to pending. Staff can accept or reject a
@@ -376,12 +376,11 @@ rest. The database is the source of truth; the queue only saves latency.
 - **In Discord** (`discord/appeal_*.go`, `discord/appeals.go`).
   `discord.AppealNotifier` implements both rich interfaces. The "Appeal
   decision" button (`appeal:submit:v1:<case>`) checks `CanSubmit` and opens
-  a one-question form whose answer is saved as the `reason` answer, so it
-  fits the default form. The queue post in the appeal queue channel shows
-  the statement in pages, Accept and Reject while pending (with a reason
-  form when the guild requires one), and "Confirm ..." buttons for
-  reversals still on offer after acceptance. `/appeals` pages through
-  pending appeals straight from storage. Every staff control re-reads live
+  the appeal form, whose one field becomes the statement. The queue post in
+  the appeal queue channel shows the statement in pages, Accept and Reject
+  while pending (with a reason form when the guild requires one), and
+  "Confirm ..." buttons for reversals still on offer after acceptance.
+  `/appeals` pages through pending appeals straight from storage. Every staff control re-reads live
   permissions. The decision DM quotes the reason and carries a Rejoin
   Server button when an accepted appeal has an invite.
 
@@ -580,9 +579,6 @@ What each module does:
 
 These are verified against the code as of this writing:
 
-- **The Discord appeal form asks one question.** Guilds with a custom
-  appeal form whose questions do not include `reason` must take appeals
-  through the dashboard.
 - **No real-guild rehearsal yet.** Install, permissions, enforcement, DMs,
   appeals, and the modules have been tested against fakes, SQLite, and MySQL,
   but not end to end in a live Discord guild.

@@ -34,3 +34,11 @@ func ProcessWarnings(ctx context.Context, m *Module) error {
 func NewChannelValidator(session *discordgo.Session, guilds *modules.Guilds) ChannelValidator {
 	return channelValidator{session: session, guilds: guilds}
 }
+
+// NewPool returns the bounded queue that runs trap messages through
+// service, without the cleanup that follows each one in a Module.
+func NewPool(service *Service) *modules.Pool[Message] {
+	return modules.NewPool("honeypot", queueCapacity, queueWorkers, func(ctx context.Context, message Message) {
+		handleMessage(ctx, service, message)
+	})
+}

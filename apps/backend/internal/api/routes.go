@@ -89,9 +89,6 @@ func (s *Server) routes() {
 	// Appeal review. Each write names its idempotency class and capability.
 	appeals := s.services.Appeals
 	review := quack.PermissionActionAppealReview
-	s.appealRead("GET /guilds/{discordGuildID}/appeal-settings", s.getAppealSettings)
-	s.appealWrite("PUT /guilds/{discordGuildID}/appeal-settings",
-		"appeal-settings", quack.PermissionActionGuildSettingsWrite, s.updateAppealSettings)
 	s.appealRead("GET /guilds/{discordGuildID}/appeals", s.listStaffAppeals)
 	s.appealRead("GET /guilds/{discordGuildID}/appeals/{appealID}", s.getStaffAppeal)
 	s.appealWrite("POST /guilds/{discordGuildID}/appeals/{appealID}/request-information",

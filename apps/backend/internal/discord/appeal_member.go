@@ -80,7 +80,7 @@ func (a appeals) openForm(ctx context.Context, i *discordgo.InteractionCreate) R
 			Style:       discordgo.TextInputParagraph,
 			Required:    true,
 			MinLength:   1,
-			MaxLength:   4000,
+			MaxLength:   quack.AppealStatementMaxLength,
 			Placeholder: "Explain what happened or share your apology. You can submit once.",
 		}),
 	}))
@@ -101,9 +101,7 @@ func (a appeals) submit(_ context.Context, i *discordgo.InteractionCreate) Resul
 	}
 	statement := ModalValue(data, "reason")
 	return Async(DeferEphemeral(), func(ctx context.Context, responder Responder) error {
-		_, err := a.services.Appeals.Submit(ctx, id.Payload, memberID, quack.AppealSubmissionInput{
-			Answers: []quack.AppealAnswer{{QuestionID: "reason", Value: statement}},
-		})
+		_, err := a.services.Appeals.Submit(ctx, id.Payload, memberID, quack.AppealSubmissionInput{Statement: statement})
 		if err != nil {
 			_, err = responder.EditOriginal(ErrorEdit(appealSubmissionError(err)))
 			return err

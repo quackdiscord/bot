@@ -39,7 +39,7 @@ func appealStaffPage(appeal *quack.AppealResponse, page int, applicationID strin
 }
 
 // appealStaffMessage is the staff view of an appeal: who appealed, where it
-// stands, the decision reason, the member's quoted answers, Accept and
+// stands, the decision reason, the member's quoted statement, Accept and
 // Reject while it is pending, and a confirmation button for each reversal
 // still on offer after acceptance.
 func appealStaffMessage(appeal *quack.AppealResponse) Message {
@@ -62,8 +62,8 @@ func appealStaffMessage(appeal *quack.AppealResponse) Message {
 	if appeal.DecisionReason != "" {
 		body = append(body, PlainText(appeal.DecisionReason))
 	}
-	for _, answer := range appeal.Answers {
-		body = append(body, Quote(PlainText(fmt.Sprint(answer.Value))))
+	if appeal.Statement != "" {
+		body = append(body, Quote(PlainText(appeal.Statement)))
 	}
 	meta := fmt.Sprintf("Case #%d · %s", appeal.CaseNumber, PlainText(appeal.TemplateName))
 	message := Conversation("appeal", lead, "", strings.Join(body, "\n\n"), meta, false)

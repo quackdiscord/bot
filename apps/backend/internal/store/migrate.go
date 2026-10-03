@@ -2,9 +2,11 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -69,8 +71,11 @@ func (s *Store) Migrate() error {
 		}
 		// The baseline is the record structs, which keep gaining tables and
 		// columns. Re-running it adds whatever an older database is missing;
-		// AutoMigrate never drops anything, so removals still need a numbered
-		// migration.
+		// AutoMigrate never drops or renames anything, so those changes are
+		// made by hand first.
+		if err := retireAppealForms(db); err != nil {
+			return fmt.Errorf("retire custom appeal forms: %w", err)
+		}
 		if err := createBaseline(db); err != nil {
 			return fmt.Errorf("bring baseline up to date: %w", err)
 		}
@@ -168,6 +173,55 @@ func oneDefaultLevel(db *gorm.DB) error {
 		}
 	}
 	return db.Exec("CREATE UNIQUE INDEX " + index + " ON case_template_levels (default_template_id)").Error
+}
+
+// retireAppealForms removes what custom appeal forms left in a database
+// migrated before every appeal used one fixed question: the
+// guild_appeal_settings table and the appeals form columns, whose NOT NULL
+// constraints would otherwise reject new appeals. The unused content column
+// becomes statement, and statements saved only as form answers are copied
+// into it. Every step is safe to rerun.
+func retireAppealForms(db *gorm.DB) error {
+	m := db.Migrator()
+	if m.HasColumn("appeals", "content") && !m.HasColumn("appeals", "statement") {
+		if err := db.Exec("ALTER TABLE appeals RENAME COLUMN content TO statement").Error; err != nil {
+			return err
+		}
+	}
+	if m.HasColumn("appeals", "answers_json") {
+		var rows []struct{ ID, AnswersJSON string }
+		if err := db.Table("appeals").Select("id, answers_json").Where("statement = ''").Scan(&rows).Error; err != nil {
+			return err
+		}
+		for _, row := range rows {
+			var answers []struct {
+				Value any `json:"value"`
+			}
+			if json.Unmarshal([]byte(row.AnswersJSON), &answers) != nil {
+				continue
+			}
+			var parts []string
+			for _, answer := range answers {
+				if text, ok := answer.Value.(string); ok && strings.TrimSpace(text) != "" {
+					parts = append(parts, strings.TrimSpace(text))
+				}
+			}
+			statement := strings.Join(parts, "\n\n")
+			if err := db.Table("appeals").Where("id = ?", row.ID).Update("statement", statement).Error; err != nil {
+				return err
+			}
+		}
+	}
+	for _, column := range []string{"question_snapshot_json", "answers_json"} {
+		if m.HasColumn("appeals", column) {
+			// Plain SQL: the SQLite driver's DropColumn cannot drop a
+			// column the record struct no longer has.
+			if err := db.Exec("ALTER TABLE appeals DROP COLUMN " + column).Error; err != nil {
+				return err
+			}
+		}
+	}
+	return m.DropTable("guild_appeal_settings")
 }
 
 // dropBaseline drops every table, children first.

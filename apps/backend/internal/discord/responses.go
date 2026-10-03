@@ -25,14 +25,6 @@ func Ephemeral(m Message) *discordgo.InteractionResponse {
 	}
 }
 
-// Update immediately replaces the message a component belongs to.
-func Update(m Message) *discordgo.InteractionResponse {
-	return &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseUpdateMessage,
-		Data: m.responseData(),
-	}
-}
-
 // DeferPublic acknowledges with a public "thinking" state that the task
 // later replaces with Publish.
 func DeferPublic() *discordgo.InteractionResponse {

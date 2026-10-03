@@ -125,7 +125,6 @@ var auditPhrases = map[string]auditPhrase{
 	"appeal.rejected":              {"declined an appeal", "decline"},
 	"appeal.close":                 {"closed an appeal", "lock"},
 	"appeal.closed":                {"closed an appeal", "lock"},
-	"appeal.settings.update":       {"updated the appeal settings", "settings"},
 	"ticket.open":                  {"opened a ticket", "ticket"},
 	"ticket.reply":                 {"replied to a ticket", "reply"},
 	"ticket.resolve":               {"closed a ticket", "lock"},

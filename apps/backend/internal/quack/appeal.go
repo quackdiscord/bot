@@ -2,7 +2,6 @@ package quack
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -71,13 +70,12 @@ const (
 // has at most one appeal; reopening reuses it.
 type Appeal struct {
 	ULIDModel
-	GuildID                 string
-	CaseID                  *string
-	TargetDiscordUserID     string
-	Status                  AppealStatus
-	Content                 string
-	QuestionSnapshotJSON    string
-	AnswersJSON             string
+	GuildID             string
+	CaseID              *string
+	TargetDiscordUserID string
+	Status              AppealStatus
+	// Statement is the member's answer to the appeal form's one question.
+	Statement               string
 	Version                 uint64
 	DecisionReason          string
 	ReviewedByDiscordUserID string
@@ -153,9 +151,14 @@ func NewAppealService(store AppealStore) *AppealService {
 	return &AppealService{store: store}
 }
 
-// AppealSubmissionInput is a member's answers to the guild's appeal form.
+// AppealStatementMaxLength is the longest appeal statement, in characters.
+// The Discord appeal form enforces the same limit.
+const AppealStatementMaxLength = 4000
+
+// AppealSubmissionInput is a member's appeal. Every guild uses the same form,
+// which asks one question: why the case should be reconsidered.
 type AppealSubmissionInput struct {
-	Answers []AppealAnswer `json:"answers"`
+	Statement string `json:"statement"`
 }
 
 // AppealInformationInput is a member's reply to a request for more
@@ -183,7 +186,7 @@ type AppealReversalOffer struct {
 	ActionType          ActionType `json:"action_type"`
 }
 
-// AppealResponse is an appeal with its form, answers, and timeline.
+// AppealResponse is an appeal with its statement and timeline.
 type AppealResponse struct {
 	ID         string `json:"id"`
 	GuildID    string `json:"guild_id"`
@@ -193,8 +196,7 @@ type AppealResponse struct {
 	TemplateName            string                `json:"template_name"`
 	TargetDiscordUserID     string                `json:"target_discord_user_id"`
 	Status                  AppealStatus          `json:"status"`
-	Questions               []AppealQuestion      `json:"questions"`
-	Answers                 []AppealAnswer        `json:"answers"`
+	Statement               string                `json:"statement"`
 	DecisionReason          string                `json:"decision_reason,omitempty"`
 	ReviewedByDiscordUserID string                `json:"reviewed_by_discord_user_id,omitempty"`
 	Events                  []AppealEventResponse `json:"events"`
@@ -212,26 +214,19 @@ func (s *AppealService) Submit(ctx context.Context, caseID, memberDiscordUserID 
 	if err != nil {
 		return nil, err
 	}
-	settings, err := s.GetSettings(ctx, item.GuildID)
-	if err != nil {
-		return nil, err
+	statement := strings.TrimSpace(input.Statement)
+	if statement == "" || len([]rune(statement)) > AppealStatementMaxLength {
+		return nil, appealValidationError("appeal statement must be 1 to 4000 characters")
 	}
-	answers, err := validateAnswers(settings.Questions, input.Answers)
-	if err != nil {
-		return nil, err
-	}
-	questionJSON, _ := json.Marshal(settings.Questions)
-	answersJSON, _ := json.Marshal(answers)
 	created, err := s.store.CreateAppeal(ctx, CreateAppealParams{
 		Appeal: Appeal{
-			GuildID:              item.GuildID,
-			CaseID:               &item.ID,
-			TargetDiscordUserID:  memberDiscordUserID,
-			Status:               AppealStatusPending,
-			QuestionSnapshotJSON: string(questionJSON),
-			AnswersJSON:          string(answersJSON),
-			Version:              1,
-			MetadataJSON:         "{}",
+			GuildID:             item.GuildID,
+			CaseID:              &item.ID,
+			TargetDiscordUserID: memberDiscordUserID,
+			Status:              AppealStatusPending,
+			Statement:           statement,
+			Version:             1,
+			MetadataJSON:        "{}",
 		},
 		Event: AppealEvent{
 			EventType:          string(AppealEventSubmitted),
@@ -398,14 +393,6 @@ func canAppeal(item Case, existing *Appeal) bool {
 // removed. For staff viewing an accepted appeal, it lists the timeouts and
 // bans that could be reversed.
 func (s *AppealService) response(ctx context.Context, item *Appeal, member bool) (*AppealResponse, error) {
-	questions, err := decodeQuestions(item.QuestionSnapshotJSON)
-	if err != nil {
-		return nil, err
-	}
-	var answers []AppealAnswer
-	if err := json.Unmarshal([]byte(item.AnswersJSON), &answers); err != nil {
-		return nil, fmt.Errorf("decode appeal answers: %w", err)
-	}
 	events, err := s.store.ListAppealEvents(ctx, item.ID)
 	if err != nil {
 		return nil, err
@@ -450,8 +437,7 @@ func (s *AppealService) response(ctx context.Context, item *Appeal, member bool)
 		TemplateName:            templateName,
 		TargetDiscordUserID:     item.TargetDiscordUserID,
 		Status:                  item.Status,
-		Questions:               questions,
-		Answers:                 answers,
+		Statement:               item.Statement,
 		DecisionReason:          item.DecisionReason,
 		ReviewedByDiscordUserID: reviewedBy,
 		Events:                  responseEvents,
