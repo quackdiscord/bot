@@ -15,20 +15,9 @@ import (
 // componentNamespace prefixes every ticket button and modal custom ID.
 const componentNamespace = "ticket"
 
-// RegisterComponents installs the ticket buttons and the reply modal on
-// router.
-func (m *Module) RegisterComponents(router *discord.Router) {
-	router.HandleComponent(componentNamespace, "open", m.openComponent)
-	router.HandleComponent(componentNamespace, "queue", m.queueComponent)
-	router.HandleComponent(componentNamespace, "view", m.viewComponent)
-	router.HandleComponent(componentNamespace, "reply", m.replyComponent)
-	router.HandleComponent(componentNamespace, "close", m.closeComponent)
-	router.HandleComponent(componentNamespace, "repair", m.repairComponent)
-	router.HandleModal(componentNamespace, "reply-submit", m.submitReplyModal)
-}
-
-// EntryComponents are the controls posted in the entry channel: open a
-// ticket, and the staff queue.
+// EntryComponents are the controls meant for the entry channel: open a
+// ticket, and the staff queue. Nothing posts them yet, so until something
+// does, members have no button to open a ticket with.
 func EntryComponents() []discordgo.MessageComponent {
 	return []discordgo.MessageComponent{discord.Row(
 		discord.Button(customID("open", ""), "Open ticket", discordgo.PrimaryButton, false),
@@ -45,8 +34,14 @@ func TicketComponents(ticketID string) []discordgo.MessageComponent {
 	)}
 }
 
+// customID encodes a ticket button or modal custom ID.
 func customID(action, ticketID string) string {
-	return discord.MustCustomID(discord.CustomID{Namespace: componentNamespace, Action: action, Version: "v1", Payload: ticketID})
+	return discord.MustCustomID(discord.CustomID{
+		Namespace: componentNamespace,
+		Action:    action,
+		Version:   "v1",
+		Payload:   ticketID,
+	})
 }
 
 // ticketControls is TicketComponents plus, for managers, a repair button.
@@ -56,7 +51,8 @@ func ticketControls(ticketID string, includeRepair bool) []discordgo.MessageComp
 		return components
 	}
 	row := components[0].(discordgo.ActionsRow)
-	row.Components = append(row.Components, discord.Button(customID("repair", ticketID), "Repair permissions", discordgo.SecondaryButton, false))
+	repair := discord.Button(customID("repair", ticketID), "Repair permissions", discordgo.SecondaryButton, false)
+	row.Components = append(row.Components, repair)
 	components[0] = row
 	return components
 }
@@ -66,8 +62,7 @@ func (m *Module) openComponent(_ context.Context, interaction *discordgo.Interac
 	return m.task(interaction, func(ctx context.Context, responder discord.Responder, actor modules.Actor) error {
 		ticket, err := m.discord.Open(ctx, actor)
 		if err != nil {
-			_, _ = responder.EditOriginal(discord.ErrorEdit(errorMessage(err)))
-			return nil
+			return showError(responder, err)
 		}
 		message := discord.Content("Ticket opened: <#"+ticket.ThreadDiscordChannelID+">", true)
 		message.Components = ticketControls(ticket.ID, actor.CanManage)
@@ -81,8 +76,7 @@ func (m *Module) queueComponent(_ context.Context, interaction *discordgo.Intera
 	return m.task(interaction, func(ctx context.Context, responder discord.Responder, actor modules.Actor) error {
 		queue, err := m.service.Queue(ctx, actor, StatusOpen, 25)
 		if err != nil {
-			_, _ = responder.EditOriginal(discord.ErrorEdit(errorMessage(err)))
-			return nil
+			return showError(responder, err)
 		}
 		lines := []string{"Open tickets:"}
 		for _, ticket := range queue {
@@ -105,8 +99,7 @@ func (m *Module) viewComponent(_ context.Context, interaction *discordgo.Interac
 	return m.task(interaction, func(ctx context.Context, responder discord.Responder, actor modules.Actor) error {
 		ticket, events, err := m.service.Detail(ctx, actor, ticketID)
 		if err != nil {
-			_, _ = responder.EditOriginal(discord.ErrorEdit(errorMessage(err)))
-			return nil
+			return showError(responder, err)
 		}
 		lines := []string{fmt.Sprintf("Ticket `%s` is **%s**.", ticket.ID, ticket.Status)}
 		for _, event := range events {
@@ -127,8 +120,7 @@ func (m *Module) repairComponent(_ context.Context, interaction *discordgo.Inter
 	}
 	return m.task(interaction, func(ctx context.Context, responder discord.Responder, actor modules.Actor) error {
 		if err := m.discord.RepairPermissions(ctx, actor, ticketID); err != nil {
-			_, _ = responder.EditOriginal(discord.ErrorEdit(errorMessage(err)))
-			return nil
+			return showError(responder, err)
 		}
 		_, err := responder.EditOriginal(discord.EditMessage(discord.Content("Ticket permissions repaired.", true)))
 		return err
@@ -143,7 +135,14 @@ func (m *Module) replyComponent(_ context.Context, interaction *discordgo.Intera
 		return discord.Immediate(discord.Error("That ticket is unavailable."))
 	}
 	components := []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-		discordgo.TextInput{CustomID: "body", Label: "Reply", Style: discordgo.TextInputParagraph, Required: true, MinLength: 1, MaxLength: 4000},
+		discordgo.TextInput{
+			CustomID:  "body",
+			Label:     "Reply",
+			Style:     discordgo.TextInputParagraph,
+			Required:  true,
+			MinLength: 1,
+			MaxLength: 4000,
+		},
 	}}}
 	return discord.Immediate(discord.Modal("Reply to ticket", customID("reply-submit", ticketID), components))
 }
@@ -158,8 +157,7 @@ func (m *Module) submitReplyModal(_ context.Context, interaction *discordgo.Inte
 	body := strings.TrimSpace(discord.ModalValue(data, "body"))
 	return m.task(interaction, func(ctx context.Context, responder discord.Responder, actor modules.Actor) error {
 		if err := m.discord.Reply(ctx, actor, id.Payload, body); err != nil {
-			_, _ = responder.EditOriginal(discord.ErrorEdit(errorMessage(err)))
-			return nil
+			return showError(responder, err)
 		}
 		_, err := responder.EditOriginal(discord.EditMessage(discord.Content("Reply sent.", true)))
 		return err
@@ -174,8 +172,7 @@ func (m *Module) closeComponent(_ context.Context, interaction *discordgo.Intera
 	}
 	return m.task(interaction, func(ctx context.Context, responder discord.Responder, actor modules.Actor) error {
 		if _, err := m.discord.Close(ctx, actor, ticketID); err != nil {
-			_, _ = responder.EditOriginal(discord.ErrorEdit(errorMessage(err)))
-			return nil
+			return showError(responder, err)
 		}
 		_, err := responder.EditOriginal(discord.EditMessage(discord.Content("Ticket closed and transcript captured.", true)))
 		return err
@@ -231,6 +228,13 @@ func (m *Module) actor(ctx context.Context, interaction *discordgo.InteractionCr
 		return modules.Actor{}, quack.ErrAuthorizationDenied
 	}
 	return modules.ActorFor(staff), nil
+}
+
+// showError replaces the deferred response with a message safe to show the
+// member. The interaction itself succeeded, so it returns nil.
+func showError(responder discord.Responder, err error) error {
+	_, _ = responder.EditOriginal(discord.ErrorEdit(errorMessage(err)))
+	return nil
 }
 
 // errorMessage maps an error to text safe to show the member.

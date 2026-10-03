@@ -1,13 +1,15 @@
-// Package modules is what the optional modules (tickets, general logging,
+// Package modules holds what the optional modules (tickets, general logging,
 // and honeypots) share: each guild's on/off switch and settings for them, the
-// actor they authorize, the Discord-to-internal guild ID mapping, the adapter
-// that writes their events to the core audit log, and a bounded pool for the
-// gateway work they do.
+// actor they authorize, the mapping between Discord and internal guild IDs,
+// the adapter that writes their events to the core audit log, HTTP helpers,
+// and a bounded pool for their gateway work.
 package modules
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/oklog/ulid/v2"
@@ -26,6 +28,10 @@ const (
 	// Honeypots is the trap-channel module that opens cases automatically.
 	Honeypots ID = "honeypots"
 )
+
+// SystemActorID is the actor recorded for changes Quack makes on its own,
+// such as repairing a module after its channel is deleted.
+const SystemActorID = "quack-system"
 
 // Configuration is one guild's switch and settings for one module. The
 // settings are opaque JSON that only the module itself interprets.
@@ -75,9 +81,44 @@ func (r *Registry) SetConfiguration(ctx context.Context, c Configuration) (*Conf
 		return put(tx, &c)
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("save %s configuration: %w", c.ModuleID, err)
 	}
 	return &c, nil
+}
+
+// SaveSettings encodes a module's settings and stores them with its switch.
+func (r *Registry) SaveSettings(ctx context.Context, guildID string, id ID, enabled bool, settings any) (*Configuration, error) {
+	payload, err := json.Marshal(settings)
+	if err != nil {
+		return nil, fmt.Errorf("encode %s settings: %w", id, err)
+	}
+	return r.SetConfiguration(ctx, Configuration{
+		GuildID:    guildID,
+		ModuleID:   id,
+		Enabled:    enabled,
+		ConfigJSON: string(payload),
+	})
+}
+
+// LoadSettings decodes a guild's settings for a module over defaults and
+// reports whether the module is on. A guild that never configured the
+// module gets defaults, switched off. Pass a fresh defaults value: decoding
+// writes into its maps and slices.
+func LoadSettings[T any](ctx context.Context, r *Registry, guildID string, id ID, defaults T) (T, bool, error) {
+	c, err := r.Configuration(ctx, guildID, id)
+	if err != nil {
+		var zero T
+		return zero, false, err
+	}
+	if c == nil {
+		return defaults, false, nil
+	}
+	settings := defaults
+	if err := json.Unmarshal([]byte(c.ConfigJSON), &settings); err != nil {
+		var zero T
+		return zero, false, fmt.Errorf("decode %s settings: %w", id, err)
+	}
+	return settings, c.Enabled, nil
 }
 
 // AnyEnabled reports whether any guild has the module on. Startup uses it to
@@ -93,7 +134,9 @@ func (r *Registry) AnyEnabled(ctx context.Context, id ID) (bool, error) {
 // ModuleStates returns which modules the guild has on.
 func (r *Registry) ModuleStates(ctx context.Context, guildID string) (quack.ModuleStates, error) {
 	var rows []Configuration
-	err := r.db.WithContext(ctx).Where("guild_id = ? AND enabled = ?", guildID, true).Find(&rows).Error
+	err := r.db.WithContext(ctx).
+		Where("guild_id = ? AND enabled = ?", guildID, true).
+		Find(&rows).Error
 	if err != nil {
 		return quack.ModuleStates{}, err
 	}
@@ -113,33 +156,40 @@ func (r *Registry) ModuleStates(ctx context.Context, guildID string) (quack.Modu
 
 // SetModuleStates switches the guild's modules on or off, keeping each
 // module's settings. A module the guild never configured starts from its
-// defaults.
+// defaults, and is not created at all just to be switched off.
 func (r *Registry) SetModuleStates(ctx context.Context, guildID string, states quack.ModuleStates) error {
-	want := map[ID]bool{Tickets: states.Tickets, GeneralLogging: states.GeneralLogging, Honeypots: states.Honeypot}
+	wanted := []struct {
+		id      ID
+		enabled bool
+	}{
+		{Tickets, states.Tickets},
+		{GeneralLogging, states.GeneralLogging},
+		{Honeypots, states.Honeypot},
+	}
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		for _, id := range []ID{Tickets, GeneralLogging, Honeypots} {
-			current, err := configuration(tx, guildID, id)
+		for _, want := range wanted {
+			current, err := configuration(tx, guildID, want.id)
 			if err != nil {
 				return err
 			}
-			if current == nil {
-				current = &Configuration{GuildID: guildID, ModuleID: id, ConfigJSON: "{}"}
-			}
-			if current.ID != "" && current.Enabled == want[id] {
+			switch {
+			case current == nil && !want.enabled:
+				continue
+			case current == nil:
+				current = &Configuration{GuildID: guildID, ModuleID: want.id, ConfigJSON: "{}"}
+			case current.Enabled == want.enabled:
 				continue
 			}
-			if current.ID == "" && !want[id] {
-				continue
-			}
-			current.Enabled = want[id]
+			current.Enabled = want.enabled
 			if err := put(tx, current); err != nil {
-				return err
+				return fmt.Errorf("switch %s: %w", want.id, err)
 			}
 		}
 		return nil
 	})
 }
 
+// configuration loads one guild's row for a module, or nil if there is none.
 func configuration(db *gorm.DB, guildID string, id ID) (*Configuration, error) {
 	var c Configuration
 	result := db.Where("guild_id = ? AND module_id = ?", guildID, id).Limit(1).Find(&c)

@@ -79,6 +79,8 @@ func TestBuildWiresEverySurface(t *testing.T) {
 	}
 }
 
+// serve sends route, a "METHOD /path" pair, to the built API and returns
+// the status code.
 func serve(a *quackApp, route string) int {
 	method, path, _ := strings.Cut(route, " ")
 	response := httptest.NewRecorder()

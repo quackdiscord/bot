@@ -17,29 +17,29 @@ const (
 	queueWorkers  = 2
 )
 
-// Module is the honeypot wired to Discord and the API. The app registers its
-// gateway handlers and routes, requests its Intents, tells it about template
-// changes, and runs it between Start and Stop.
+// Module is the honeypot wired to Discord and the API. The app mounts its
+// routes, registers its gateway handlers, requests its Intents, tells it
+// about template changes, and runs it between Start and Stop.
 type Module struct {
 	service   *Service
 	registry  *modules.Registry
 	guilds    *modules.Guilds
-	templates templates
+	templates templateValidator
 	pool      *modules.Pool[Message]
 }
 
 // New returns the honeypot module. Triggers are stored in db, settings in
 // registry, events audited to audit; session checks the trap channel,
-// templates is the template source, and cases opens the resulting cases.
+// templateStore is the template source, and cases opens the resulting cases.
 func New(db *gorm.DB, registry *modules.Registry, audit modules.Auditor, guilds *modules.Guilds, session *discordgo.Session, templateStore TemplateStore, cases CaseCreator) *Module {
-	validator := templates{store: templateStore}
-	service := NewService(registry, NewStore(db), audit,
-		channelValidator{session: session, guilds: guilds}, validator, caseApplier{cases: cases})
+	templates := templateValidator{store: templateStore}
+	channels := channelValidator{session: session, guilds: guilds}
+	service := NewService(registry, NewStore(db), audit, channels, templates, caseApplier{cases: cases})
 	return &Module{
 		service:   service,
 		registry:  registry,
 		guilds:    guilds,
-		templates: validator,
+		templates: templates,
 		pool:      NewPool(service),
 	}
 }
@@ -49,7 +49,8 @@ func New(db *gorm.DB, registry *modules.Registry, audit modules.Auditor, guilds 
 func NewPool(service *Service) *modules.Pool[Message] {
 	return modules.NewPool("honeypot", queueCapacity, queueWorkers, func(ctx context.Context, message Message) {
 		if _, err := service.HandleMessage(ctx, message); err != nil {
-			slog.ErrorContext(ctx, "Honeypot event failed", "guild_id", message.GuildID, "error_type", fmt.Sprintf("%T", err))
+			slog.ErrorContext(ctx, "Honeypot event failed",
+				"guild_id", message.GuildID, "error_type", fmt.Sprintf("%T", err))
 		}
 	})
 }
@@ -57,6 +58,24 @@ func NewPool(service *Service) *modules.Pool[Message] {
 // MountHTTP mounts the honeypot routes.
 func (m *Module) MountHTTP(mux modules.Mux) {
 	RegisterRoutes(mux, m.service, modules.RequestActor)
+}
+
+// RegisterGateway subscribes the honeypot to new messages and to deletions
+// of its trap channel or guild.
+func (m *Module) RegisterGateway(session *discordgo.Session) {
+	session.AddHandler(m.onMessageCreate)
+	session.AddHandler(m.onChannelDelete)
+	session.AddHandler(m.onGuildDelete)
+}
+
+// Intents returns the gateway intents the honeypot needs: guild messages,
+// once any guild has it on. It never needs message content.
+func (m *Module) Intents(ctx context.Context) (discordgo.Intent, error) {
+	enabled, err := m.registry.AnyEnabled(ctx, modules.Honeypots)
+	if err != nil || !enabled {
+		return 0, err
+	}
+	return discordgo.IntentGuilds | discordgo.IntentGuildMessages, nil
 }
 
 // Start starts the trap message workers.

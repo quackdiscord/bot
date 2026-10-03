@@ -2,41 +2,17 @@ package logging
 
 import (
 	"context"
+	"slices"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/modules"
 )
 
-// systemActor attributes repairs Quack makes on its own.
-const systemActor = "quack-system"
-
-// RegisterGateway subscribes logging to the gateway events it logs, and to
-// channel deletions so routes to a deleted channel are removed.
-func (m *Module) RegisterGateway(session *discordgo.Session) {
-	session.AddHandler(m.onMessageCreate)
-	session.AddHandler(m.onMessageUpdate)
-	session.AddHandler(m.onMessageDelete)
-	session.AddHandler(m.onMessageDeleteBulk)
-	session.AddHandler(m.onMemberAdd)
-	session.AddHandler(m.onMemberRemove)
-	session.AddHandler(m.onBanAdd)
-	session.AddHandler(m.onBanRemove)
-	session.AddHandler(m.onGuildUpdate)
-	session.AddHandler(m.onChannelCreate)
-	session.AddHandler(m.onChannelUpdate)
-	session.AddHandler(m.onChannelDelete)
-}
-
-// guildID resolves an event's guild, dropping events from guilds Quack
-// does not know.
+// guildID resolves an event's guild. Events from guilds Quack does not
+// know, or has left, are dropped.
 func (m *Module) guildID(discordGuildID string) (string, bool) {
 	id, err := m.guilds.InternalID(context.Background(), discordGuildID)
 	return id, err == nil
-}
-
-// submit queues an event; a full queue drops it.
-func (m *Module) submit(event Event) {
-	m.pool.Submit(event)
 }
 
 // onMessageCreate caches a human message so a later edit or delete can show
@@ -63,7 +39,7 @@ func (m *Module) onMessageUpdate(_ *discordgo.Session, event *discordgo.MessageU
 	if event.BeforeUpdate != nil {
 		before = event.BeforeUpdate.Content
 	}
-	m.submit(messageEvent(guildID, MessageEdit, event.Message, before, event.Content))
+	m.pool.Submit(messageEvent(guildID, MessageEdit, event.Message, before, event.Content))
 	_ = m.service.CacheMessage(context.Background(), cachedMessage(guildID, event.Message))
 }
 
@@ -73,16 +49,16 @@ func (m *Module) onMessageDelete(_ *discordgo.Session, event *discordgo.MessageD
 		return
 	}
 	if guildID, ok := m.guildID(event.GuildID); ok {
-		m.submit(messageEvent(guildID, MessageDelete, event.Message, "", ""))
+		m.pool.Submit(messageEvent(guildID, MessageDelete, event.Message, "", ""))
 	}
 }
 
 // onMessageDeleteBulk logs a bulk deletion.
 func (m *Module) onMessageDeleteBulk(_ *discordgo.Session, event *discordgo.MessageDeleteBulk) {
 	if guildID, ok := m.guildID(event.GuildID); ok {
-		m.submit(Event{
+		m.pool.Submit(Event{
 			GuildID: guildID, ChannelDiscordID: event.ChannelID, Type: MessageBulkDelete,
-			MessageIDs: append([]string(nil), event.Messages...),
+			MessageIDs: slices.Clone(event.Messages),
 		})
 	}
 }
@@ -97,12 +73,13 @@ func (m *Module) onMemberRemove(_ *discordgo.Session, event *discordgo.GuildMemb
 	m.memberEvent(event.Member, MemberLeave)
 }
 
+// memberEvent queues a join or leave.
 func (m *Module) memberEvent(member *discordgo.Member, eventType EventType) {
 	if member == nil {
 		return
 	}
 	if guildID, ok := m.guildID(member.GuildID); ok {
-		m.submit(Event{GuildID: guildID, Type: eventType, ActorDiscordUserID: userID(member.User)})
+		m.pool.Submit(Event{GuildID: guildID, Type: eventType, ActorDiscordUserID: userID(member.User)})
 	}
 }
 
@@ -116,9 +93,10 @@ func (m *Module) onBanRemove(_ *discordgo.Session, event *discordgo.GuildBanRemo
 	m.banEvent(event.GuildID, event.User, DiscordUnban)
 }
 
+// banEvent queues a ban or unban.
 func (m *Module) banEvent(discordGuildID string, user *discordgo.User, eventType EventType) {
 	if guildID, ok := m.guildID(discordGuildID); ok {
-		m.submit(Event{GuildID: guildID, Type: eventType, ActorDiscordUserID: userID(user)})
+		m.pool.Submit(Event{GuildID: guildID, Type: eventType, ActorDiscordUserID: userID(user)})
 	}
 }
 
@@ -128,7 +106,7 @@ func (m *Module) onGuildUpdate(_ *discordgo.Session, event *discordgo.GuildUpdat
 		return
 	}
 	if guildID, ok := m.guildID(event.ID); ok {
-		m.submit(Event{GuildID: guildID, Type: GuildChange, Metadata: map[string]string{"name": event.Name}})
+		m.pool.Submit(Event{GuildID: guildID, Type: GuildChange, Metadata: map[string]string{"name": event.Name}})
 	}
 }
 
@@ -149,17 +127,18 @@ func (m *Module) onChannelDelete(_ *discordgo.Session, event *discordgo.ChannelD
 	}
 	m.channelEvent(event.Channel, "deleted")
 	if guildID, ok := m.guildID(event.GuildID); ok {
-		actor := modules.Actor{GuildID: guildID, DiscordUserID: systemActor, CanManage: true}
+		actor := modules.Actor{GuildID: guildID, DiscordUserID: modules.SystemActorID, CanManage: true}
 		_, _, _ = m.service.RepairDeletedChannel(context.Background(), actor, event.ID)
 	}
 }
 
+// channelEvent queues a channel creation, change, or deletion.
 func (m *Module) channelEvent(channel *discordgo.Channel, operation string) {
 	if channel == nil || channel.GuildID == "" {
 		return
 	}
 	if guildID, ok := m.guildID(channel.GuildID); ok {
-		m.submit(Event{
+		m.pool.Submit(Event{
 			GuildID: guildID, ChannelDiscordID: channel.ID, Type: ChannelChange,
 			Metadata: map[string]string{"operation": operation, "name": channel.Name},
 		})
@@ -193,6 +172,7 @@ func messageEvent(guildID string, eventType EventType, message *discordgo.Messag
 	}
 }
 
+// userID returns user's ID, or "" for an event without one.
 func userID(user *discordgo.User) string {
 	if user == nil {
 		return ""

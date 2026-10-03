@@ -10,46 +10,30 @@ import (
 
 // RegisterRoutes mounts the ticket settings, status, queue, detail,
 // transcript, and lifecycle routes. Settings writes need Manage Guild;
-// resolving and reopening need moderation rights; a ticket's owner may
-// cancel it too.
+// resolving and reopening need a moderator; a ticket's owner may cancel it
+// too. The lifecycle routes change only Quack's records, not the ticket's
+// Discord channel.
 func RegisterRoutes(mux modules.Mux, service *Service, resolve modules.ActorResolver) {
-	h := routes{service: service, resolve: resolve}
-	mux.Handle("GET /tickets/settings", h.with(h.settings))
-	mux.Handle("GET /tickets/status", h.with(h.status))
-	mux.HandleWrite("PUT /tickets/settings", h.allow(modules.CanManage), h.with(h.updateSettings))
-	mux.Handle("GET /tickets/queue", h.with(h.queue))
-	mux.Handle("GET /tickets/{ticketID}", h.with(h.detail))
-	mux.Handle("GET /tickets/{ticketID}/transcript", h.with(h.transcript))
-	mux.HandleWrite("POST /tickets/{ticketID}/resolve", h.allow(canModerate), h.with(h.resolveTicket))
-	mux.HandleWrite("POST /tickets/{ticketID}/cancel", h.allowCancel, h.with(h.cancel))
-	mux.HandleWrite("POST /tickets/{ticketID}/reopen", h.allow(canModerate), h.with(h.reopen))
+	h := routes{service: service}
+	with := func(handle func(http.ResponseWriter, *http.Request, modules.Actor)) http.Handler {
+		return modules.WithActor(resolve, handle)
+	}
+	canManage := modules.Allow(resolve, modules.CanManage)
+	canModerate := modules.Allow(resolve, func(actor modules.Actor) bool { return actor.CanModerate })
+
+	mux.Handle("GET /tickets/settings", with(h.settings))
+	mux.Handle("GET /tickets/status", with(h.status))
+	mux.HandleWrite("PUT /tickets/settings", canManage, with(h.updateSettings))
+	mux.Handle("GET /tickets/queue", with(h.queue))
+	mux.Handle("GET /tickets/{ticketID}", with(h.detail))
+	mux.Handle("GET /tickets/{ticketID}/transcript", with(h.transcript))
+	mux.HandleWrite("POST /tickets/{ticketID}/resolve", canModerate, with(h.resolve))
+	mux.HandleWrite("POST /tickets/{ticketID}/cancel", allowCancel(service, resolve), with(h.cancel))
+	mux.HandleWrite("POST /tickets/{ticketID}/reopen", canModerate, with(h.reopen))
 }
 
 // routes are the ticket HTTP handlers.
-type routes struct {
-	service *Service
-	resolve modules.ActorResolver
-}
-
-func canModerate(actor modules.Actor) bool { return actor.CanModerate }
-
-func (rt routes) with(h func(http.ResponseWriter, *http.Request, modules.Actor)) http.Handler {
-	return modules.WithActor(rt.resolve, h)
-}
-
-func (rt routes) allow(check func(modules.Actor) bool) func(*http.Request) bool {
-	return modules.Allow(rt.resolve, check)
-}
-
-// allowCancel lets moderators and the ticket's owner cancel it.
-func (rt routes) allowCancel(r *http.Request) bool {
-	actor, err := rt.resolve(r)
-	if err != nil {
-		return false
-	}
-	ticket, _, err := rt.service.Detail(r.Context(), actor, r.PathValue("ticketID"))
-	return err == nil && ticket != nil && (actor.CanModerate || ticket.OwnerDiscordUserID == actor.DiscordUserID)
-}
+type routes struct{ service *Service }
 
 func (rt routes) settings(w http.ResponseWriter, r *http.Request, actor modules.Actor) {
 	settings, enabled, err := rt.service.Settings(r.Context(), actor)
@@ -89,12 +73,12 @@ func (rt routes) updateSettings(w http.ResponseWriter, r *http.Request, actor mo
 func (rt routes) queue(w http.ResponseWriter, r *http.Request, actor modules.Actor) {
 	query := r.URL.Query()
 	limit, _ := strconv.Atoi(query.Get("limit"))
-	items, err := rt.service.Queue(r.Context(), actor, Status(query.Get("status")), limit)
+	tickets, err := rt.service.Queue(r.Context(), actor, Status(query.Get("status")), limit)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	modules.WriteJSON(w, http.StatusOK, map[string]any{"tickets": items})
+	modules.WriteJSON(w, http.StatusOK, map[string]any{"tickets": tickets})
 }
 
 func (rt routes) detail(w http.ResponseWriter, r *http.Request, actor modules.Actor) {
@@ -115,7 +99,7 @@ func (rt routes) transcript(w http.ResponseWriter, r *http.Request, actor module
 	modules.WriteJSON(w, http.StatusOK, map[string]any{"transcript": transcript})
 }
 
-func (rt routes) resolveTicket(w http.ResponseWriter, r *http.Request, actor modules.Actor) {
+func (rt routes) resolve(w http.ResponseWriter, r *http.Request, actor modules.Actor) {
 	var input struct {
 		Transcript string `json:"transcript"`
 	}
@@ -124,24 +108,34 @@ func (rt routes) resolveTicket(w http.ResponseWriter, r *http.Request, actor mod
 		return
 	}
 	ticket, err := rt.service.Resolve(r.Context(), actor, r.PathValue("ticketID"), input.Transcript)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	modules.WriteJSON(w, http.StatusOK, map[string]any{"ticket": ticket})
+	writeTicket(w, ticket, err)
 }
 
 func (rt routes) cancel(w http.ResponseWriter, r *http.Request, actor modules.Actor) {
 	ticket, err := rt.service.Cancel(r.Context(), actor, r.PathValue("ticketID"))
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	modules.WriteJSON(w, http.StatusOK, map[string]any{"ticket": ticket})
+	writeTicket(w, ticket, err)
 }
 
 func (rt routes) reopen(w http.ResponseWriter, r *http.Request, actor modules.Actor) {
 	ticket, err := rt.service.Reopen(r.Context(), actor, r.PathValue("ticketID"))
+	writeTicket(w, ticket, err)
+}
+
+// allowCancel lets moderators and the ticket's owner cancel it. A ticket the
+// caller cannot see is refused here too, so its existence does not leak.
+func allowCancel(service *Service, resolve modules.ActorResolver) func(*http.Request) bool {
+	return func(r *http.Request) bool {
+		actor, err := resolve(r)
+		if err != nil {
+			return false
+		}
+		_, err = service.visibleTicket(r.Context(), actor, r.PathValue("ticketID"))
+		return err == nil
+	}
+}
+
+// writeTicket writes a lifecycle result.
+func writeTicket(w http.ResponseWriter, ticket *Ticket, err error) {
 	if err != nil {
 		writeError(w, err)
 		return

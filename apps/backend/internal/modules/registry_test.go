@@ -29,6 +29,37 @@ func TestRegistryKeepsGuildsAndModulesIndependent(t *testing.T) {
 	}
 }
 
+func TestSettingsRoundTripOverDefaults(t *testing.T) {
+	type settings struct {
+		Channel string `json:"channel"`
+		Limit   int    `json:"limit"`
+	}
+	registry := modules.NewRegistry(testutil.NewSQLiteDB(t))
+	ctx := context.Background()
+	defaults := settings{Limit: 3}
+	got, enabled, err := modules.LoadSettings(ctx, registry, "guild-a", modules.Tickets, defaults)
+	if err != nil || enabled || got != defaults {
+		t.Fatalf("unconfigured = %+v, %v, %v; want defaults, off", got, enabled, err)
+	}
+	if _, err := registry.SetConfiguration(ctx, modules.Configuration{
+		GuildID: "guild-a", ModuleID: modules.Tickets, Enabled: true, ConfigJSON: `{"channel":"entry"}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, enabled, err = modules.LoadSettings(ctx, registry, "guild-a", modules.Tickets, defaults)
+	if want := (settings{Channel: "entry", Limit: 3}); err != nil || !enabled || got != want {
+		t.Fatalf("partial settings = %+v, %v, %v; want %+v, on", got, enabled, err, want)
+	}
+	saved := settings{Channel: "other", Limit: 5}
+	if _, err := registry.SaveSettings(ctx, "guild-a", modules.Tickets, false, saved); err != nil {
+		t.Fatal(err)
+	}
+	got, enabled, err = modules.LoadSettings(ctx, registry, "guild-a", modules.Tickets, defaults)
+	if err != nil || enabled || got != saved {
+		t.Fatalf("saved settings = %+v, %v, %v; want %+v, off", got, enabled, err, saved)
+	}
+}
+
 func TestModuleStatesKeepSettings(t *testing.T) {
 	registry := modules.NewRegistry(testutil.NewSQLiteDB(t))
 	ctx := context.Background()

@@ -19,6 +19,13 @@ import (
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
+// Queue defaults for non-positive sizes, and the poller's pace.
+const (
+	defaultQueueSize = 1000
+	pollInterval     = time.Second
+	pollBatch        = 100
+)
+
 // Handler processes one case's due actions.
 type Handler func(ctx context.Context, caseID string) error
 
@@ -34,13 +41,12 @@ type Worker struct {
 	jobs      chan job
 	workers   int
 	pollEvery time.Duration
-	batchSize int
 	loops     []loop
 
 	mu         sync.Mutex
 	started    bool
 	active     bool
-	pending    map[string]struct{}
+	pending    map[string]struct{} // cases queued or running
 	handler    Handler
 	workCtx    context.Context
 	cancelPoll context.CancelFunc
@@ -50,7 +56,7 @@ type Worker struct {
 	done       chan struct{}
 
 	enqueued, dropped, processed, failed, panicked atomic.Uint64
-	last                                           atomic.Value // string: the last processed case ID
+	lastProcessed                                  atomic.Pointer[string]
 }
 
 // job is one queued case and the trace IDs of the request that queued it.
@@ -69,13 +75,12 @@ type loop struct {
 // Non-positive values get defaults of 1000 and 1.
 func New(size, workers int) *Worker {
 	if size <= 0 {
-		size = 1000
+		size = defaultQueueSize
 	}
 	return &Worker{
 		jobs:      make(chan job, size),
 		workers:   max(workers, 1),
-		pollEvery: time.Second,
-		batchSize: 100,
+		pollEvery: pollInterval,
 		pending:   make(map[string]struct{}),
 		done:      make(chan struct{}),
 	}
@@ -105,36 +110,23 @@ func (w *Worker) Start(ctx context.Context, handler Handler, source DueSource) {
 		w.queueWG.Add(1)
 		go w.work()
 	}
-	w.loopWG.Add(1)
-	go func() {
-		defer w.loopWG.Done()
-		every(pollCtx, w.pollEvery, func(ctx context.Context) error { return w.enqueueDue(ctx, source) })
-	}()
+	if source != nil {
+		w.loopWG.Add(1)
+		go func() {
+			defer w.loopWG.Done()
+			every(pollCtx, w.pollEvery, func(ctx context.Context) { w.enqueueDue(ctx, source) })
+		}()
+	}
 	for _, l := range w.loops {
 		w.loopWG.Add(1)
 		go func() {
 			defer w.loopWG.Done()
-			every(pollCtx, l.interval, func(ctx context.Context) error {
+			every(pollCtx, l.interval, func(ctx context.Context) {
 				if err := l.fn(ctx); err != nil && ctx.Err() == nil {
 					slog.ErrorContext(ctx, "Background loop failed", "loop", l.name, "error", err)
 				}
-				return nil
 			})
 		}()
-	}
-}
-
-// every runs fn now and then on each tick until ctx is done.
-func every(ctx context.Context, interval time.Duration, fn func(context.Context) error) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		_ = fn(ctx)
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
 	}
 }
 
@@ -171,57 +163,6 @@ func (w *Worker) Submit(ctx context.Context, caseID string) bool {
 		w.dropped.Add(1)
 		return false
 	}
-}
-
-// enqueueDue submits one batch of due cases from source.
-func (w *Worker) enqueueDue(ctx context.Context, source DueSource) error {
-	if source == nil {
-		return nil
-	}
-	caseIDs, err := source.ListExecutableCaseIDs(ctx, w.batchSize)
-	if err != nil {
-		if ctx.Err() == nil {
-			slog.Error("Failed to discover executable case actions", "error", err)
-		}
-		return err
-	}
-	for _, caseID := range caseIDs {
-		w.Submit(ctx, caseID)
-	}
-	return nil
-}
-
-// work runs queued cases until Stop closes the queue.
-func (w *Worker) work() {
-	defer w.queueWG.Done()
-	for next := range w.jobs {
-		w.process(next)
-	}
-}
-
-// process runs the handler for one case under the trace IDs it was queued
-// with. A panic is contained and counted as a failure.
-func (w *Worker) process(next job) {
-	defer func() {
-		w.mu.Lock()
-		delete(w.pending, next.caseID)
-		w.mu.Unlock()
-		if recovered := recover(); recovered != nil {
-			w.panicked.Add(1)
-			w.failed.Add(1)
-			slog.Error("Case action job panicked", "panic", recovered, "case_id", next.caseID,
-				"request_id", next.requestID, "correlation_id", next.correlationID)
-		}
-	}()
-	ctx := quack.ContextWithTrace(w.workCtx, next.requestID, next.correlationID)
-	if err := w.handler(ctx, next.caseID); err != nil {
-		w.failed.Add(1)
-		slog.Error("Case action job failed", "error", err, "case_id", next.caseID,
-			"request_id", next.requestID, "correlation_id", next.correlationID)
-		return
-	}
-	w.processed.Add(1)
-	w.last.Store(next.caseID)
 }
 
 // Stop stops the poller and loops, stops accepting cases, and waits for
@@ -271,9 +212,70 @@ func (w *Worker) Stats() quack.QueueStats {
 		FailedTotal:    w.failed.Load(),
 		PanickedTotal:  w.panicked.Load(),
 	}
-	if last, ok := w.last.Load().(string); ok {
-		stats.LastProcessedID = last
+	if last := w.lastProcessed.Load(); last != nil {
+		stats.LastProcessedID = *last
 		stats.LastProcessedType = "case_action_execution"
 	}
 	return stats
+}
+
+// enqueueDue submits one batch of due cases from source.
+func (w *Worker) enqueueDue(ctx context.Context, source DueSource) {
+	caseIDs, err := source.ListExecutableCaseIDs(ctx, pollBatch)
+	if err != nil {
+		if ctx.Err() == nil {
+			slog.ErrorContext(ctx, "Failed to discover executable case actions", "error", err)
+		}
+		return
+	}
+	for _, caseID := range caseIDs {
+		w.Submit(ctx, caseID)
+	}
+}
+
+// work runs queued cases until Stop closes the queue.
+func (w *Worker) work() {
+	defer w.queueWG.Done()
+	for next := range w.jobs {
+		w.process(next)
+	}
+}
+
+// process runs the handler for one case under the trace IDs it was queued
+// with. A panic is contained and counted as a failure.
+func (w *Worker) process(next job) {
+	defer func() {
+		w.mu.Lock()
+		delete(w.pending, next.caseID)
+		w.mu.Unlock()
+		if recovered := recover(); recovered != nil {
+			w.panicked.Add(1)
+			w.failed.Add(1)
+			slog.Error("Case action job panicked", "panic", recovered, "case_id", next.caseID,
+				"request_id", next.requestID, "correlation_id", next.correlationID)
+		}
+	}()
+	ctx := quack.ContextWithTrace(w.workCtx, next.requestID, next.correlationID)
+	if err := w.handler(ctx, next.caseID); err != nil {
+		w.failed.Add(1)
+		slog.Error("Case action job failed", "error", err, "case_id", next.caseID,
+			"request_id", next.requestID, "correlation_id", next.correlationID)
+		return
+	}
+	w.processed.Add(1)
+	w.lastProcessed.Store(&next.caseID)
+}
+
+// every runs fn now and then on each tick until ctx is done.
+func every(ctx context.Context, interval time.Duration, fn func(context.Context)) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		fn(ctx)
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }

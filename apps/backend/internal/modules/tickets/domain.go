@@ -1,11 +1,13 @@
-// Package tickets is the optional support-ticket module. A member opens a
-// ticket from a button in the entry channel and gets a private thread (or
-// text channel) shared with staff. Closing a ticket saves its transcript for
-// a bounded retention period; the ticket's timeline is kept.
+// Package tickets is the optional support-ticket module. A member presses
+// the Open ticket button (see EntryComponents) and gets a private thread, or
+// text channel, shared with staff. Closing a ticket saves its transcript for
+// a bounded retention period; the ticket's timeline is kept. Tickets are
+// separate from cases and appeals.
 package tickets
 
 import (
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -15,15 +17,18 @@ type Status string
 const (
 	// StatusOpen accepts member and staff replies.
 	StatusOpen Status = "open"
-	// StatusResolved is a staff-completed ticket eligible for bounded reopen.
+	// StatusResolved is a ticket staff closed as done. Staff may reopen it
+	// within the guild's reopen window.
 	StatusResolved Status = "resolved"
-	// StatusCancelled is an owner- or staff-cancelled ticket.
+	// StatusCancelled is a ticket its owner or staff withdrew.
 	StatusCancelled Status = "cancelled"
 )
 
 // EventType is the kind of a ticket timeline entry.
 type EventType string
 
+// Timeline entries. The first five follow the ticket's lifecycle; the last
+// two record repairs Quack made to the ticket's Discord channel.
 const (
 	EventOpened              EventType = "opened"
 	EventReplied             EventType = "replied"
@@ -55,7 +60,9 @@ var (
 type Settings struct {
 	EntryChannelDiscordID string   `json:"entry_channel_discord_id"`
 	StaffRoleDiscordIDs   []string `json:"staff_role_discord_ids"`
-	// UsePrivateThreads creates tickets under the entry channel when enabled.
+	// UsePrivateThreads opens tickets as private threads under the entry
+	// channel. When off, each ticket is a private text channel in the entry
+	// channel's category.
 	UsePrivateThreads       bool `json:"use_private_threads"`
 	TranscriptRetentionDays int  `json:"transcript_retention_days"`
 	DailyOpenLimit          int  `json:"daily_open_limit"`
@@ -64,11 +71,15 @@ type Settings struct {
 
 // Defaults returns the settings a guild starts with.
 func Defaults() Settings {
-	return Settings{UsePrivateThreads: true, TranscriptRetentionDays: 90, DailyOpenLimit: 3, ReopenWindowHours: 168}
+	return Settings{
+		UsePrivateThreads:       true,
+		TranscriptRetentionDays: 90,
+		DailyOpenLimit:          3,
+		ReopenWindowHours:       168,
+	}
 }
 
-// Ticket is one support ticket. Tickets are separate from cases and
-// appeals.
+// Ticket is one support ticket.
 type Ticket struct {
 	ID                      string     `json:"id"`
 	GuildID                 string     `json:"guild_id"`
@@ -107,4 +118,38 @@ type ModuleStatus struct {
 	Enabled         bool  `json:"enabled"`
 	EntryConfigured bool  `json:"entry_configured"`
 	OpenTickets     int64 `json:"open_tickets"`
+}
+
+// validateSettings checks settings; enabled tickets also need an entry
+// channel and a staff role.
+func validateSettings(settings Settings, enabled bool) error {
+	if enabled && strings.TrimSpace(settings.EntryChannelDiscordID) == "" {
+		return errors.New("entry channel is required when tickets are enabled")
+	}
+	if enabled && len(settings.StaffRoleDiscordIDs) == 0 {
+		return errors.New("at least one staff role is required when tickets are enabled")
+	}
+	for _, roleID := range settings.StaffRoleDiscordIDs {
+		if strings.TrimSpace(roleID) == "" {
+			return errors.New("staff role ids cannot be empty")
+		}
+	}
+	if settings.TranscriptRetentionDays < 1 || settings.TranscriptRetentionDays > 365 {
+		return errors.New("transcript retention must be 1 to 365 days")
+	}
+	if settings.DailyOpenLimit < 1 || settings.DailyOpenLimit > 20 {
+		return errors.New("daily open limit must be 1 to 20")
+	}
+	if settings.ReopenWindowHours < 1 || settings.ReopenWindowHours > 720 {
+		return errors.New("reopen window must be 1 to 720 hours")
+	}
+	return nil
+}
+
+// validateReply bounds a reply to the length the reply modal allows.
+func validateReply(body string) error {
+	if strings.TrimSpace(body) == "" || len(body) > 4000 {
+		return errors.New("ticket reply must contain 1 to 4000 characters")
+	}
+	return nil
 }

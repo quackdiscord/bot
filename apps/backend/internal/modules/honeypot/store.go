@@ -2,7 +2,6 @@ package honeypot
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/oklog/ulid/v2"
@@ -43,21 +42,36 @@ func Models() []any {
 // Claim records a message before anything acts on it, and reports false if
 // it was already claimed, so a gateway replay cannot open a second case.
 func (s *Store) Claim(ctx context.Context, message Message, templateID string, outcome Outcome) (*Trigger, bool, error) {
-	if s == nil || s.db == nil {
-		return nil, false, errors.New("honeypot database is not connected")
-	}
 	now := time.Now().UTC()
-	record := Trigger{ID: ulid.Make().String(), GuildID: message.GuildID, ChannelDiscordID: message.ChannelDiscordID, MessageDiscordID: message.MessageDiscordID, TargetDiscordUserID: message.AuthorDiscordUserID, TemplateID: templateID, Outcome: outcome, CreatedAt: now, UpdatedAt: now}
-	result := s.db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&record)
+	trigger := Trigger{
+		ID:                  ulid.Make().String(),
+		GuildID:             message.GuildID,
+		ChannelDiscordID:    message.ChannelDiscordID,
+		MessageDiscordID:    message.MessageDiscordID,
+		TargetDiscordUserID: message.AuthorDiscordUserID,
+		TemplateID:          templateID,
+		Outcome:             outcome,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	}
+	result := s.db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&trigger)
 	if result.Error != nil {
 		return nil, false, result.Error
 	}
-	return &record, result.RowsAffected == 1, nil
+	return &trigger, result.RowsAffected == 1, nil
 }
 
-// Complete records a pending trigger's outcome. A trigger completes once.
+// Complete records a pending trigger's outcome. A trigger completes once;
+// a second completion gets ErrDuplicate.
 func (s *Store) Complete(ctx context.Context, id string, outcome Outcome, caseID, failureCode string) error {
-	result := s.db.WithContext(ctx).Model(&Trigger{}).Where("id = ? AND outcome = ?", id, OutcomePending).Updates(map[string]any{"outcome": outcome, "case_id": caseID, "failure_code": failureCode, "updated_at": time.Now().UTC()})
+	result := s.db.WithContext(ctx).Model(&Trigger{}).
+		Where("id = ? AND outcome = ?", id, OutcomePending).
+		Updates(map[string]any{
+			"outcome":      outcome,
+			"case_id":      caseID,
+			"failure_code": failureCode,
+			"updated_at":   time.Now().UTC(),
+		})
 	if result.Error != nil {
 		return result.Error
 	}
@@ -69,18 +83,19 @@ func (s *Store) Complete(ctx context.Context, id string, outcome Outcome, caseID
 
 // Statistics counts a guild's triggers by outcome.
 func (s *Store) Statistics(ctx context.Context, guildID string) (Statistics, error) {
-	if s == nil || s.db == nil {
-		return Statistics{}, errors.New("honeypot database is not connected")
-	}
-	type count struct {
+	var rows []struct {
 		Outcome Outcome
 		Count   uint64
 	}
-	var rows []count
-	if err := s.db.WithContext(ctx).Model(&Trigger{}).Select("outcome, count(*) AS count").Where("guild_id = ?", guildID).Group("outcome").Scan(&rows).Error; err != nil {
+	err := s.db.WithContext(ctx).Model(&Trigger{}).
+		Select("outcome, count(*) AS count").
+		Where("guild_id = ?", guildID).
+		Group("outcome").
+		Scan(&rows).Error
+	if err != nil {
 		return Statistics{}, err
 	}
-	stats := Statistics{}
+	var stats Statistics
 	for _, row := range rows {
 		stats.Total += row.Count
 		switch row.Outcome {

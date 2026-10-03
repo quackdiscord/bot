@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
-	"sort"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -14,15 +16,19 @@ import (
 	"github.com/quackdiscord/bot/internal/modules"
 )
 
+// secretPattern matches bot tokens, webhook URLs, and key=value secrets that
+// members paste into chat, so they are redacted before reaching a log
+// channel.
 var secretPattern = regexp.MustCompile(`(?i)(bot\s+[A-Za-z0-9._-]{20,}|https://(?:discord(?:app)?\.com/api/)?webhooks/[^\s]+|(?:token|secret|authorization)\s*[:=]\s*[^\s]+)`)
 
 // DeliveryClient posts log messages. Payloads are already redacted.
 type DeliveryClient interface {
-	SendStaffLog(context.Context, string, string, string) error
-	ValidateStaffOnlyChannel(context.Context, string, string) error
+	SendStaffLog(ctx context.Context, guildID, channelID, payload string) error
+	ValidateStaffOnlyChannel(ctx context.Context, guildID, channelID string) error
 }
 
-// RetryAfterError is an error carrying Discord's rate-limit delay.
+// RetryAfterError is a delivery error that says how long Discord asked us
+// to wait before retrying.
 type RetryAfterError interface {
 	error
 	RetryAfter() time.Duration
@@ -44,27 +50,25 @@ type Service struct {
 	auditor  modules.Auditor
 	client   DeliveryClient
 	cache    *MessageCache
-	sleep    func(context.Context, time.Duration) error
-	mu       sync.Mutex
-	status   map[string]Status
+
+	mu     sync.Mutex
+	status map[string]Status
 }
 
-// NewService returns a Service. A nil cache gets a default one; a nil
-// auditor only logs settings changes.
+// NewService returns a Service that caches recent messages in cache, or in
+// a default-sized cache if cache is nil. A nil auditor only logs settings
+// changes.
 func NewService(registry *modules.Registry, auditor modules.Auditor, client DeliveryClient, cache *MessageCache) *Service {
 	if cache == nil {
-		cache = NewMessageCache(1000)
+		cache = NewMessageCache(defaultCacheLimit)
 	}
-	return &Service{registry: registry, auditor: auditor, client: client, cache: cache, sleep: func(ctx context.Context, d time.Duration) error {
-		timer := time.NewTimer(d)
-		defer timer.Stop()
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-timer.C:
-			return nil
-		}
-	}, status: map[string]Status{}}
+	return &Service{
+		registry: registry,
+		auditor:  auditor,
+		client:   client,
+		cache:    cache,
+		status:   make(map[string]Status),
+	}
 }
 
 // Settings returns the guild's settings, whether logging is on, and its
@@ -80,30 +84,59 @@ func (s *Service) Settings(ctx context.Context, actor modules.Actor) (Settings, 
 // UpdateSettings saves the guild's settings after checking that every
 // destination is staff-only. It needs Manage Guild.
 func (s *Service) UpdateSettings(ctx context.Context, actor modules.Actor, enabled bool, settings Settings) (Settings, error) {
+	const action = "general_logging.settings.update"
 	if !actor.CanManage {
-		s.audit(ctx, actor, "general_logging.settings.update", "denied", ErrPermissionDenied)
+		s.audit(ctx, actor, action, "denied", ErrPermissionDenied)
 		return Settings{}, ErrPermissionDenied
 	}
 	if err := validateSettings(settings, enabled); err != nil {
 		return Settings{}, err
 	}
-	if s.client == nil {
-		return Settings{}, errors.New("general logging Discord client is not configured")
-	}
-	for _, channelID := range uniqueChannels(settings.Channels) {
+	for _, channelID := range destinations(settings.Channels) {
 		if err := s.client.ValidateStaffOnlyChannel(ctx, actor.GuildID, channelID); err != nil {
-			s.audit(ctx, actor, "general_logging.settings.update", "failure", err)
+			s.audit(ctx, actor, action, "failure", err)
 			return Settings{}, err
 		}
 	}
-	payload, _ := json.Marshal(settings)
-	_, err := s.registry.SetConfiguration(ctx, modules.Configuration{GuildID: actor.GuildID, ModuleID: modules.GeneralLogging, Enabled: enabled, ConfigJSON: string(payload)})
-	if err != nil {
+	if _, err := s.registry.SaveSettings(ctx, actor.GuildID, modules.GeneralLogging, enabled, settings); err != nil {
 		return Settings{}, err
 	}
 	s.cache.SetGuildLimit(actor.GuildID, settings.CacheEntriesPerGuild)
-	s.audit(ctx, actor, "general_logging.settings.update", "success", nil)
+	s.audit(ctx, actor, action, "success", nil)
 	return settings, nil
+}
+
+// RepairDeletedChannel removes every route to channelID, turning logging
+// off if no routes remain. It needs Manage Guild.
+func (s *Service) RepairDeletedChannel(ctx context.Context, actor modules.Actor, channelID string) (Settings, bool, error) {
+	if !actor.CanManage {
+		return Settings{}, false, ErrPermissionDenied
+	}
+	settings, enabled, err := s.loadSettings(ctx, actor.GuildID)
+	if err != nil {
+		return Settings{}, false, err
+	}
+	maps.DeleteFunc(settings.Channels, func(_ EventType, destination string) bool {
+		return destination == channelID
+	})
+	if len(settings.Channels) == 0 {
+		enabled = false
+	}
+	updated, err := s.UpdateSettings(ctx, actor, enabled, settings)
+	if err != nil {
+		return Settings{}, false, err
+	}
+	s.audit(ctx, actor, "general_logging.channel_repair", "success", nil)
+	return updated, enabled, nil
+}
+
+// Status returns the guild's delivery counters.
+func (s *Service) Status(guildID string) Status {
+	s.mu.Lock()
+	status := s.status[guildID]
+	s.mu.Unlock()
+	status.CachedMessages = s.cache.Len(guildID)
+	return status
 }
 
 // CacheMessage caches a message for a guild with logging on.
@@ -121,11 +154,9 @@ func (s *Service) CacheMessage(ctx context.Context, message CachedMessage) error
 }
 
 // Handle delivers one event to its routed channel, filling in cached
-// content, and retries up to the guild's limit.
+// content, and retries up to the guild's limit. A delivered deletion drops
+// the message from the cache; a failed one keeps it for a gateway replay.
 func (s *Service) Handle(ctx context.Context, event Event) error {
-	if s.client == nil {
-		return errors.New("general logging service is not configured")
-	}
 	settings, enabled, err := s.loadSettings(ctx, event.GuildID)
 	if err != nil {
 		return err
@@ -149,16 +180,17 @@ func (s *Service) Handle(ctx context.Context, event Event) error {
 			s.recordSuccess(event.GuildID)
 			return nil
 		}
-		if attempt < settings.MaxDeliveryAttempts {
-			delay := time.Duration(attempt) * 100 * time.Millisecond
-			var retry RetryAfterError
-			if errors.As(last, &retry) && retry.RetryAfter() > delay {
-				delay = retry.RetryAfter()
-			}
-			if err := s.sleep(ctx, delay); err != nil {
-				last = err
-				break
-			}
+		if attempt == settings.MaxDeliveryAttempts {
+			break
+		}
+		delay := time.Duration(attempt) * 100 * time.Millisecond
+		var retry RetryAfterError
+		if errors.As(last, &retry) {
+			delay = max(delay, retry.RetryAfter())
+		}
+		if err := sleep(ctx, delay); err != nil {
+			last = err
+			break
 		}
 	}
 	s.recordFailure(event.GuildID, last)
@@ -168,13 +200,22 @@ func (s *Service) Handle(ctx context.Context, event Event) error {
 // HandleBulkDelete logs a bulk deletion with whatever content was cached,
 // then drops those messages from the cache.
 func (s *Service) HandleBulkDelete(ctx context.Context, guildID, channelID string, messageIDs []string) error {
-	parts := make([]string, 0, len(messageIDs))
+	var contents []string
 	for _, id := range messageIDs {
 		if cached, ok := s.cache.Get(guildID, id); ok {
-			parts = append(parts, cached.Content)
+			contents = append(contents, cached.Content)
 		}
 	}
-	err := s.Handle(ctx, Event{GuildID: guildID, ChannelDiscordID: channelID, Type: MessageBulkDelete, Before: strings.Join(parts, "\n---\n"), Metadata: map[string]string{"message_count": fmt.Sprint(len(messageIDs)), "cached_count": fmt.Sprint(len(parts))}})
+	err := s.Handle(ctx, Event{
+		GuildID:          guildID,
+		ChannelDiscordID: channelID,
+		Type:             MessageBulkDelete,
+		Before:           strings.Join(contents, "\n---\n"),
+		Metadata: map[string]string{
+			"message_count": strconv.Itoa(len(messageIDs)),
+			"cached_count":  strconv.Itoa(len(contents)),
+		},
+	})
 	if err != nil {
 		return err
 	}
@@ -184,58 +225,21 @@ func (s *Service) HandleBulkDelete(ctx context.Context, guildID, channelID strin
 	return nil
 }
 
-// RepairDeletedChannel removes every route to channelID, turning logging
-// off if no routes remain.
-func (s *Service) RepairDeletedChannel(ctx context.Context, actor modules.Actor, channelID string) (Settings, bool, error) {
-	if !actor.CanManage {
-		return Settings{}, false, ErrPermissionDenied
-	}
-	settings, enabled, err := s.loadSettings(ctx, actor.GuildID)
-	if err != nil {
-		return Settings{}, false, err
-	}
-	for eventType, destination := range settings.Channels {
-		if destination == channelID {
-			delete(settings.Channels, eventType)
-		}
-	}
-	if len(settings.Channels) == 0 {
-		enabled = false
-	}
-	updated, err := s.UpdateSettings(ctx, actor, enabled, settings)
-	if err != nil {
-		return Settings{}, false, err
-	}
-	s.audit(ctx, actor, "general_logging.channel_repair", "success", nil)
-	return updated, enabled, nil
-}
-
-// Status returns the guild's delivery counters.
-func (s *Service) Status(guildID string) Status {
-	s.mu.Lock()
-	status := s.status[guildID]
-	s.mu.Unlock()
-	status.CachedMessages = s.cache.Len(guildID)
-	return status
-}
-
+// loadSettings returns the guild's settings, defaults if it has none, and
+// whether logging is on.
 func (s *Service) loadSettings(ctx context.Context, guildID string) (Settings, bool, error) {
-	configuration, err := s.registry.Configuration(ctx, guildID, modules.GeneralLogging)
+	settings, enabled, err := modules.LoadSettings(ctx, s.registry, guildID, modules.GeneralLogging, Defaults())
 	if err != nil {
-		return Settings{}, false, err
-	}
-	if configuration == nil {
-		return Defaults(), false, nil
-	}
-	settings := Defaults()
-	if err := json.Unmarshal([]byte(configuration.ConfigJSON), &settings); err != nil {
 		return Settings{}, false, err
 	}
 	if settings.Channels == nil {
 		settings.Channels = map[EventType]string{}
 	}
-	return settings, configuration.Enabled, nil
+	return settings, enabled, nil
 }
+
+// enrichFromCache fills in what an edit or delete event lacks from the
+// cached copy of its message.
 func (s *Service) enrichFromCache(event *Event) {
 	if event.Type != MessageEdit && event.Type != MessageDelete {
 		return
@@ -254,39 +258,7 @@ func (s *Service) enrichFromCache(event *Event) {
 		event.EmbedTypes = cached.EmbedTypes
 	}
 }
-func formatEvent(event Event, settings Settings) string {
-	redact := func(value string) string { return secretPattern.ReplaceAllString(value, "[REDACTED]") }
-	payload := map[string]any{"event": event.Type, "channel_id": event.ChannelDiscordID, "message_id": event.MessageDiscordID, "actor_id": event.ActorDiscordUserID}
-	if settings.IncludeMessageContent {
-		payload["before"] = redact(event.Before)
-		payload["after"] = redact(event.After)
-	}
-	if settings.IncludeAttachmentMetadata {
-		payload["attachments"] = event.Attachments
-	}
-	if settings.IncludeEmbedMetadata {
-		payload["embed_types"] = event.EmbedTypes
-	}
-	metadata := map[string]string{}
-	for key, value := range event.Metadata {
-		metadata[key] = redact(value)
-	}
-	payload["metadata"] = metadata
-	encoded, _ := json.Marshal(payload)
-	return string(encoded)
-}
-func uniqueChannels(routes map[EventType]string) []string {
-	set := map[string]struct{}{}
-	for _, channelID := range routes {
-		set[channelID] = struct{}{}
-	}
-	out := make([]string, 0, len(set))
-	for id := range set {
-		out = append(out, id)
-	}
-	sort.Strings(out)
-	return out
-}
+
 func (s *Service) recordSuccess(guildID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -296,6 +268,7 @@ func (s *Service) recordSuccess(guildID string) {
 	status.LastFailureAt = nil
 	s.status[guildID] = status
 }
+
 func (s *Service) recordFailure(guildID string, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -307,15 +280,66 @@ func (s *Service) recordFailure(guildID string, err error) {
 	s.status[guildID] = status
 }
 
-// audit logs and records a settings operation.
-func (s *Service) audit(ctx context.Context, actor modules.Actor, action, result string, err error) {
+// audit logs and records a settings operation. Deliveries are never
+// audited: general logging is separate from the audit log.
+func (s *Service) audit(ctx context.Context, actor modules.Actor, action, result string, cause error) {
 	reason := ""
-	if err != nil {
-		reason = err.Error()
+	if cause != nil {
+		reason = cause.Error()
 	}
 	modules.Audit(ctx, s.auditor, "general_logging", modules.AuditEvent{
-		GuildID: actor.GuildID, ActorDiscordUserID: actor.DiscordUserID,
-		Action: action, ResourceType: "general_logging_settings",
-		Result: result, FailureReason: reason,
+		GuildID:            actor.GuildID,
+		ActorDiscordUserID: actor.DiscordUserID,
+		Action:             action,
+		ResourceType:       "general_logging_settings",
+		Result:             result,
+		FailureReason:      reason,
 	})
+}
+
+// formatEvent renders event as the JSON posted to the log channel,
+// including only the message details the guild opted into, with secrets
+// redacted.
+func formatEvent(event Event, settings Settings) string {
+	redact := func(value string) string { return secretPattern.ReplaceAllString(value, "[REDACTED]") }
+	payload := map[string]any{
+		"event":      event.Type,
+		"channel_id": event.ChannelDiscordID,
+		"message_id": event.MessageDiscordID,
+		"actor_id":   event.ActorDiscordUserID,
+	}
+	if settings.IncludeMessageContent {
+		payload["before"] = redact(event.Before)
+		payload["after"] = redact(event.After)
+	}
+	if settings.IncludeAttachmentMetadata {
+		payload["attachments"] = event.Attachments
+	}
+	if settings.IncludeEmbedMetadata {
+		payload["embed_types"] = event.EmbedTypes
+	}
+	metadata := make(map[string]string, len(event.Metadata))
+	for key, value := range event.Metadata {
+		metadata[key] = redact(value)
+	}
+	payload["metadata"] = metadata
+	encoded, _ := json.Marshal(payload)
+	return string(encoded)
+}
+
+// destinations returns the distinct channels routes send to, sorted.
+func destinations(routes map[EventType]string) []string {
+	return slices.Compact(slices.Sorted(maps.Values(routes)))
+}
+
+// sleep waits for d or until ctx is done.
+func sleep(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }

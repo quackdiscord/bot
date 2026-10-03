@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/internal/discord"
 	"github.com/quackdiscord/bot/internal/modules"
 	"github.com/quackdiscord/bot/internal/quack"
 	"gorm.io/gorm"
@@ -17,7 +18,7 @@ type StaffResolver interface {
 }
 
 // Module is the tickets module wired to Discord and the API. The app
-// registers its components, gateway handlers, and routes, and runs
+// mounts its routes, registers its gateway handlers and components, and runs
 // SweepTranscripts periodically.
 type Module struct {
 	service  *Service
@@ -27,6 +28,7 @@ type Module struct {
 	guilds   *modules.Guilds
 	staff    StaffResolver
 
+	// repairMu guards the thread-repair queue; see repairThreads.
 	repairMu      sync.Mutex
 	repairPending map[string]struct{}
 	repairRunning bool
@@ -53,6 +55,28 @@ func New(db *gorm.DB, registry *modules.Registry, audit modules.Auditor, guilds 
 // MountHTTP mounts the ticket routes.
 func (m *Module) MountHTTP(mux modules.Mux) {
 	RegisterRoutes(mux, m.service, modules.RequestActor)
+}
+
+// RegisterGateway subscribes tickets to the gateway events that can change
+// who may see a ticket, or delete one.
+func (m *Module) RegisterGateway(session *discordgo.Session) {
+	session.AddHandler(m.onGuildCreate)
+	session.AddHandler(m.onMemberUpdate)
+	session.AddHandler(m.onRoleUpdate)
+	session.AddHandler(m.onRoleDelete)
+	session.AddHandler(m.onChannelDelete)
+}
+
+// RegisterComponents installs the ticket buttons and the reply modal on
+// router.
+func (m *Module) RegisterComponents(router *discord.Router) {
+	router.HandleComponent(componentNamespace, "open", m.openComponent)
+	router.HandleComponent(componentNamespace, "queue", m.queueComponent)
+	router.HandleComponent(componentNamespace, "view", m.viewComponent)
+	router.HandleComponent(componentNamespace, "reply", m.replyComponent)
+	router.HandleComponent(componentNamespace, "close", m.closeComponent)
+	router.HandleComponent(componentNamespace, "repair", m.repairComponent)
+	router.HandleModal(componentNamespace, "reply-submit", m.submitReplyModal)
 }
 
 // SweepTranscripts deletes transcripts past their retention. Ticket

@@ -36,7 +36,8 @@ func Allow(resolve ActorResolver, check func(Actor) bool) func(*http.Request) bo
 	}
 }
 
-// CanManage reports whether the actor has Manage Guild.
+// CanManage reports whether the actor has Manage Guild. It is the check
+// most module writes pass to Allow.
 func CanManage(actor Actor) bool { return actor.CanManage }
 
 // WriteJSON writes v as a JSON response.

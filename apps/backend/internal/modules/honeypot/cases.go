@@ -16,13 +16,16 @@ type CaseCreator interface {
 	CreateSystemHoneypot(ctx context.Context, guildID string, input quack.CaseInput) (*quack.CaseResponse, error)
 }
 
-// caseApplier is the CaseApplier that opens real cases.
+// caseApplier is the CaseApplier that opens real cases. It re-checks the
+// request so nothing but a complete, Quack-attributed honeypot request can
+// reach the system case path.
 type caseApplier struct{ cases CaseCreator }
 
 // ApplyHoneypotCase checks that the request is a complete, system-attributed
 // honeypot request and opens its case.
 func (a caseApplier) ApplyHoneypotCase(ctx context.Context, request ApplyRequest) (ApplyResult, error) {
-	if request.Source != SourceHoneypot || request.ActorType != ActorTypeSystem || strings.TrimSpace(request.ActorDiscordUserID) != "" {
+	if request.Source != SourceHoneypot || request.ActorType != ActorTypeSystem ||
+		strings.TrimSpace(request.ActorDiscordUserID) != "" {
 		return ApplyResult{}, errors.New("honeypot case attribution is invalid")
 	}
 	for _, field := range []string{
@@ -54,13 +57,13 @@ type TemplateStore interface {
 	GetCaseTemplateExpanded(ctx context.Context, guildID, templateID string) (*quack.ExpandedCaseTemplate, error)
 }
 
-// templates is the TemplateValidator over the live template.
-type templates struct{ store TemplateStore }
+// templateValidator is the TemplateValidator over the live template.
+type templateValidator struct{ store TemplateStore }
 
 // ValidateHoneypotTemplate accepts only a template that can run with nobody
 // at the keyboard: active, no required context fields, exactly one default
 // level, and at most one DM, timeout, kick, or ban per level.
-func (v templates) ValidateHoneypotTemplate(ctx context.Context, guildID, templateID string) error {
+func (v templateValidator) ValidateHoneypotTemplate(ctx context.Context, guildID, templateID string) error {
 	template, err := v.store.GetCaseTemplateExpanded(ctx, strings.TrimSpace(guildID), strings.TrimSpace(templateID))
 	if err != nil {
 		return err

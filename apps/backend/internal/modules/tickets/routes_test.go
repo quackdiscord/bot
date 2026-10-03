@@ -30,7 +30,7 @@ func (m testMux) HandleWrite(pattern string, allowed func(*http.Request) bool, h
 }
 
 func TestRoutes(t *testing.T) {
-	_, service, _ := setup(t)
+	service, _, _, _ := setup(t)
 	for _, test := range []struct {
 		name         string
 		actor        modules.Actor

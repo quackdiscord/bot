@@ -68,22 +68,26 @@ type ApplyResult struct {
 
 // CaseApplier opens honeypot cases.
 type CaseApplier interface {
-	ApplyHoneypotCase(context.Context, ApplyRequest) (ApplyResult, error)
+	ApplyHoneypotCase(ctx context.Context, request ApplyRequest) (ApplyResult, error)
 }
 
-// TemplateValidator checks that a template can run unattended.
+// TemplateValidator checks that a template can run unattended. guildID is
+// the internal guild ID.
 type TemplateValidator interface {
-	ValidateHoneypotTemplate(context.Context, string, string) error
+	ValidateHoneypotTemplate(ctx context.Context, guildID, templateID string) error
 }
 
-// ChannelValidator checks that Quack can see a trap channel.
+// ChannelValidator checks that Quack can see a trap channel. guildID is the
+// internal guild ID.
 type ChannelValidator interface {
-	ValidateHoneypotChannel(context.Context, string, string) error
+	ValidateHoneypotChannel(ctx context.Context, guildID, channelID string) error
 }
 
-// Outcome is what came of a trigger.
+// Outcome is what came of a trigger. A trigger is claimed as pending (or
+// straight away as exempt) and completed once as created or failed.
 type Outcome string
 
+// The outcomes a trigger can record.
 const (
 	OutcomePending Outcome = "pending"
 	OutcomeCreated Outcome = "created"

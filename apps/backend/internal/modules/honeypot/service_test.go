@@ -99,7 +99,13 @@ func enable(t *testing.T, fixture *fixture, guildID string) modules.Actor {
 }
 
 func message(id string) honeypot.Message {
-	return honeypot.Message{GuildID: "guild-a", ChannelDiscordID: "trap", MessageDiscordID: id, AuthorDiscordUserID: "member", MessageURL: "https://discord.com/channels/guild-a/trap/" + id}
+	return honeypot.Message{
+		GuildID:             "guild-a",
+		ChannelDiscordID:    "trap",
+		MessageDiscordID:    id,
+		AuthorDiscordUserID: "member",
+		MessageURL:          "https://discord.com/channels/guild-a/trap/" + id,
+	}
 }
 
 func TestNormalPathContractStatisticsAndAudit(t *testing.T) {
@@ -113,7 +119,8 @@ func TestNormalPathContractStatisticsAndAudit(t *testing.T) {
 		t.Fatalf("result=%+v calls=%d", result, fixture.applier.count())
 	}
 	request := fixture.applier.requests[0]
-	if request.Source != honeypot.SourceHoneypot || request.ActorType != honeypot.ActorTypeSystem || request.ActorDiscordUserID != "" || request.TargetDiscordUserID != "member" {
+	if request.Source != honeypot.SourceHoneypot || request.ActorType != honeypot.ActorTypeSystem ||
+		request.ActorDiscordUserID != "" || request.TargetDiscordUserID != "member" {
 		t.Fatalf("system attribution contract=%+v", request)
 	}
 	if request.IdempotencyKey != "honeypot:guild-a:message-1" || request.ContextMessageDiscordID != "message-1" || request.ContextURL == "" {
@@ -265,62 +272,22 @@ func TestGuildAndModuleConfigurationIsolation(t *testing.T) {
 	}
 }
 
-func TestPoolDrainsOnStop(t *testing.T) {
-	fixture := setup(t)
-	enable(t, fixture, "guild-a")
-	pool := honeypot.NewPool(fixture.service)
-	pool.Start(context.Background())
-	for index := range 100 {
-		if !pool.Submit(message(fmt.Sprintf("queued-%d", index))) {
-			t.Fatal("message was dropped")
-		}
-	}
-	if err := pool.Stop(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if err := pool.Stop(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if pool.Submit(message("after-stop")) {
-		t.Fatal("submit after stop succeeded")
-	}
-	if fixture.applier.count() != 100 {
-		t.Fatalf("drain applied %d cases", fixture.applier.count())
-	}
-}
-
 func TestManagerPermissions(t *testing.T) {
 	fixture := setup(t)
-	if _, _, err := fixture.service.Settings(context.Background(), modules.Actor{GuildID: "guild-a"}); !errors.Is(err, honeypot.ErrPermissionDenied) {
-		t.Fatalf("read permission error=%v", err)
+	ctx := context.Background()
+	stranger := modules.Actor{GuildID: "guild-a"}
+	if _, _, err := fixture.service.Settings(ctx, stranger); !errors.Is(err, honeypot.ErrPermissionDenied) {
+		t.Fatalf("read without Manage Guild: got %v, want ErrPermissionDenied", err)
 	}
-	if _, _, err := fixture.service.UpdateSettings(context.Background(), modules.Actor{GuildID: "guild-a"}, true, honeypot.Settings{}); !errors.Is(err, honeypot.ErrPermissionDenied) {
-		t.Fatalf("write permission error=%v", err)
+	_, _, err := fixture.service.UpdateSettings(ctx, stranger, true, honeypot.Settings{})
+	if !errors.Is(err, honeypot.ErrPermissionDenied) {
+		t.Fatalf("write without Manage Guild: got %v, want ErrPermissionDenied", err)
 	}
 	fixture.validator.channelErr = errors.New("cannot observe channel")
 	actor := modules.Actor{GuildID: "guild-a", DiscordUserID: "admin", CanManage: true}
-	_, _, err := fixture.service.UpdateSettings(context.Background(), actor, true, honeypot.Settings{ChannelDiscordID: "trap", TemplateID: "template"})
+	_, _, err = fixture.service.UpdateSettings(ctx, actor, true, honeypot.Settings{ChannelDiscordID: "trap", TemplateID: "template"})
 	if !errors.Is(err, honeypot.ErrChannelUnavailable) {
-		t.Fatalf("channel permission error=%v", err)
-	}
-}
-
-func TestPendingClaimCannotBeCompletedTwice(t *testing.T) {
-	fixture := setup(t)
-	store := honeypot.NewStore(fixture.db)
-	trigger, claimed, err := store.Claim(context.Background(), message("manual"), "template", honeypot.OutcomePending)
-	if err != nil || !claimed {
-		t.Fatalf("claim=%v err=%v", claimed, err)
-	}
-	if err := store.Complete(context.Background(), trigger.ID, honeypot.OutcomeCreated, "case", ""); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.Complete(context.Background(), trigger.ID, honeypot.OutcomeFailed, "", "late"); !errors.Is(err, honeypot.ErrDuplicate) {
-		t.Fatalf("second completion error=%v", err)
-	}
-	stats, err := store.Statistics(context.Background(), "guild-a")
-	if err != nil || stats.Created != 1 || stats.Failed != 0 {
-		t.Fatalf("stats=%+v err=%v", stats, err)
+		t.Fatalf("unobservable channel: got %v, want ErrChannelUnavailable", err)
 	}
 }
 

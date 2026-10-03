@@ -7,18 +7,10 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/quackdiscord/bot/internal/modules"
 )
 
-// RegisterGateway subscribes tickets to the gateway events that can change
-// who may see a ticket, or delete one.
-func (m *Module) RegisterGateway(session *discordgo.Session) {
-	session.AddHandler(m.onGuildCreate)
-	session.AddHandler(m.onMemberUpdate)
-	session.AddHandler(m.onRoleUpdate)
-	session.AddHandler(m.onRoleDelete)
-	session.AddHandler(m.onChannelDelete)
-}
+// repairPage is how many tickets one thread-repair query loads.
+const repairPage = 100
 
 // onGuildCreate repairs thread membership whenever a guild becomes
 // available, including after a reconnect that may have missed demotions.
@@ -30,7 +22,10 @@ func (m *Module) onGuildCreate(_ *discordgo.Session, event *discordgo.GuildCreat
 
 // onMemberUpdate repairs thread membership after a member's roles change.
 func (m *Module) onMemberUpdate(_ *discordgo.Session, event *discordgo.GuildMemberUpdate) {
-	if event.Member != nil && (event.BeforeUpdate == nil || !slices.Equal(event.Roles, event.BeforeUpdate.Roles)) {
+	if event.Member == nil {
+		return
+	}
+	if event.BeforeUpdate == nil || !slices.Equal(event.Roles, event.BeforeUpdate.Roles) {
 		m.repairThreads(event.GuildID)
 	}
 }
@@ -58,9 +53,16 @@ func (m *Module) onChannelDelete(_ *discordgo.Session, event *discordgo.ChannelD
 	if err != nil {
 		return
 	}
-	_ = m.discord.HandleDeletedEntryChannel(ctx, guildID, event.ID)
-	if ticketID, err := m.store.ticketIDByChannel(ctx, guildID, event.ID); err == nil && ticketID != "" {
-		_ = m.discord.HandleDeletedChannel(ctx, guildID, ticketID, event.ID)
+	if err := m.service.RepairDeletedEntryChannel(ctx, guildID, event.ID); err != nil {
+		slog.WarnContext(ctx, "Ticket entry channel repair failed", "guild_id", guildID, "error", err)
+	}
+	ticketID, err := m.store.ticketIDByChannel(ctx, guildID, event.ID)
+	if err != nil || ticketID == "" {
+		return
+	}
+	if err := m.service.RecordChannelMissing(ctx, guildID, ticketID, event.ID); err != nil {
+		slog.WarnContext(ctx, "Ticket channel deletion not recorded",
+			"guild_id", guildID, "ticket_id", ticketID, "error", err)
 	}
 }
 
@@ -100,14 +102,14 @@ func (m *Module) repairGuildThreads(discordGuildID string) {
 	if err != nil {
 		return
 	}
-	settings, _, err := m.service.Settings(ctx, modules.Actor{GuildID: guildID, CanManage: true})
+	settings, _, err := m.service.loadSettings(ctx, guildID)
 	if err != nil {
 		slog.WarnContext(ctx, "Ticket permission repair settings unavailable", "guild_id", guildID)
 		return
 	}
 	after := ""
 	for {
-		page, err := m.store.threadsAfter(ctx, guildID, after, 100)
+		page, err := m.store.threadsAfter(ctx, guildID, after, repairPage)
 		if err != nil {
 			slog.ErrorContext(ctx, "Ticket permission repair lookup failed", "guild_id", guildID)
 			return
@@ -115,7 +117,8 @@ func (m *Module) repairGuildThreads(discordGuildID string) {
 		for _, ticket := range page {
 			channel, err := m.channels.session.Channel(ticket.ThreadDiscordChannelID, rest(ctx)...)
 			if err == nil && channel.GuildID == discordGuildID && channel.Type == discordgo.ChannelTypeGuildPrivateThread {
-				err = m.channels.syncThreadMembers(ctx, discordGuildID, channel.ID, ticket.OwnerDiscordUserID, settings.StaffRoleDiscordIDs)
+				err = m.channels.syncThreadMembers(ctx, discordGuildID, channel.ID,
+					ticket.OwnerDiscordUserID, settings.StaffRoleDiscordIDs)
 			}
 			if err != nil {
 				slog.WarnContext(ctx, "Ticket permission repair incomplete", "guild_id", guildID, "ticket_id", ticket.ID)
@@ -124,7 +127,7 @@ func (m *Module) repairGuildThreads(discordGuildID string) {
 				return
 			}
 		}
-		if len(page) < 100 {
+		if len(page) < repairPage {
 			return
 		}
 		after = page[len(page)-1].ID

@@ -67,7 +67,14 @@ func TestRoutesSettingsStatusRepairAndAuthorization(t *testing.T) {
 	fixture := setup(t)
 	engine := routeEngine(fixture, true)
 	path := "/guilds/guild-a/modules/honeypot/settings"
-	response := request(t, engine, http.MethodPut, path, map[string]any{"enabled": true, "settings": map[string]any{"channel_discord_id": "trap", "template_id": "template", "exempt_role_discord_ids": []string{"trusted"}}}, true)
+	response := request(t, engine, http.MethodPut, path, map[string]any{
+		"enabled": true,
+		"settings": map[string]any{
+			"channel_discord_id":      "trap",
+			"template_id":             "template",
+			"exempt_role_discord_ids": []string{"trusted"},
+		},
+	}, true)
 	if response.Code != http.StatusOK {
 		t.Fatalf("put status=%d body=%s", response.Code, response.Body.String())
 	}
@@ -105,7 +112,10 @@ func TestRoutesRejectUnsafeConfiguration(t *testing.T) {
 		t.Fatalf("invalid settings status=%d body=%s", response.Code, response.Body.String())
 	}
 	fixture.validator.templateErr = errors.New("archived")
-	response = request(t, engine, http.MethodPut, path, map[string]any{"enabled": true, "settings": map[string]any{"channel_discord_id": "trap", "template_id": "template"}}, true)
+	response = request(t, engine, http.MethodPut, path, map[string]any{
+		"enabled":  true,
+		"settings": map[string]any{"channel_discord_id": "trap", "template_id": "template"},
+	}, true)
 	if response.Code != http.StatusServiceUnavailable {
 		t.Fatalf("archived template status=%d body=%s", response.Code, response.Body.String())
 	}

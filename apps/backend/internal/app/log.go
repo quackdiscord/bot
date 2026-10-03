@@ -19,7 +19,7 @@ func NewLogger(out io.Writer, development bool, levelName string) (*slog.Logger,
 	level := slog.LevelInfo
 	if name := strings.TrimSpace(levelName); name != "" {
 		if err := level.UnmarshalText([]byte(name)); err != nil {
-			return nil, fmt.Errorf("invalid log level: %w", err)
+			return nil, fmt.Errorf("parse log level %q: %w", name, err)
 		}
 	}
 	opts := &slog.HandlerOptions{Level: level}

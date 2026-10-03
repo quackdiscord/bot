@@ -13,6 +13,8 @@ import (
 // EventType is a kind of event a guild can route to a channel.
 type EventType string
 
+// The events general logging can route. Each is also a key of
+// Settings.Channels.
 const (
 	MessageEdit       EventType = "message_edit"
 	MessageDelete     EventType = "message_delete"
@@ -48,7 +50,11 @@ type Settings struct {
 // Defaults returns the settings a guild starts with: no routes and no
 // message content.
 func Defaults() Settings {
-	return Settings{Channels: map[EventType]string{}, CacheEntriesPerGuild: 1000, MaxDeliveryAttempts: 3}
+	return Settings{
+		Channels:             map[EventType]string{},
+		CacheEntriesPerGuild: 1000,
+		MaxDeliveryAttempts:  3,
+	}
 }
 
 // AttachmentMetadata describes an attachment without its content.
@@ -92,7 +98,9 @@ func validateSettings(settings Settings, enabled bool) error {
 // validEventType reports whether t is an event the module can log.
 func validEventType(t EventType) bool {
 	switch t {
-	case MessageEdit, MessageDelete, MessageBulkDelete, MemberJoin, MemberLeave, DiscordBan, DiscordUnban, GuildChange, ChannelChange:
+	case MessageEdit, MessageDelete, MessageBulkDelete,
+		MemberJoin, MemberLeave, DiscordBan, DiscordUnban,
+		GuildChange, ChannelChange:
 		return true
 	}
 	return false

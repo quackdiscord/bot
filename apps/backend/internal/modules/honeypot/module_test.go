@@ -3,6 +3,7 @@ package honeypot_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
@@ -54,7 +55,9 @@ func (f moduleFixture) settings(t *testing.T, guildID string) (honeypot.Settings
 
 func (f moduleFixture) guild(t *testing.T, discordGuildID string) string {
 	t.Helper()
-	guild, err := f.store.UpsertGuild(context.Background(), quack.UpsertGuildParams{DiscordGuildID: discordGuildID, Name: discordGuildID, OwnerDiscordUserID: "owner"})
+	guild, err := f.store.UpsertGuild(context.Background(), quack.UpsertGuildParams{
+		DiscordGuildID: discordGuildID, Name: discordGuildID, OwnerDiscordUserID: "owner",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,4 +110,28 @@ func TestDeletionsDisableOnlyTheAffectedGuild(t *testing.T) {
 	f.set(t, one, honeypot.Settings{ChannelDiscordID: "channel-1", TemplateID: "template"})
 	honeypot.OnGuildDelete(f.module, nil, &discordgo.GuildDelete{Guild: &discordgo.Guild{ID: "discord-1"}})
 	check("guild left")
+}
+
+func TestPoolDrainsOnStop(t *testing.T) {
+	fixture := setup(t)
+	enable(t, fixture, "guild-a")
+	pool := honeypot.NewPool(fixture.service)
+	pool.Start(context.Background())
+	for index := range 100 {
+		if !pool.Submit(message(fmt.Sprintf("queued-%d", index))) {
+			t.Fatal("message was dropped")
+		}
+	}
+	if err := pool.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if pool.Submit(message("after-stop")) {
+		t.Fatal("submit after stop succeeded")
+	}
+	if fixture.applier.count() != 100 {
+		t.Fatalf("drain applied %d cases", fixture.applier.count())
+	}
 }

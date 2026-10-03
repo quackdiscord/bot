@@ -2,6 +2,7 @@ package logging
 
 import (
 	"container/list"
+	"slices"
 	"sync"
 	"time"
 )
@@ -128,7 +129,7 @@ func (c *MessageCache) evict(guildID string) {
 
 // cloneMessage copies the slices, so callers cannot change cached data.
 func cloneMessage(m CachedMessage) CachedMessage {
-	m.Attachments = append([]AttachmentMetadata(nil), m.Attachments...)
-	m.EmbedTypes = append([]string(nil), m.EmbedTypes...)
+	m.Attachments = slices.Clone(m.Attachments)
+	m.EmbedTypes = slices.Clone(m.EmbedTypes)
 	return m
 }
