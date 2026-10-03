@@ -26,7 +26,6 @@ type ticketRecord struct {
 	Status                  Status     `gorm:"size:32;not null;index:idx_ticket_guild_status,priority:2"`
 	LogChannelDiscordID     string     `gorm:"size:32"`
 	LogMessageDiscordID     string     `gorm:"size:32"`
-	QueueDeliveryAttemptID  string     `gorm:"type:char(26)"`
 	TranscriptURL           string     `gorm:"size:1024"`
 	ResolvedByDiscordUserID string     `gorm:"size:32"`
 	ResolvedAt              *time.Time `gorm:"index"`
@@ -214,15 +213,15 @@ func (s *Store) captureClosure(ctx context.Context, guildID, ticketID, actorID s
 	return &ticket, err
 }
 
-// finishClosure frees the owner's slot once the thread is gone. It needs
-// the saved transcript link, and only frees a slot this ticket still holds,
-// so a late retry cannot release a newer ticket.
+// finishClosure frees the owner's slot once the thread is gone. It only
+// frees a slot this ticket still holds, so a late retry cannot release a
+// newer ticket.
 func (s *Store) finishClosure(ctx context.Context, guildID, ticketID string, now time.Time) error {
 	ticket, err := s.get(ctx, guildID, ticketID)
 	if err != nil {
 		return err
 	}
-	if ticket.Status != StatusResolved || ticket.TranscriptURL == "" {
+	if ticket.Status != StatusResolved {
 		return ErrInvalidTransition
 	}
 	return s.db.WithContext(ctx).Model(&memberStateRecord{}).
@@ -476,7 +475,6 @@ func ticketFromRecord(r ticketRecord) Ticket {
 		ResolvedAt:              r.ResolvedAt,
 		LogChannelDiscordID:     r.LogChannelDiscordID,
 		LogMessageDiscordID:     r.LogMessageDiscordID,
-		QueueDeliveryAttemptID:  r.QueueDeliveryAttemptID,
 		TranscriptURL:           r.TranscriptURL,
 		CloseNoticeDelivered:    metadata.CloseNotice.State == noticeSent,
 		CreatedAt:               r.CreatedAt,

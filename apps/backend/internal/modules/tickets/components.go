@@ -81,8 +81,7 @@ func (m *Module) viewComponent(_ context.Context, interaction *discordgo.Interac
 	})
 }
 
-// repairComponent restores an open ticket's access and missing queue post,
-// for managers.
+// repairComponent restores an open ticket's access, for managers.
 func (m *Module) repairComponent(_ context.Context, interaction *discordgo.InteractionCreate) discord.Result {
 	ticketID, err := componentPayload(interaction)
 	if err != nil {
@@ -93,7 +92,7 @@ func (m *Module) repairComponent(_ context.Context, interaction *discordgo.Inter
 			return showError(ctx, responder, err)
 		}
 		_, err := responder.EditOriginal(discord.EditMessage(discord.Signal("lock",
-			"Ticket access and staff queue delivery are repaired. Access is limited to the member and staff.", true)))
+			"Ticket access is repaired. Access is limited to the member and staff.", true)))
 		return err
 	})
 }

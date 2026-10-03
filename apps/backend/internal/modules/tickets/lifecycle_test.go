@@ -153,9 +153,9 @@ func TestOwnerCanCloseAfterModuleDisabled(t *testing.T) {
 	}
 }
 
-// TestDeletionWaitsForTranscriptPublication fails the upload, then the
-// delete, and checks nothing is deleted or uploaded twice.
-func TestDeletionWaitsForTranscriptPublication(t *testing.T) {
+// TestCloseResumesAfterFailedDelete fails the delete and checks the slot
+// stays held and the transcript is not posted twice.
+func TestCloseResumesAfterFailedDelete(t *testing.T) {
 	_, service, _ := setup(t)
 	ctx := context.Background()
 	client := &discordFake{}
@@ -174,22 +174,12 @@ func TestDeletionWaitsForTranscriptPublication(t *testing.T) {
 			t.Fatalf("leaked another member's ticket: %+v, %v", active, err)
 		}
 	}
-	client.failPublish = true
-	if _, err := adapter.Close(ctx, actor, ticket.ID); err == nil {
-		t.Fatal("failed upload reported success")
-	}
-	if client.deleteAttempts != 0 {
-		t.Fatal("thread deleted before the transcript was published")
-	}
-	if got := transcriptOf(t, service, actor, ticket.ID); !strings.Contains(got, "captured") {
-		t.Fatalf("failed upload lost the transcript: %q", got)
-	}
-	if _, err := adapter.Open(ctx, actor); !errors.Is(err, tickets.ErrDuplicateOpen) {
-		t.Fatalf("opened during a failed close: %v", err)
-	}
-	client.failPublish, client.failDelete = false, 1
+	client.failDelete = 1
 	if _, err := adapter.Close(ctx, actor, ticket.ID); err == nil {
 		t.Fatal("expected the first delete to fail")
+	}
+	if got := transcriptOf(t, service, actor, ticket.ID); !strings.Contains(got, "captured") {
+		t.Fatalf("failed close lost the transcript: %q", got)
 	}
 	if _, err := adapter.Open(ctx, actor); !errors.Is(err, tickets.ErrDuplicateOpen) {
 		t.Fatalf("opened before the thread was deleted: %v", err)
@@ -197,7 +187,7 @@ func TestDeletionWaitsForTranscriptPublication(t *testing.T) {
 	if _, err := adapter.Close(ctx, actor, ticket.ID); err != nil {
 		t.Fatal(err)
 	}
-	if client.transcriptPublishes != 2 || client.deleteAttempts != 2 {
+	if client.transcriptPublishes != 1 || client.deleteAttempts != 2 {
 		t.Fatalf("publishes = %d, deletes = %d", client.transcriptPublishes, client.deleteAttempts)
 	}
 	detail, _, err := service.Detail(ctx, actor, ticket.ID)
@@ -367,8 +357,8 @@ func (f *progressFake) DeleteThread(ctx context.Context, thread string) error {
 }
 
 // TestCloseProgressFollowsPublication checks the acknowledgement comes
-// after the transcript is safe and before the delete, and every failure
-// stays a failure.
+// after the queue post and before the delete, a failed queue post does not
+// stop the close, and every other failure stays a failure.
 func TestCloseProgressFollowsPublication(t *testing.T) {
 	for _, scenario := range []string{"success", "publish_failure", "ack_failure", "delete_failure"} {
 		t.Run(scenario, func(t *testing.T) {
@@ -386,8 +376,8 @@ func TestCloseProgressFollowsPublication(t *testing.T) {
 			}
 			_, err = adapter.CloseWithProgress(context.Background(), actor, ticket.ID, func(saved *tickets.Ticket) error {
 				client.order = append(client.order, "ack")
-				if saved.TranscriptURL == "" {
-					t.Error("acknowledged before the transcript receipt")
+				if (saved.TranscriptURL == "") != (scenario == "publish_failure") {
+					t.Errorf("transcript receipt = %q", saved.TranscriptURL)
 				}
 				if scenario == "ack_failure" {
 					return errors.New("response unavailable")
@@ -396,14 +386,14 @@ func TestCloseProgressFollowsPublication(t *testing.T) {
 			})
 			want := map[string][]string{
 				"success":         {"publish", "ack", "delete"},
-				"publish_failure": {"publish"},
+				"publish_failure": {"publish", "ack", "delete"},
 				"ack_failure":     {"publish", "ack"},
 				"delete_failure":  {"publish", "ack", "delete"},
 			}[scenario]
 			if !reflect.DeepEqual(client.order, want) {
 				t.Fatalf("order = %v, want %v", client.order, want)
 			}
-			if (err == nil) != (scenario == "success") {
+			if (err == nil) != (scenario == "success" || scenario == "publish_failure") {
 				t.Fatalf("result = %v", err)
 			}
 		})

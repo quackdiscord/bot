@@ -137,8 +137,7 @@ func (s *Service) ActiveForMember(ctx context.Context, actor modules.Actor) (*Ti
 }
 
 // ClosurePending reports whether a closed ticket still holds its owner's
-// slot: its transcript has not reached the queue, or its thread is not yet
-// deleted.
+// slot because its close stopped before the thread was deleted.
 func (s *Service) ClosurePending(ctx context.Context, actor modules.Actor, ticketID string) (bool, error) {
 	ticket, err := s.visibleTicket(ctx, actor, ticketID)
 	if err != nil {
@@ -153,8 +152,7 @@ func (s *Service) ClosurePending(ctx context.Context, actor modules.Actor, ticke
 
 // Resolve closes an open ticket with transcript as its saved transcript.
 // The owner and moderators may close, even with tickets switched off. The
-// owner's slot stays held until the adapter has published the transcript
-// and deleted the thread.
+// owner's slot stays held until the adapter has deleted the thread.
 func (s *Service) Resolve(ctx context.Context, actor modules.Actor, ticketID, transcript string) (*Ticket, error) {
 	if _, err := s.visibleTicket(ctx, actor, ticketID); err != nil {
 		if errors.Is(err, ErrPermissionDenied) {

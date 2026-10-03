@@ -368,7 +368,7 @@ func TestPublishQueueEditKeepsOnlyTheNewTranscript(t *testing.T) {
 			return reply(fmt.Sprintf(`{"id":"queue","guild_id":"guild","type":0,"permission_overwrites":[{"id":"guild","type":0,"deny":"%d","allow":"0"}]}`, discordgo.PermissionViewChannel)), nil
 		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/guilds/guild"):
 			return reply(`{"id":"guild","roles":[]}`), nil
-		case r.Method == http.MethodPatch && strings.HasSuffix(r.URL.Path, "/channels/queue/messages/adopted"):
+		case r.Method == http.MethodPatch && strings.HasSuffix(r.URL.Path, "/channels/queue/messages/posted"):
 			updates++
 			if err := r.ParseMultipartForm(1 << 20); err != nil {
 				t.Fatal(err)
@@ -399,15 +399,15 @@ func TestPublishQueueEditKeepsOnlyTheNewTranscript(t *testing.T) {
 			if content, err := io.ReadAll(file); err != nil || string(content) != "canonical transcript" {
 				t.Fatalf("upload = %q, %v", content, err)
 			}
-			return reply(fmt.Sprintf(`{"id":"adopted","attachments":[{"id":"prior-%d","filename":"ticket-ticket.txt"}]}`, updates)), nil
+			return reply(fmt.Sprintf(`{"id":"posted","attachments":[{"id":"prior-%d","filename":"ticket-ticket.txt"}]}`, updates)), nil
 		}
 		t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		return nil, nil
 	})
-	ticket := &Ticket{ID: "ticket", GuildID: "internal", OwnerDiscordUserID: "owner", LogChannelDiscordID: "queue", LogMessageDiscordID: "adopted"}
+	ticket := &Ticket{ID: "ticket", GuildID: "internal", OwnerDiscordUserID: "owner", LogChannelDiscordID: "queue", LogMessageDiscordID: "posted"}
 	for range 3 {
 		receipt, err := testChannels(session).PublishQueue(context.Background(), ticket, Settings{QueueChannelDiscordID: "queue"}, &Transcript{Content: "canonical transcript"})
-		if err != nil || receipt.MessageID != "adopted" || receipt.URL != "https://discord.com/channels/guild/queue/adopted" {
+		if err != nil || receipt.MessageID != "posted" || receipt.URL != "https://discord.com/channels/guild/queue/posted" {
 			t.Fatalf("receipt = %+v, %v", receipt, err)
 		}
 	}
@@ -416,152 +416,13 @@ func TestPublishQueueEditKeepsOnlyTheNewTranscript(t *testing.T) {
 	}
 }
 
-func TestQueueSendErrorMarksOnlyDefiniteRefusals(t *testing.T) {
+func TestDefinitelyRefusedOnlyMarksDefiniteRefusals(t *testing.T) {
 	for _, status := range []int{400, 401, 403, 404, 429, 500, 502} {
-		err := queueSendError(&discordgo.RESTError{Response: &http.Response{StatusCode: status}})
-		if errors.Is(err, ErrQueueNotSent) != (status < 500) {
-			t.Fatalf("status %d: %v", status, err)
+		if definitelyRefused(&discordgo.RESTError{Response: &http.Response{StatusCode: status}}) != (status < 500) {
+			t.Fatalf("status %d misclassified", status)
 		}
 	}
-	if errors.Is(queueSendError(errors.New("connection lost")), ErrQueueNotSent) {
+	if definitelyRefused(errors.New("connection lost")) {
 		t.Fatal("uncertain send marked refused")
-	}
-}
-
-func TestQueueMessageExistsOnlyTrustsDefiniteAbsence(t *testing.T) {
-	for _, test := range []struct {
-		name, body     string
-		status         int
-		exists, failed bool
-	}{
-		{"present", `{"id":"message"}`, 200, true, false},
-		{"deleted message", `{"code":10008}`, 404, false, false},
-		{"deleted channel", `{"code":10003}`, 404, false, false},
-		{"denied", `{"code":50013}`, 403, false, true},
-		{"unavailable", `{"message":"unavailable"}`, 503, false, true},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			session := testSession(t, func(r *http.Request) (*http.Response, error) {
-				if r.Method != http.MethodGet || !strings.HasSuffix(r.URL.Path, "/channels/queue/messages/message") {
-					t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
-				}
-				return respond(test.status, test.body), nil
-			})
-			exists, err := testChannels(session).QueueMessageExists(context.Background(), "queue", "message")
-			if exists != test.exists || (err != nil) != test.failed {
-				t.Fatalf("exists = %v, %v", exists, err)
-			}
-		})
-	}
-}
-
-// TestValidateQueueMessage accepts only this bot's queue post for this
-// ticket in its recorded channel, with fresh reads and no writes.
-func TestValidateQueueMessage(t *testing.T) {
-	row := func(ids ...string) discordgo.ActionsRow {
-		var buttons []discordgo.MessageComponent
-		for _, id := range ids {
-			buttons = append(buttons, discord.Button(id, "Button", discordgo.SecondaryButton, false))
-		}
-		return discord.Row(buttons...)
-	}
-	tests := []struct {
-		name         string
-		link         string
-		mutate       func(*discordgo.Message)
-		channelGuild string
-		failurePath  string
-		wantOK       bool
-		wantNoReads  bool
-	}{
-		{name: "open queue post", wantOK: true},
-		{name: "closed queue post", mutate: func(m *discordgo.Message) {
-			m.Components = []discordgo.MessageComponent{row("ticket:view:v1:ticket-id")}
-		}, wantOK: true},
-		{name: "wrong link guild", link: "https://discord.com/channels/99/22/33", wantNoReads: true},
-		{name: "wrong destination", link: "https://discord.com/channels/11/99/33", wantNoReads: true},
-		{name: "lookalike host", link: "https://discord.com.attacker.test/channels/guild/22/33", wantNoReads: true},
-		{name: "credentials", link: "https://secret@discord.com/channels/guild/22/33", wantNoReads: true},
-		{name: "query", link: "https://discord.com/channels/11/22/33?secret=value", wantNoReads: true},
-		{name: "wrong returned message", mutate: func(m *discordgo.Message) { m.ID = "99" }},
-		{name: "wrong channel guild", channelGuild: "99"},
-		{name: "wrong author", mutate: func(m *discordgo.Message) { m.Author.ID = "99" }},
-		{name: "webhook", mutate: func(m *discordgo.Message) { m.WebhookID = "99" }},
-		{name: "other ticket", mutate: func(m *discordgo.Message) {
-			m.Components = []discordgo.MessageComponent{row("ticket:view:v1:other-ticket")}
-		}},
-		{name: "unsupported action", mutate: func(m *discordgo.Message) {
-			m.Components = append(m.Components, row("ticket:repair:v1:ticket-id"))
-		}},
-		{name: "no controls", mutate: func(m *discordgo.Message) { m.Components = nil }},
-		{name: "message unreadable", failurePath: "/channels/22/messages/33"},
-		{name: "identity unavailable", failurePath: "/users/@me"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			message := &discordgo.Message{ID: "33", ChannelID: "22", Author: &discordgo.User{ID: "44", Bot: true},
-				Components: []discordgo.MessageComponent{row("ticket:view:v1:ticket-id", "ticket:close:v1:ticket-id")}}
-			if tt.mutate != nil {
-				tt.mutate(message)
-			}
-			calls := 0
-			session := testSession(t, func(r *http.Request) (*http.Response, error) {
-				if r.Method != http.MethodGet {
-					t.Fatalf("validation changed Discord: %s %s", r.Method, r.URL.Path)
-				}
-				calls++
-				if tt.failurePath != "" && strings.HasSuffix(r.URL.Path, tt.failurePath) {
-					return respond(http.StatusForbidden, `{"code":50001,"message":"Missing Access"}`), nil
-				}
-				var value any
-				switch {
-				case strings.HasSuffix(r.URL.Path, "/channels/22/messages/33"):
-					value = struct {
-						*discordgo.Message
-						Components []discordgo.MessageComponent `json:"components"`
-					}{message, message.Components}
-				case strings.HasSuffix(r.URL.Path, "/channels/22"):
-					guild := tt.channelGuild
-					if guild == "" {
-						guild = "11"
-					}
-					value = &discordgo.Channel{ID: "22", GuildID: guild, Type: discordgo.ChannelTypeGuildText}
-				case strings.HasSuffix(r.URL.Path, "/users/@me"):
-					value = &discordgo.User{ID: "44", Bot: true}
-				default:
-					t.Fatalf("unexpected read %s", r.URL.Path)
-				}
-				encoded, err := json.Marshal(value)
-				if err != nil {
-					t.Fatal(err)
-				}
-				return reply(string(encoded)), nil
-			})
-			session.State.User = &discordgo.User{ID: "stale-bot"}
-			link := tt.link
-			if link == "" {
-				link = "https://discord.com/channels/11/22/33"
-			}
-			ticket := &Ticket{ID: "ticket-id", GuildID: "internal", LogChannelDiscordID: "22"}
-			client := channels{session: session, guilds: modules.NewGuilds(guildStore{discordID: "11"})}
-			receipt, err := client.ValidateQueueMessage(context.Background(), ticket, link)
-			switch {
-			case tt.wantOK:
-				if err != nil || receipt.MessageID != "33" || receipt.URL != "https://discord.com/channels/11/22/33" {
-					t.Fatalf("valid post rejected: %+v, %v", receipt, err)
-				}
-			case tt.failurePath != "":
-				if receipt != nil || !errors.Is(err, errQueueUnverifiable) {
-					t.Fatalf("unreadable post: %+v, %v", receipt, err)
-				}
-			default:
-				if receipt != nil || !errors.Is(err, ErrInvalidQueueReceipt) {
-					t.Fatalf("invalid post accepted: %+v, %v", receipt, err)
-				}
-			}
-			if tt.wantNoReads && calls != 0 {
-				t.Fatalf("invalid link reached Discord %d times", calls)
-			}
-		})
 	}
 }

@@ -87,25 +87,20 @@ func (m *Module) Intents() discordgo.Intent {
 		discordgo.IntentMessageContent
 }
 
-// RegisterComponents installs /setup tickets and the ticket buttons and
-// modal on router. The actions are baked into posted messages, so they must
-// never be renamed.
+// RegisterComponents installs /setup tickets and the ticket buttons on
+// router. The actions are baked into posted messages, so they must never be
+// renamed.
 func (m *Module) RegisterComponents(router *discord.Router) {
 	router.HandleSetup("tickets", m.Setup)
 	for action, handler := range map[string]discord.Handler{
-		"open":         m.openComponent,
-		"queue":        m.queueComponent,
-		"view":         m.viewComponent,
-		"close":        m.closeComponent,
-		"repair":       m.repairComponent,
-		"queuefix":     m.queueFixComponent,
-		"queueadopt":   m.queueAdoptComponent,
-		"queueretry":   m.queueRetryComponent,
-		"queueretryok": m.queueRetryConfirmed,
+		"open":   m.openComponent,
+		"queue":  m.queueComponent,
+		"view":   m.viewComponent,
+		"close":  m.closeComponent,
+		"repair": m.repairComponent,
 	} {
 		router.HandleComponent(componentNamespace, action, handler)
 	}
-	router.HandleModal(componentNamespace, "queueadopt", m.queueAdoptSubmit)
 }
 
 // SweepTranscripts deletes transcripts and journaled message text past

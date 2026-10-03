@@ -122,16 +122,6 @@ func (f *discordFake) PublishQueue(_ context.Context, ticket *tickets.Ticket, _ 
 	return &tickets.QueueReceipt{MessageID: "queue-" + ticket.ID, URL: "https://discord.com/channels/guild/queue/message"}, nil
 }
 
-// QueueMessageExists keeps saved receipts live.
-func (f *discordFake) QueueMessageExists(context.Context, string, string) (bool, error) {
-	return true, nil
-}
-
-// ValidateQueueMessage rejects adoption unless a fixture overrides it.
-func (f *discordFake) ValidateQueueMessage(context.Context, *tickets.Ticket, string) (*tickets.QueueReceipt, error) {
-	return nil, tickets.ErrInvalidQueueReceipt
-}
-
 // DeliverCloseNotice confirms the member's DM.
 func (f *discordFake) DeliverCloseNotice(context.Context, *tickets.Ticket, *tickets.Transcript, bool) (string, error) {
 	return "notice", nil

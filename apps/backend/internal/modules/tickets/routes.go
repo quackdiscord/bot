@@ -149,7 +149,7 @@ func writeError(w http.ResponseWriter, err error, fallback int) {
 	case errors.Is(err, ErrNotFound):
 		modules.WriteError(w, http.StatusNotFound)
 	case errors.Is(err, ErrDuplicateOpen), errors.Is(err, ErrInvalidTransition),
-		errors.Is(err, ErrQueueDeliveryUnknown), errors.Is(err, ErrJournalIncomplete):
+		errors.Is(err, ErrJournalIncomplete):
 		modules.WriteError(w, http.StatusConflict)
 	case errors.Is(err, ErrDisabled):
 		modules.WriteError(w, http.StatusServiceUnavailable)

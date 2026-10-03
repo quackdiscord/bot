@@ -39,9 +39,6 @@ const (
 	EventReopened            EventType = "reopened"
 	EventChannelMissing      EventType = "channel_missing"
 	EventPermissionsRepaired EventType = "permissions_repaired"
-	// EventQueueReconciled records an administrator's decision about a
-	// queue post whose delivery Quack could not confirm.
-	EventQueueReconciled EventType = "queue_reconciled"
 )
 
 var (
@@ -85,14 +82,11 @@ type Ticket struct {
 	ResolvedByDiscordUserID string     `json:"resolved_by_discord_user_id,omitempty"`
 	ResolvedAt              *time.Time `json:"resolved_at,omitempty"`
 	// LogChannelDiscordID and LogMessageDiscordID locate the staff queue
-	// post. A channel without a message is a send whose outcome is unknown.
+	// post, when one is known. The post is best-effort, so they may be empty.
 	LogChannelDiscordID string `json:"log_channel_discord_id,omitempty"`
 	LogMessageDiscordID string `json:"log_message_discord_id,omitempty"`
-	// QueueDeliveryAttemptID fences one queue send so a retry or a stale
-	// recovery decision cannot post twice.
-	QueueDeliveryAttemptID string `json:"queue_delivery_attempt_id,omitempty"`
-	// TranscriptURL links the queue post carrying the transcript. Its
-	// presence is what allows the thread to be deleted.
+	// TranscriptURL links the queue post carrying the transcript, once it
+	// does, so a resumed close does not post it again.
 	TranscriptURL string `json:"transcript_url,omitempty"`
 	// CloseNoticeDelivered reports a confirmed close DM to the member.
 	CloseNoticeDelivered bool      `json:"-"`
@@ -128,7 +122,7 @@ type ModuleStatus struct {
 	OpenTickets     int64 `json:"open_tickets"`
 }
 
-// QueueReceipt identifies a delivered staff queue post.
+// QueueReceipt identifies a delivered staff queue post and links it.
 type QueueReceipt struct {
 	MessageID string
 	URL       string

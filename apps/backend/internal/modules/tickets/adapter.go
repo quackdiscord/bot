@@ -30,16 +30,9 @@ type DiscordClient interface {
 	// counts as deleted.
 	DeleteThread(ctx context.Context, threadID string) error
 	// PublishQueue posts or edits the ticket's staff queue post; with a
-	// transcript it marks the ticket closed and attaches the transcript. A
-	// definite refusal wraps ErrQueueNotSent, and a saved post that is gone
-	// returns ErrQueueMessageMissing.
+	// transcript it marks the ticket closed and attaches the transcript.
+	// Editing a saved post that is gone returns ErrQueueMessageMissing.
 	PublishQueue(ctx context.Context, ticket *Ticket, settings Settings, transcript *Transcript) (*QueueReceipt, error)
-	// QueueMessageExists reports whether a saved queue post still exists.
-	// Only Discord saying it is gone yields false without an error.
-	QueueMessageExists(ctx context.Context, channelID, messageID string) (bool, error)
-	// ValidateQueueMessage checks that a message link an administrator gave
-	// is Quack's queue post for ticket.
-	ValidateQueueMessage(ctx context.Context, ticket *Ticket, messageURL string) (*QueueReceipt, error)
 	// DeliverCloseNotice DMs the member the transcript and returns the DM's
 	// ID. With reconcileOnly it only looks for an earlier DM whose send was
 	// uncertain. A definite refusal wraps ErrCloseNoticeNotSent.
@@ -53,8 +46,7 @@ type DiscordClient interface {
 type DiscordAdapter struct {
 	service *Service
 	client  DiscordClient
-	// closes serializes each ticket's close, repair, and recovery in this
-	// process.
+	// closes serializes each ticket's close and repair in this process.
 	closes keyedLocks
 }
 
@@ -65,8 +57,9 @@ func NewDiscordAdapter(service *Service, client DiscordClient) *DiscordAdapter {
 
 // Open reserves the member's ticket slot, starts a private thread, and
 // commits the ticket before inviting anyone, so the journal knows the
-// thread before its first message. A ticket returned with an error was
-// saved but its setup did not finish; it keeps the member's slot, and an
+// thread before its first message. The staff queue post is best-effort and
+// never fails the open. A ticket returned with an error was saved but its
+// access or welcome did not finish; it keeps the member's slot, and an
 // administrator can repair it.
 func (a *DiscordAdapter) Open(ctx context.Context, actor modules.Actor) (*Ticket, error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
@@ -112,13 +105,13 @@ func (a *DiscordAdapter) Open(ctx context.Context, actor modules.Actor) (*Ticket
 	if err := a.client.EnsureAccess(ctx, actor.GuildID, threadID, actor.DiscordUserID); err != nil {
 		// The owner may already be in and posting. Keep the ticket and
 		// still tell staff, so it can be repaired.
-		_, queueErr := a.publishQueue(ctx, ticket, settings, nil)
-		return ticket, errors.Join(err, queueErr)
+		a.publishQueue(ctx, ticket, settings, nil)
+		return ticket, err
 	}
 	// A failed greeting must not keep staff from hearing about the ticket.
 	welcomeErr := a.client.SendWelcome(ctx, ticket)
-	_, queueErr := a.publishQueue(ctx, ticket, settings, nil)
-	return ticket, errors.Join(welcomeErr, queueErr)
+	a.publishQueue(ctx, ticket, settings, nil)
+	return ticket, welcomeErr
 }
 
 // Close closes a ticket; see CloseWithProgress.
@@ -128,7 +121,9 @@ func (a *DiscordAdapter) Close(ctx context.Context, actor modules.Actor, ticketI
 
 // CloseWithProgress closes a ticket for its owner or a moderator, even with
 // tickets switched off. It locks the thread, saves the transcript, attaches
-// it to the queue post, DMs the member, and deletes the thread; the member
+// it to the queue post (best-effort: the known post is edited, or a fresh
+// one sent, and a failure is only logged), DMs the member, and deletes the
+// thread; the member
 // can open another ticket only after that. beforeDelete, if set, runs once
 // the transcript is safe and before the thread goes, so a caller inside the
 // thread can still answer. Each step is safe to retry: a later call resumes
@@ -160,13 +155,7 @@ func (a *DiscordAdapter) CloseWithProgress(ctx context.Context, actor modules.Ac
 	default:
 		return nil, ErrInvalidTransition
 	}
-	// A transcript already published is trusted only while its post still
-	// exists; a post Discord says is gone is published again.
-	if resolved.TranscriptURL != "" {
-		if err := a.checkQueueReceipt(ctx, resolved); err != nil {
-			return resolved, err
-		}
-	}
+	// A resumed close skips the queue post once it carries the transcript.
 	if resolved.TranscriptURL == "" {
 		transcript, err := a.service.Transcript(ctx, actor, ticketID)
 		if err != nil {
@@ -176,9 +165,7 @@ func (a *DiscordAdapter) CloseWithProgress(ctx context.Context, actor modules.Ac
 		if err != nil {
 			return resolved, err
 		}
-		if _, err := a.publishQueue(ctx, resolved, settings, transcript); err != nil {
-			return resolved, err
-		}
+		a.publishQueue(ctx, resolved, settings, transcript)
 	}
 	if err := a.deliverCloseNotice(ctx, actor, resolved); err != nil {
 		return resolved, err
@@ -195,9 +182,7 @@ func (a *DiscordAdapter) CloseWithProgress(ctx context.Context, actor modules.Ac
 }
 
 // RepairPermissions re-invites an open ticket's owner, removes former
-// staff, and posts the queue post again if Discord says it is gone. A post
-// whose delivery is uncertain is left for QueueRecovery. It needs Manage
-// Guild.
+// staff. It leaves the queue post alone. It needs Manage Guild.
 func (a *DiscordAdapter) RepairPermissions(ctx context.Context, actor modules.Actor, ticketID string) error {
 	if !actor.CanManage {
 		return ErrPermissionDenied
@@ -214,7 +199,7 @@ func (a *DiscordAdapter) RepairPermissions(ctx context.Context, actor modules.Ac
 	if ticket.Status != StatusOpen {
 		return ErrInvalidTransition
 	}
-	settings, enabled, err := a.service.loadSettings(ctx, actor.GuildID)
+	_, enabled, err := a.service.loadSettings(ctx, actor.GuildID)
 	if err != nil {
 		return err
 	}
@@ -224,14 +209,6 @@ func (a *DiscordAdapter) RepairPermissions(ctx context.Context, actor modules.Ac
 	err = a.client.EnsureAccess(ctx, actor.GuildID, ticket.ThreadDiscordChannelID, ticket.OwnerDiscordUserID)
 	if err != nil {
 		return err
-	}
-	if err := a.checkQueueReceipt(ctx, ticket); err != nil {
-		return err
-	}
-	if ticket.LogMessageDiscordID == "" {
-		if _, err := a.publishQueue(ctx, ticket, settings, nil); err != nil {
-			return err
-		}
 	}
 	return a.service.RecordPermissionsRepaired(ctx, actor.GuildID, ticketID)
 }

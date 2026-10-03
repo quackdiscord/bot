@@ -528,14 +528,16 @@ What each module does:
   and a staff queue channel and posts the "Need a hand?" entry panel with an
   Open ticket button, editing it in place (or moving it) on every re-setup.
   Opening creates a private thread under the entry channel with a welcome and
-  a Close button, and a queue post with staff controls. A message journal
-  (`ticket_message_journal`) records each message's original text from the
-  gateway; closing refuses while the journal is incomplete, then locks the
-  thread, merges the journal with the surviving history into a transcript,
-  edits the queue post to closed with the transcript as a `.txt`, DMs the
-  member a copy, and deletes the thread. Staff can repair a queue post that
-  failed or went missing (retry, adopt an existing message, or confirm it was
-  never sent). Closed tickets cannot be reopened. An hourly loop deletes
+  a Close button, and a queue post with staff controls. The queue post is a
+  best-effort convenience: if sending it fails, Quack logs the failure and
+  the ticket still opens. A message journal (`ticket_message_journal`)
+  records each message's original text from the gateway; closing refuses
+  while the journal is incomplete, then locks the thread, merges the journal
+  with the surviving history into a transcript, edits the known queue post to
+  closed with the transcript as a `.txt` (or posts a fresh closed entry when
+  no post is known or it is gone; a failure is only logged), DMs the member a
+  copy, and deletes the thread. Queue state never blocks a close. Closed
+  tickets cannot be reopened. An hourly loop deletes
   transcripts and journaled text past retention. Tables: `tickets`,
   `ticket_events`, `ticket_transcripts`, `ticket_member_states`,
   `ticket_message_journal`. Routes live under `/modules/tickets/...`.

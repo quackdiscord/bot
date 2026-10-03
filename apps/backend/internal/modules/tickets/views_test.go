@@ -3,7 +3,6 @@ package tickets
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -51,12 +50,12 @@ func TestPostedMessagesKeepLaptopCopyAndRoutes(t *testing.T) {
 		t.Fatalf("open post = %q", open.Content)
 	}
 	if b := buttons(t, open.Components); len(b) != 2 || b[0].Label != "Recovery" || decode(t, b[0]).Action != "view" ||
-		b[1].Label != "Close" || decode(t, b[1]).Action != "close" || !queueControlsMatch(open.Components, "ticket") {
+		b[1].Label != "Close" || decode(t, b[1]).Action != "close" {
 		t.Fatalf("open post buttons = %+v", b)
 	}
 	closed := queuePostMessage(ticket, &Transcript{Content: "text"})
 	if closed.Content != "{{quack:ticket}} The ticket for <@owner> was closed. The transcript is attached." ||
-		len(closed.Files) != 1 || closed.Files[0].Name != "ticket-ticket.txt" || !queueControlsMatch(closed.Components, "ticket") {
+		len(closed.Files) != 1 || closed.Files[0].Name != "ticket-ticket.txt" {
 		t.Fatalf("closed post = %+v", closed)
 	}
 
@@ -246,30 +245,6 @@ func TestExistingTicketFeedbackOffersNextStep(t *testing.T) {
 	}
 }
 
-// TestCloseFailureKeepsUnknownDeliveryVisible sends staff to recovery
-// instead of offering a blind retry.
-func TestCloseFailureKeepsUnknownDeliveryVisible(t *testing.T) {
-	for _, ticket := range []*Ticket{
-		nil,
-		{ID: "ticket", Status: StatusOpen},
-		{ID: "ticket", Status: StatusResolved},
-		{ID: "ticket", Status: StatusResolved, TranscriptURL: "saved"},
-	} {
-		message := closeFailureMessage(ticket, fmt.Errorf("publish queue: %w", ErrQueueDeliveryUnknown))
-		if !strings.Contains(message.Content, "could not be confirmed") || !strings.Contains(message.Content, "duplicate") ||
-			strings.Contains(message.Content, "Try again") || !message.Ephemeral {
-			t.Fatalf("message = %+v", message)
-		}
-		got := buttons(t, message.Components)
-		if ticket == nil && len(got) != 0 {
-			t.Fatal("missing ticket exposed controls")
-		}
-		if ticket != nil && (len(got) != 1 || decode(t, got[0]).Action != "view") {
-			t.Fatalf("buttons = %+v", got)
-		}
-	}
-}
-
 func TestCloseFailureDistinguishesConfirmedProgress(t *testing.T) {
 	for _, scenario := range []struct {
 		ticket  *Ticket
@@ -278,50 +253,11 @@ func TestCloseFailureDistinguishesConfirmedProgress(t *testing.T) {
 	}{
 		{nil, "permission", 0},
 		{&Ticket{ID: "ticket", Status: StatusOpen}, "could not finish closing", 1},
-		{&Ticket{ID: "ticket", Status: StatusResolved}, "thread has been kept", 1},
-		{&Ticket{ID: "ticket", Status: StatusResolved, TranscriptURL: "saved"}, "cleanup did not finish", 1},
+		{&Ticket{ID: "ticket", Status: StatusResolved}, "cleanup did not finish", 1},
 	} {
 		message := closeFailureMessage(scenario.ticket, ErrPermissionDenied)
 		if !strings.Contains(message.Content, scenario.want) || len(message.Components) != scenario.buttons {
 			t.Fatalf("message = %+v", message)
-		}
-	}
-}
-
-func TestRecoveryErrorsPointBackToCurrentState(t *testing.T) {
-	for _, err := range []error{ErrInvalidTransition, fmt.Errorf("wrapped: %w", ErrQueueDeliveryUnknown)} {
-		if message := recoveryErrorMessage(err); !strings.Contains(message, "View ticket again") || !strings.Contains(message, "No replacement was sent") {
-			t.Fatalf("message = %q", message)
-		}
-	}
-	if recoveryErrorMessage(ErrPermissionDenied) != errorMessage(ErrPermissionDenied) {
-		t.Fatal("a denial was hidden behind stale-state copy")
-	}
-}
-
-// TestQueueRecoveryIsManagerOnly shows Recover queue post only to managers,
-// and only for an uncertain post on a ticket still holding its slot.
-func TestQueueRecoveryIsManagerOnly(t *testing.T) {
-	for _, scenario := range []struct {
-		manager, pending, want bool
-		status                 Status
-		channel, message       string
-	}{
-		{true, false, true, StatusOpen, "queue", ""},
-		{false, false, false, StatusOpen, "queue", ""},
-		{true, false, false, StatusOpen, "queue", "sent"},
-		{true, false, false, StatusOpen, "", ""},
-		{true, true, true, StatusResolved, "queue", ""},
-		{true, false, false, StatusResolved, "queue", ""},
-	} {
-		ticket := &Ticket{ID: "ticket", Status: scenario.status, LogChannelDiscordID: scenario.channel, LogMessageDiscordID: scenario.message}
-		message := detailMessage(ticket, nil, modules.Actor{CanManage: scenario.manager, CanModerate: true}, scenario.pending, nil, 0)
-		found := false
-		for _, b := range buttons(t, message.Components) {
-			found = found || decode(t, b).Action == "queuefix"
-		}
-		if found != scenario.want || !message.Ephemeral {
-			t.Fatalf("scenario %+v: found = %v", scenario, found)
 		}
 	}
 }
@@ -333,43 +269,24 @@ func (deniedStaff) ResolveDiscordStaffContext(context.Context, quack.DiscordStaf
 	return nil, quack.ErrAuthorizationDenied
 }
 
-// TestQueueRecoveryConfirmationNeedsLiveAuthority binds the confirmation
-// to one attempt, keeps it private, and re-checks authority on submit.
-func TestQueueRecoveryConfirmationNeedsLiveAuthority(t *testing.T) {
+// TestRepairNeedsLiveAuthority re-checks authority when Repair ticket is
+// pressed rather than trusting who was shown the button.
+func TestRepairNeedsLiveAuthority(t *testing.T) {
 	m := &Module{staff: deniedStaff{}}
-	payload := strings.Repeat("T", 26) + "~" + strings.Repeat("A", 26)
-	interaction := func(action string) *discordgo.InteractionCreate {
-		return &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{
-			GuildID: "guild", Type: discordgo.InteractionMessageComponent,
-			Member: &discordgo.Member{User: &discordgo.User{ID: "former-admin"}},
-			Data:   discordgo.MessageComponentInteractionData{CustomID: customID(action, payload)},
-		}}
-	}
-	confirmation := m.queueRetryComponent(context.Background(), interaction("queueretry"))
-	if confirmation.Task != nil || confirmation.Response.Data.Flags&discordgo.MessageFlagsEphemeral == 0 ||
-		!strings.Contains(confirmation.Response.Data.Content, "duplicate") {
-		t.Fatalf("confirmation = %+v", confirmation.Response.Data)
-	}
-	confirm := buttons(t, confirmation.Response.Data.Components)[0]
-	if id := decode(t, confirm); id.Payload != payload || id.Action != "queueretryok" {
-		t.Fatalf("confirmation lost its attempt: %+v", id)
-	}
-	result := m.queueRetryConfirmed(context.Background(), interaction("queueretryok"))
+	interaction := &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{
+		GuildID: "guild", Type: discordgo.InteractionMessageComponent,
+		Member: &discordgo.Member{User: &discordgo.User{ID: "former-admin"}},
+		Data:   discordgo.MessageComponentInteractionData{CustomID: customID("repair", "ticket")},
+	}}
+	result := m.repairComponent(context.Background(), interaction)
 	if result.Task == nil || result.Response.Type != discordgo.InteractionResponseDeferredChannelMessageWithSource {
-		t.Fatal("confirmation did not defer for live authority")
+		t.Fatal("repair did not defer for live authority")
 	}
 	responder := &progressResponder{}
 	if err := result.Task(context.Background(), responder); err != nil {
 		t.Fatal(err)
 	}
 	if len(responder.messages) != 1 || !strings.Contains(responder.messages[0], "could not verify") {
-		t.Fatalf("revoked authority reached recovery: %q", responder.messages)
-	}
-	modal := m.queueAdoptComponent(context.Background(), interaction("queueadopt"))
-	if modal.Response.Type != discordgo.InteractionResponseModal || modal.Response.Data.CustomID != customID("queueadopt", payload) {
-		t.Fatalf("adoption form = %+v", modal.Response)
-	}
-	if stale := m.queueRetryComponent(context.Background(), interaction("queueretry~")); stale.Task != nil {
-		t.Fatal("malformed payload was accepted")
+		t.Fatalf("revoked authority reached repair: %q", responder.messages)
 	}
 }

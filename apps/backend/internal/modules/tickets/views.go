@@ -11,7 +11,7 @@ import (
 	"github.com/quackdiscord/bot/internal/modules"
 )
 
-// componentNamespace prefixes every ticket button and modal custom ID.
+// componentNamespace prefixes every ticket button custom ID.
 // Custom IDs live on posted messages (the entry panel, queue posts, thread
 // welcomes), so existing ones must keep decoding to the same route.
 const componentNamespace = "ticket"
@@ -19,7 +19,7 @@ const componentNamespace = "ticket"
 // historyPageSize is the most ticket history one detail page shows.
 const historyPageSize = 1200
 
-// customID encodes a ticket button or modal custom ID.
+// customID encodes a ticket button custom ID.
 func customID(action, payload string) string {
 	return discord.MustCustomID(discord.CustomID{
 		Namespace: componentNamespace,
@@ -164,7 +164,7 @@ func detailMessage(ticket *Ticket, events []Event, actor modules.Actor, pending 
 			ticket.OwnerDiscordUserID, ticket.ThreadDiscordChannelID)
 		components = ticketControls(ticket.ID, actor.CanManage)
 	case pending:
-		text += "\nClosing is still in progress. Finish closing to save the transcript to the staff queue and complete thread cleanup."
+		text += "\nClosing is still in progress. Finish closing to send the transcript and complete thread cleanup."
 		components = finishClosingComponents(ticket.ID)
 	}
 	if ticket.Status == StatusResolved && !pending && actor.CanManage && !ticket.CloseNoticeDelivered {
@@ -180,10 +180,6 @@ func detailMessage(ticket *Ticket, events []Event, actor modules.Actor, pending 
 		if actor.CanModerate && ticket.TranscriptURL != "" {
 			text += "\n[View transcript in the staff queue](" + ticket.TranscriptURL + ")."
 		}
-	}
-	if actor.CanManage && (ticket.Status == StatusOpen || pending) && ticket.LogChannelDiscordID != "" && ticket.LogMessageDiscordID == "" {
-		text += "\nThe staff queue post is unconfirmed. Check its delivery before retrying."
-		components = append(components, discord.Row(button("queuefix", ticket.ID, "Recover queue post", discordgo.SecondaryButton)))
 	}
 	if pages := historyPages(events); len(pages) > 0 {
 		page = max(0, min(page, len(pages)-1))
@@ -214,7 +210,7 @@ func existingTicketMessage(ticket *Ticket) discord.Message {
 		return discord.Signal("ticket", "Your ticket is still opening. Try again in a moment.", true)
 	}
 	if ticket.Status == StatusOpen {
-		message := discord.Signal("ticket", "You already have a ticket: <#"+ticket.ThreadDiscordChannelID+">. Continue the conversation there. If access or the staff queue post is missing, ask a server administrator to use Repair ticket on this ticket.", true)
+		message := discord.Signal("ticket", "You already have a ticket: <#"+ticket.ThreadDiscordChannelID+">. Continue the conversation there. If you can’t post there, ask a server administrator to use Repair ticket on this ticket.", true)
 		message.Components = closeComponents(ticket.ID)
 		return message
 	}
@@ -231,7 +227,7 @@ func openedMessage(ticket *Ticket, setupErr error) discord.Message {
 	}
 	// The ticket is saved but its setup did not finish; point the member
 	// at recovery rather than letting them open a second ticket.
-	message := discord.Signal("ticket", "Your ticket is saved: <#"+ticket.ThreadDiscordChannelID+">, but setup did not finish. If access or the staff queue post is missing, ask a server administrator to use Repair ticket on this ticket. Opening again will return this same ticket.", true)
+	message := discord.Signal("ticket", "Your ticket is saved: <#"+ticket.ThreadDiscordChannelID+">, but setup did not finish. If you can’t post there, ask a server administrator to use Repair ticket on this ticket. Opening again will return this same ticket.", true)
 	message.Components = []discordgo.MessageComponent{discord.Row(button("view", ticket.ID, "Recovery", discordgo.SecondaryButton))}
 	return message
 }
@@ -241,28 +237,18 @@ func closedCopy(ticket *Ticket) string {
 	if ticket.CloseNoticeDelivered {
 		return "The transcript is saved, and a copy has been DMed to the member. This ticket is closing."
 	}
-	return "The transcript is saved in the staff queue. I couldn’t confirm a DM to the member. This ticket is closing."
+	return "The transcript is saved. I couldn’t confirm a DM to the member. This ticket is closing."
 }
 
 // closeFailureMessage describes only progress that was confirmed. Without
-// a ticket (it was missing or forbidden) it offers no links or controls;
-// an uncertain queue post sends staff to recovery instead of a retry.
+// a ticket (it was missing or forbidden) it offers no links or controls.
 func closeFailureMessage(ticket *Ticket, err error) discord.Message {
 	if ticket == nil {
 		return discord.Signal("error", errorMessage(err), true)
 	}
-	if errors.Is(err, ErrQueueDeliveryUnknown) {
-		message := discord.Signal("error", errorMessage(err), true)
-		message.Components = []discordgo.MessageComponent{discord.Row(button("view", ticket.ID, "Recovery", discordgo.SecondaryButton))}
-		return message
-	}
 	text := "The ticket could not finish closing. Try again; if it keeps failing, ask a server administrator to check Quack's permissions."
 	if ticket.Status == StatusResolved {
-		if ticket.TranscriptURL == "" {
-			text = "The transcript was captured, but could not be saved to the staff queue. The thread has been kept. Try again after an administrator checks the queue channel and Quack's permissions."
-		} else {
-			text = "The transcript is saved, but cleanup did not finish. Try again to finish closing the ticket."
-		}
+		text = "The transcript is saved, but cleanup did not finish. Try again to finish closing the ticket."
 	}
 	message := discord.Signal("error", text, true)
 	message.Components = []discordgo.MessageComponent{discord.Row(button("close", ticket.ID, "Retry close", discordgo.SecondaryButton))}
@@ -285,10 +271,6 @@ func queueListMessage(queue []Ticket) discord.Message {
 // errorMessage maps an error to copy safe to show the member.
 func errorMessage(err error) string {
 	switch {
-	case errors.Is(err, ErrInvalidQueueReceipt):
-		return "That message is not a Quack queue post for this ticket in its recorded staff queue. Check the message link and try again."
-	case errors.Is(err, ErrQueueDeliveryUnknown):
-		return "The staff queue post could not be confirmed. Another post was not sent because it could create a duplicate. Ask an administrator to open Recovery and check the queue post."
 	case errors.Is(err, ErrJournalIncomplete):
 		return "This ticket cannot close because some received messages could not be retained. Ask a server administrator to check transcript storage."
 	case errors.Is(err, ErrDisabled):
@@ -308,7 +290,7 @@ func errorMessage(err error) string {
 // than a failure worth an error log.
 func expectedError(err error) bool {
 	for _, target := range []error{ErrDisabled, ErrPermissionDenied, ErrDuplicateOpen, ErrNotFound,
-		ErrInvalidTransition, ErrInvalidQueueReceipt, ErrQueueDeliveryUnknown} {
+		ErrInvalidTransition} {
 		if errors.Is(err, target) {
 			return true
 		}
