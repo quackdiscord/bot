@@ -27,7 +27,10 @@ var errNotInGuild = errors.New("case commands must be used in a server")
 // commands returns Quack's application commands, freshly built so callers
 // can modify them without affecting anyone else's copy.
 func commands() []*discordgo.ApplicationCommand {
-	return []*discordgo.ApplicationCommand{caseCommand(), messageCaseCommand()}
+	return []*discordgo.ApplicationCommand{
+		caseCommand(), messageCaseCommand(),
+		templateCommand(), appealsCommand(), helpCommand(),
+	}
 }
 
 // caseCommand defines /case: add creates a case from a template, and the

@@ -2,6 +2,7 @@ package discord
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
@@ -16,8 +17,12 @@ func TestCommandDefinitionsAreUnchanged(t *testing.T) {
 	want := map[string]string{
 		caseCommandName:        "58f25940bf8fe38cc382d4d057563eb1c8dad9c91f5c9fd01a39a00008e1aefa",
 		messageCaseCommandName: "9eeaed148c9e935ad4b6cfaa628be6fc4887e21f8457c130813f2c2ec96d2b51",
+		templateCommandName:    "7094a68153fa4671fe89ecf8372fcef92a53215fe92446b14cc255771d37c51b",
+		appealsCommandName:     "c4c28da3d479feb6128a58df54a86f3ec144841a812275f3ba017e6c5bbb09ca",
+		helpCommandName:        "45656e62a33c545f254b43453d75d86f8113fed9d75cb2189186fcab7e3469e8",
+		uiPreviewCommandName:   "f796b81f7fecdc7372a908d5cf7ed78392e310cb78ac5d65559e6a8227e5e82a",
 	}
-	for _, command := range commands() {
+	for _, command := range syncedCommands(true) {
 		hash, body, err := fingerprint(command)
 		if err != nil {
 			t.Fatal(err)
@@ -25,6 +30,15 @@ func TestCommandDefinitionsAreUnchanged(t *testing.T) {
 		if hash != want[command.Name] {
 			t.Errorf("%s changed: %s\n%s", command.Name, hash, body)
 		}
+	}
+}
+
+func TestUIPreviewIsSyncedOnlyInDev(t *testing.T) {
+	has := func(list []*discordgo.ApplicationCommand) bool {
+		return slices.ContainsFunc(list, func(c *discordgo.ApplicationCommand) bool { return c.Name == uiPreviewCommandName })
+	}
+	if has(syncedCommands(false)) || !has(syncedCommands(true)) {
+		t.Fatal("/ui-preview must be registered on development bots only")
 	}
 }
 

@@ -10,8 +10,9 @@ import (
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
-// TestMessagesMatchGolden renders every case and appeal view and compares it
-// with testdata/views.golden.json, so copy, layout, and custom IDs cannot
+// TestMessagesMatchGolden renders every case view and the appeal entry and
+// compares them with testdata/views.golden.json (appeal and template views
+// are in TestAppealViewsMatchGolden), so copy, layout, and custom IDs cannot
 // drift unnoticed. Regenerate the golden file only for a deliberate change.
 func TestMessagesMatchGolden(t *testing.T) {
 	level := func(name string, position int) *quack.CaseSelectedLevel {
@@ -59,11 +60,6 @@ func TestMessagesMatchGolden(t *testing.T) {
 		{ID: "exec-1", CaseID: "case-1", ActionType: quack.ActionKickUser, LastErrorCode: "kick_permission_or_hierarchy_denied"},
 		{ID: "exec-2", CaseID: "case-2", ActionType: quack.ActionBanUser},
 	}}
-	appeal := &quack.AppealResponse{
-		ID: "appeal", CaseID: "case", TargetDiscordUserID: "target", Status: quack.AppealStatusAccepted,
-		Events:         []quack.AppealEventResponse{{Type: "submitted", ActorType: "member", ActorDiscordUserID: "target", Body: "please"}},
-		ReversalOffers: []quack.AppealReversalOffer{{OriginalExecutionID: "execution", ActionType: quack.ActionUnbanUser}},
-	}
 	entry, err := appealEntryMessage("https://dash.example/base/", "guild", "case 1")
 	if err != nil {
 		t.Fatal(err)
@@ -91,7 +87,6 @@ func TestMessagesMatchGolden(t *testing.T) {
 		"case_profile":       caseProfileMessage(profile, 1, "member"),
 		"failures":           failedActionMessage(failed, 1),
 		"failures_empty":     failedActionMessage(nil, 1),
-		"appeal_staff":       appealStaffMessage(appeal),
 		"appeal_entry":       entry,
 		"audit_case_create":  audit("case.create", quack.AuditResultSuccess, ""),
 		"audit_action_retry": audit("case_action.failed", quack.AuditResultFailure, "ban_permission_denied"),

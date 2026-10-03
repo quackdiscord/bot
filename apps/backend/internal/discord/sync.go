@@ -24,6 +24,9 @@ type SyncOptions struct {
 	GuildID string
 	// Prune deletes registered commands Quack no longer defines.
 	Prune bool
+	// Dev also registers the development-only /ui-preview gallery. Without
+	// it, Prune removes the gallery from a bot that once had it.
+	Dev bool
 }
 
 // SyncCommands makes Discord's registered commands match Quack's. A command
@@ -43,7 +46,17 @@ func SyncCommands(ctx context.Context, bot *Bot, cache redis.UniversalClient, op
 		guild:  strings.TrimSpace(opts.GuildID),
 		prune:  opts.Prune,
 	}
-	return s.sync(ctx, commands())
+	return s.sync(ctx, syncedCommands(opts.Dev))
+}
+
+// syncedCommands is what SyncCommands registers: Quack's commands, plus the
+// /ui-preview gallery on development bots only.
+func syncedCommands(dev bool) []*discordgo.ApplicationCommand {
+	local := commands()
+	if dev {
+		local = append(local, uiPreviewCommand())
+	}
+	return local
 }
 
 // commandClient is the part of Discord's command API the syncer uses. Tests

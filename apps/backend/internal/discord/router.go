@@ -101,14 +101,18 @@ type Router struct {
 	modals     map[string]Handler
 }
 
-// NewRouter returns a router for bot's interactions with the /case command,
-// its components, and the appeal reversal control already installed. Modules
-// add their own components with HandleComponent and HandleModal before the
-// gateway opens.
+// NewRouter returns a router for bot's interactions with Quack's commands
+// (/case, /template, /appeals, /help, and the dev-only /ui-preview), their
+// components, and the appeal form and queue controls already installed.
+// Modules add their own components with HandleComponent and HandleModal
+// before the gateway opens.
 func NewRouter(bot *Bot, services *quack.Services, deduper Deduper) *Router {
 	r := newRouter(bot.Session, deduper)
 	newCases(services).register(r)
-	r.HandleComponent(appealNamespace, appealReverseAction, appealReversal(services))
+	appeals{services: services}.register(r)
+	templates{services: services}.register(r)
+	r.commands[helpCommandName] = help
+	r.commands[uiPreviewCommandName] = uiPreview(bot)
 	bot.Session.AddHandler(r.handle)
 	return r
 }

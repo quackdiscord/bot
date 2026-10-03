@@ -4,18 +4,44 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/internal/discordtext"
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
+// statementPageLimit is how much of a resolved appeal fits on one page,
+// leaving room for the page line and Discord's 2000-unit limit.
+const statementPageLimit = 1700
+
+// appealStaffPage is page page of the staff view of appeal. A long statement
+// is split into pages with Prev and Next buttons instead of an attachment,
+// and every page keeps the decision controls. Icons are resolved for
+// applicationID first, so pages are measured as Discord will count them.
+func appealStaffPage(appeal *quack.AppealResponse, page int, applicationID string) Message {
+	message := appealStaffMessage(appeal)
+	if appeal == nil {
+		return message
+	}
+	pages := TextPages(discordtext.Resolve(message.Content, applicationID), statementPageLimit)
+	page = max(1, min(page, len(pages)))
+	message.Content = pages[page-1]
+	if len(pages) > 1 {
+		message.Content += fmt.Sprintf("\n\n-# Case #%d · Statement page %d/%d", appeal.CaseNumber, page, len(pages))
+		controls, err := Pagination(appealNamespace, "statement", strconv.Itoa(page)+"|"+appeal.ID, page, len(pages))
+		if err == nil {
+			message.Components = append(message.Components, controls...)
+		}
+	}
+	return message
+}
+
 // appealStaffMessage is the staff view of an appeal: who appealed, where it
-// stands, the member's quoted answers, and a confirmation button for each
-// reversal Quack offers after acceptance, handled by appealReversal.
-//
-// Nothing posts this view yet: staff appeal notifications are plain text, so
-// the reversal buttons only appear once the appeal flow sends this message.
+// stands, the decision reason, the member's quoted answers, Accept and
+// Reject while it is pending, and a confirmation button for each reversal
+// still on offer after acceptance.
 func appealStaffMessage(appeal *quack.AppealResponse) Message {
 	if appeal == nil {
 		return Signal("error", "That appeal couldn’t be found.", true)
@@ -39,7 +65,15 @@ func appealStaffMessage(appeal *quack.AppealResponse) Message {
 	for _, answer := range appeal.Answers {
 		body = append(body, Quote(PlainText(fmt.Sprint(answer.Value))))
 	}
-	message := Conversation("appeal", lead, "", strings.Join(body, "\n\n"), "", false)
+	meta := fmt.Sprintf("Case #%d · %s", appeal.CaseNumber, PlainText(appeal.TemplateName))
+	message := Conversation("appeal", lead, "", strings.Join(body, "\n\n"), meta, false)
+	message.Components = []discordgo.MessageComponent{}
+	if appeal.Status == quack.AppealStatusPending {
+		message.Components = append(message.Components, Row(
+			Button(appealCustomID(appealAcceptAction, appeal.ID), "Accept", discordgo.SuccessButton, false),
+			Button(appealCustomID(appealRejectAction, appeal.ID), "Reject", discordgo.DangerButton, false),
+		))
+	}
 	for _, offer := range appeal.ReversalOffers {
 		customID, err := EncodeCustomID(CustomID{
 			Namespace: appealNamespace,
@@ -52,6 +86,39 @@ func appealStaffMessage(appeal *quack.AppealResponse) Message {
 		}
 		label := "Confirm " + strings.ToLower(offer.ActionType.Label())
 		message.Components = append(message.Components, Row(Button(customID, label, discordgo.DangerButton, false)))
+	}
+	return message
+}
+
+// appealDecisionMessage is the DM telling a member what staff decided. It
+// quotes the staff reason but never names the reviewer. An accepted appeal
+// with a rejoin invite gets a Rejoin Server button.
+func appealDecisionMessage(intent quack.AppealDecisionIntent) Message {
+	icon, lead, next := "appeal", "Your appeal was closed.", ""
+	switch intent.Status {
+	case quack.AppealStatusNeedsInformation:
+		icon, lead, next = "reply", "Staff need a little more information to review your appeal.", "You can reply from your Quack dashboard."
+	case quack.AppealStatusAccepted:
+		icon, lead, next = "accept", "Your appeal was accepted.", "Your case was voided. Quack will try to remove any ban or timeout from it."
+	case quack.AppealStatusRejected:
+		icon, lead = "decline", "Your appeal was rejected."
+	}
+	var meta []string
+	if intent.CaseNumber > 0 {
+		meta = append(meta, fmt.Sprintf("Case #%d", intent.CaseNumber))
+	} else if intent.CaseID != "" {
+		meta = append(meta, "Case "+PlainText(intent.CaseID))
+	}
+	if intent.GuildName != "" {
+		meta = append(meta, PlainText(intent.GuildName))
+	}
+	body := discordtext.Conversation(icon, lead, PlainText(intent.Reason), next, strings.Join(meta, " · "))
+	if intent.RejoinURL != "" {
+		body += "\n\nIf you left or were banned, you can rejoin once any ban has been removed: " + intent.RejoinURL
+	}
+	message := Signal("appeal", body, false)
+	if intent.Status == quack.AppealStatusAccepted && intent.RejoinURL != "" {
+		message.Components = []discordgo.MessageComponent{Row(LinkButton(intent.RejoinURL, "Rejoin Server"))}
 	}
 	return message
 }

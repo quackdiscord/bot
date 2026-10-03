@@ -4,35 +4,32 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
-// The route of the reversal confirmation button on an accepted appeal. Its
-// payload is "appeal,execution,action".
-const (
-	appealNamespace     = "appeal"
-	appealReverseAction = "reverse"
-)
-
 // AppealSettingsStore is the storage the AppealNotifier reads to find a
-// guild's staff channel.
+// guild's appeal queue channel.
 type AppealSettingsStore interface {
 	GetGuildSettings(ctx context.Context, guildID string) (*quack.GuildSettings, error)
 	GetGuildByID(ctx context.Context, guildID string) (*quack.Guild, error)
 }
 
 // AppealNotifier delivers the appeal outbox through Discord. It implements
-// quack.AppealNotifier. Messages never name the staff member involved.
+// quack.AppealNotifier, quack.AppealDecisionSender, and
+// quack.AppealQueuePublisher: members get decision DMs, and staff get one
+// post per appeal in the appeal queue channel, edited as the appeal
+// changes. Messages never name the staff member involved.
 type AppealNotifier struct {
 	bot      *Bot
 	channels appealChannels
 }
 
 // NewAppealNotifier returns an AppealNotifier that sends through bot. Staff
-// notifications go to the guild's audit mirror channel, found in store.
+// posts go to the guild's appeal queue channel, found in store.
 func NewAppealNotifier(bot *Bot, store AppealSettingsStore) *AppealNotifier {
 	return &AppealNotifier{bot: bot, channels: appealChannels{store: store, validator: bot}}
 }
@@ -43,27 +40,139 @@ type staffChannelValidator interface {
 	ValidateStaffChannel(ctx context.Context, guildID, channelID string) error
 }
 
-// appealChannels finds a guild's appeal staff channel: the audit mirror
-// channel, re-checked as staff-only before every send.
+// appealChannels finds a guild's appeal queue channel, re-checked as
+// staff-only before every send, so a channel that has since become public
+// is never used.
 type appealChannels struct {
 	store     AppealSettingsStore
 	validator staffChannelValidator
 }
 
-// SendAppealMemberNotification sends a status update to the member by DM.
+// queueChannel returns the guild's appeal queue channel. A guild without
+// one, or whose channel fails the staff-only check, gets an error wrapping
+// quack.ErrAppealDeliveryDeferred, since nothing was sent and setting the
+// channel up later should still deliver the appeal.
+func (c appealChannels) queueChannel(ctx context.Context, guildID string) (string, error) {
+	settings, err := c.store.GetGuildSettings(ctx, guildID)
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", quack.ErrAppealDeliveryDeferred, err)
+	}
+	if settings == nil || strings.TrimSpace(settings.AppealQueueChannelDiscordID) == "" {
+		return "", fmt.Errorf("%w: appeal queue channel is not configured", quack.ErrAppealDeliveryDeferred)
+	}
+	guild, err := c.store.GetGuildByID(ctx, guildID)
+	if err != nil || guild == nil {
+		return "", fmt.Errorf("%w: appeal guild is unavailable", quack.ErrAppealDeliveryDeferred)
+	}
+	channelID := settings.AppealQueueChannelDiscordID
+	if err := c.validator.ValidateStaffChannel(ctx, guild.DiscordGuildID, channelID); err != nil {
+		return "", fmt.Errorf("%w: %v", quack.ErrAppealDeliveryDeferred, err)
+	}
+	return channelID, nil
+}
+
+// SendAppealMemberNotification sends a plain status update to the member by
+// DM. Decision notices go through SendAppealDecision instead.
 func (n *AppealNotifier) SendAppealMemberNotification(ctx context.Context, discordUserID, body string) (string, error) {
+	return n.dm(ctx, discordUserID, Signal("appeal", body, false))
+}
+
+// SendAppealDecision DMs the member the decision on their appeal, with a
+// Rejoin Server button when an accepted appeal carries an invite.
+func (n *AppealNotifier) SendAppealDecision(ctx context.Context, discordUserID string, notice quack.AppealDecisionNotice) (string, error) {
+	return n.dm(ctx, discordUserID, appealDecisionMessage(notice.Intent))
+}
+
+// dm sends message to the member. A rate limit is deferred, since nothing
+// was sent; a closed or blocked DM is a recorded failure rather than
+// something to probe again and again.
+func (n *AppealNotifier) dm(ctx context.Context, discordUserID string, message Message) (string, error) {
 	if strings.TrimSpace(discordUserID) == "" {
 		return "", errors.New("appeal member is unknown")
 	}
 	channel, err := n.bot.Session.UserChannelCreate(discordUserID, rest(ctx)...)
 	if err != nil {
-		return "", notificationError("appeal_dm_channel", err)
+		return "", memberSendError("appeal_dm_channel", err)
 	}
-	message, err := n.bot.Send(ctx, channel.ID, Signal("appeal", body, false))
+	sent, err := n.bot.Send(ctx, channel.ID, message)
 	if err != nil {
-		return "", notificationError("appeal_dm", err)
+		return "", memberSendError("appeal_dm", err)
 	}
-	return message.ID, nil
+	return sent.ID, nil
+}
+
+// SendAppealStaffNotification posts a plain update to the guild's appeal
+// queue channel. Staff updates normally go through PublishAppealQueue.
+func (n *AppealNotifier) SendAppealStaffNotification(ctx context.Context, guildID, body string) (string, error) {
+	channelID, err := n.channels.queueChannel(ctx, guildID)
+	if err != nil {
+		return "", err
+	}
+	sent, err := n.bot.Send(ctx, channelID, Signal("appeal", body, false))
+	if err != nil {
+		return "", queueSendError(err)
+	}
+	return sent.ID, nil
+}
+
+// PublishAppealQueue shows appeal in the guild's appeal queue channel. A
+// post still in that channel is edited in place; otherwise, or when the
+// post was deleted, a new one is posted and its receipt returned. Editing
+// is idempotent, so any failed edit is retried, but a failed post is only
+// retried when Discord clearly refused it.
+func (n *AppealNotifier) PublishAppealQueue(
+	ctx context.Context, guildID string, appeal *quack.AppealResponse, receipt quack.AppealQueueReceipt,
+) (quack.AppealQueueReceipt, error) {
+	channelID, err := n.channels.queueChannel(ctx, guildID)
+	if err != nil {
+		return receipt, err
+	}
+	applicationID := n.bot.applicationID(ctx)
+	message := appealStaffPage(appeal, 1, applicationID)
+	if receipt.ChannelID == channelID && receipt.MessageID != "" {
+		edit := EditMessage(message).ForApplication(applicationID).webhookEdit()
+		_, err := n.bot.Session.ChannelMessageEditComplex(&discordgo.MessageEdit{
+			ID:              receipt.MessageID,
+			Channel:         channelID,
+			Content:         edit.Content,
+			Components:      edit.Components,
+			Embeds:          edit.Embeds,
+			Attachments:     edit.Attachments,
+			Files:           edit.Files,
+			AllowedMentions: edit.AllowedMentions,
+		}, rest(ctx)...)
+		if err == nil {
+			return receipt, nil
+		}
+		var restErr *discordgo.RESTError
+		if !errors.As(err, &restErr) || restErr.Message == nil || restErr.Message.Code != discordgo.ErrCodeUnknownMessage {
+			return receipt, fmt.Errorf("%w: %v", quack.ErrAppealDeliveryDeferred, classify("appeal_queue_edit", err, false))
+		}
+	}
+	sent, err := n.bot.Send(ctx, channelID, message)
+	if err != nil {
+		return receipt, queueSendError(err)
+	}
+	return quack.AppealQueueReceipt{ChannelID: channelID, MessageID: sent.ID}, nil
+}
+
+// queueSendError defers only posts Discord clearly refused (missing access,
+// unknown channel, rate limit). A network or server error may follow a post
+// that went through, so it is a failure instead of a duplicate post.
+func queueSendError(err error) error {
+	switch status := statusCode(err); {
+	case rateLimited(err), status == http.StatusForbidden, status == http.StatusNotFound:
+		return fmt.Errorf("%w: %v", quack.ErrAppealDeliveryDeferred, classify("appeal_queue_post", err, true))
+	}
+	return notificationError("appeal_queue_post", err)
+}
+
+// memberSendError defers a rate-limited DM and classifies anything else.
+func memberSendError(operation string, err error) error {
+	if rateLimited(err) {
+		return fmt.Errorf("%w: %v", quack.ErrAppealDeliveryDeferred, classify(operation, err, false))
+	}
+	return notificationError(operation, err)
 }
 
 // notificationError classifies a failed appeal notification send, so the
@@ -76,84 +185,9 @@ func notificationError(operation string, err error) error {
 	return fmt.Errorf("%s: %w", operation, classify(operation, err, false))
 }
 
-// SendAppealStaffNotification posts a queue update to the guild's staff
-// channel.
-func (n *AppealNotifier) SendAppealStaffNotification(ctx context.Context, guildID, body string) (string, error) {
-	channelID, err := n.channels.staffChannel(ctx, guildID)
-	if err != nil {
-		return "", err
-	}
-	if strings.TrimSpace(channelID) == "" {
-		return "", errors.New("appeal staff channel is unavailable")
-	}
-	message, err := n.bot.Send(ctx, channelID, Signal("appeal", body, false))
-	if err != nil {
-		return "", notificationError("appeal_staff_notification", err)
-	}
-	return message.ID, nil
-}
-
-// staffChannel returns the guild's appeal staff channel, or "" if it has
-// none configured.
-func (c appealChannels) staffChannel(ctx context.Context, guildID string) (string, error) {
-	settings, err := c.store.GetGuildSettings(ctx, guildID)
-	if err != nil || settings == nil {
-		return "", err
-	}
-	guild, err := c.store.GetGuildByID(ctx, guildID)
-	if err != nil || guild == nil {
-		return "", errors.New("appeal guild is unavailable")
-	}
-	channelID := settings.AuditMirrorChannelDiscordID
-	if err := c.validator.ValidateStaffChannel(ctx, guild.DiscordGuildID, channelID); err != nil {
-		return "", err
-	}
-	return channelID, nil
-}
-
-// appealReversal handles the "Confirm ..." button on an accepted appeal.
-// Acceptance never reverses anything by itself; this button queues the
-// reversal after live permission and hierarchy checks.
-func appealReversal(services *quack.Services) Handler {
-	return func(_ context.Context, i *discordgo.InteractionCreate) Result {
-		if i.GuildID == "" || i.Member == nil || i.Member.User == nil {
-			return Immediate(Error("Open this appeal in the server’s review queue to remove the punishment."))
-		}
-		id, err := DecodeCustomID(i.MessageComponentData().CustomID)
-		if err != nil {
-			return Immediate(Error("That punishment button is broken. Open the case to try again."))
-		}
-		parts := strings.Split(id.Payload, ",")
-		if len(parts) != 3 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
-			return Immediate(Error("That punishment button is broken. Open the case to try again."))
-		}
-		appealID, executionID, actionType := parts[0], parts[1], quack.ActionType(parts[2])
-		if actionType != quack.ActionRemoveTimeout && actionType != quack.ActionUnbanUser {
-			return Immediate(Error("Only bans and timeouts can be removed here."))
-		}
-		return AsyncPublic(func(ctx context.Context, responder Responder) error {
-			userID, name := interactionMember(i)
-			staff, err := services.Guilds.ResolveDiscordStaffContext(ctx, quack.DiscordStaffContextInput{
-				DiscordGuildID: i.GuildID,
-				DiscordUserID:  userID,
-				DisplayName:    name,
-			})
-			if err != nil {
-				_, _ = responder.EditOriginal(ErrorEdit("I couldn’t check your Discord permissions. Try again in a moment."))
-				return nil
-			}
-			appeal, err := services.Appeals.GetStaff(ctx, staff, appealID)
-			if err != nil || appeal.Status != quack.AppealStatusAccepted {
-				_, _ = responder.EditOriginal(ErrorEdit("Accept the appeal before removing its punishment."))
-				return nil
-			}
-			_, err = services.Actions.ReverseForAppeal(ctx, staff, appeal.CaseID, executionID, actionType, &appeal.ID)
-			if err != nil {
-				_, _ = responder.EditOriginal(ErrorEdit("I couldn’t queue the punishment removal. Check your moderation permissions and try again."))
-				return nil
-			}
-			_, err = Publish(responder, Signal("retry", "Punishment removal queued. Check the case for the result.", false))
-			return err
-		})
-	}
+// rateLimited reports whether Discord refused a request for its rate limit,
+// either as a 429 response or discordgo's own rate limit error.
+func rateLimited(err error) bool {
+	var rateLimit *discordgo.RateLimitError
+	return errors.As(err, &rateLimit) || statusCode(err) == http.StatusTooManyRequests
 }

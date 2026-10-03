@@ -1,0 +1,88 @@
+{
+  "appeal_decision_accepted": {
+    "Content": "{{quack:accept}} Your appeal was accepted.\n\n\u003e Fair point.\n\nYour case was voided. Quack will try to remove any ban or timeout from it.\n-# Case #12 · Duck Pond\n\nIf you left or were banned, you can rejoin once any ban has been removed: https://discord.gg/pond",
+    "Embeds": null,
+    "Components": [
+      {
+        "components": [
+          {
+            "label": "Rejoin Server",
+            "style": 5,
+            "disabled": false,
+            "url": "https://discord.gg/pond",
+            "type": 2
+          }
+        ],
+        "type": 1
+      }
+    ],
+    "Files": null,
+    "Ephemeral": false,
+    "AllowedMentions": null
+  },
+  "appeal_decision_rejected": {
+    "Content": "{{quack:decline}} Your appeal was rejected.\n\n\u003e The case stands.\n-# Case #12 · Duck Pond",
+    "Embeds": null,
+    "Components": null,
+    "Files": null,
+    "Ephemeral": false,
+    "AllowedMentions": null
+  },
+  "appeal_staff_accepted": {
+    "Content": "{{quack:appeal}} Appeal accepted · \u003c@target\u003e\nReviewed by \u003c@moderator\u003e.\n\nFair point.\n-# Case #12 · Spam",
+    "Embeds": null,
+    "Components": [
+      {
+        "components": [
+          {
+            "label": "Confirm unban",
+            "style": 4,
+            "disabled": false,
+            "custom_id": "appeal:reverse:v1:appeal,execution,unban_user",
+            "type": 2
+          }
+        ],
+        "type": 1
+      }
+    ],
+    "Files": null,
+    "Ephemeral": false,
+    "AllowedMentions": null
+  },
+  "appeal_staff_pending": {
+    "Content": "{{quack:appeal}} Received an appeal from \u003c@target\u003e.\n\n\u003e Please \\*reconsider\\*.\n-# Case #12 · Spam",
+    "Embeds": null,
+    "Components": [
+      {
+        "components": [
+          {
+            "label": "Accept",
+            "style": 3,
+            "disabled": false,
+            "custom_id": "appeal:accept:v1:appeal",
+            "type": 2
+          },
+          {
+            "label": "Reject",
+            "style": 4,
+            "disabled": false,
+            "custom_id": "appeal:reject:v1:appeal",
+            "type": 2
+          }
+        ],
+        "type": 1
+      }
+    ],
+    "Files": null,
+    "Ephemeral": false,
+    "AllowedMentions": null
+  },
+  "template_view": {
+    "Content": "{{quack:settings}} **Spam** · Active\nKeep chat readable.\n\n**When someone breaks this rule**\n**1+ times:** Warning · DM on\n**2+ times:** Timeout (5 minutes) · DM on\n**3+ times:** Ban · DM off\n\n-# Counting cases from the last **30 days**.\n-# Appeals: **On**\nNeed a hand? `/help topic:rules`",
+    "Embeds": null,
+    "Components": null,
+    "Files": null,
+    "Ephemeral": true,
+    "AllowedMentions": null
+  }
+}

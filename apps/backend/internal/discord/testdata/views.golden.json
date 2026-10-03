@@ -20,27 +20,6 @@
     "Ephemeral": false,
     "AllowedMentions": null
   },
-  "appeal_staff": {
-    "Content": "{{quack:appeal}} Appeal accepted · \u003c@target\u003e",
-    "Embeds": null,
-    "Components": [
-      {
-        "components": [
-          {
-            "label": "Confirm unban",
-            "style": 4,
-            "disabled": false,
-            "custom_id": "appeal:reverse:v1:appeal,execution,unban_user",
-            "type": 2
-          }
-        ],
-        "type": 1
-      }
-    ],
-    "Files": null,
-    "Ephemeral": false,
-    "AllowedMentions": null
-  },
   "audit_action_retry": {
     "Content": "{{quack:error}} \u003c@moderator\u003e recorded a failed Discord action.\n-# ban\\_permission\\_denied\n-# \u003ct:1700000000:R\u003e",
     "Embeds": null,

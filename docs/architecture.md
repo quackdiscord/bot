@@ -15,7 +15,7 @@ All packages live under `apps/backend/internal` unless noted.
 | `config` | Loads settings from code defaults, an optional TOML file, and `QUACK_*` env vars, and validates them. |
 | `quack` | The moderation domain: templates, escalation, cases, actions, notifications, appeals, audit, statistics, and the ports it needs. |
 | `store` | GORM/MySQL and Redis implementation of the `quack` storage ports, the schema, and migrations. |
-| `discord` | Discord adapter: REST client behind the `quack` Discord ports, interaction router, message and response model, `/case`, views, command sync and command mentions, guild lifecycle. |
+| `discord` | Discord adapter: REST client behind the `quack` Discord ports, interaction router, message and response model, `/case`, `/template`, `/appeals`, `/help`, the appeal form and queue, views, command sync and command mentions, guild lifecycle. |
 | `discordtext` | Transport-free prose helpers for Discord copy: `{{quack:key}}` icon placeholders and the generated per-application emoji catalog, Markdown escaping, quoting, and the conversation layout. |
 | `api` | The dashboard's `net/http` API: middleware, sessions, OAuth, and handlers over `quack.Services`. |
 | `worker` | The in-process action queue, the database poller behind it, and periodic background loops. |
@@ -65,7 +65,8 @@ belong there, not in handlers.
 4. Sync slash commands (`discord.SyncCommands`). Command definitions are
    fingerprinted in Redis so unchanged commands are not rewritten. Sync also
    records each command's ID so copy like `/case view` renders as a clickable
-   command mention.
+   command mention. Only the `dev` environment registers `/ui-preview`, a
+   gallery of message designs.
 5. Start the worker and the logging and honeypot pools.
 6. Open the Discord gateway.
 7. Serve HTTP until the context is cancelled (SIGINT or SIGTERM).
@@ -346,6 +347,17 @@ rest. The database is the source of truth; the queue only saves latency.
   rows edit it in place, using the receipt (`delivery_channel_id`,
   `delivery_message_id`) and `refresh_requested`. Notifiers without the rich
   interfaces get plain bodies. Messages never name the staff member.
+- **In Discord** (`discord/appeal_*.go`, `discord/appeals.go`).
+  `discord.AppealNotifier` implements both rich interfaces. The "Appeal
+  decision" button (`appeal:submit:v1:<case>`) checks `CanSubmit` and opens
+  a one-question form whose answer is saved as the `reason` answer, so it
+  fits the default form. The queue post in the appeal queue channel shows
+  the statement in pages, Accept and Reject while pending (with a reason
+  form when the guild requires one), and "Confirm ..." buttons for
+  reversals still on offer after acceptance. `/appeals` pages through
+  pending appeals straight from storage. Every staff control re-reads live
+  permissions. The decision DM quotes the reason and carries a Rejoin
+  Server button when an accepted appeal has an invite.
 
 ## Audit log and mirror
 
@@ -506,17 +518,12 @@ These are verified against the code as of this writing:
   the "Open ticket" and "Staff queue" row, and the router handles those
   buttons, but no code path sends that message to a channel, and there is no
   HTTP route to open a ticket.
-- **Nothing posts the appeal reversal button in Discord.** The `appeal:reverse`
-  component handler is registered and the `discord` package can render the
-  "Confirm ..." buttons, but nothing sends that message. Appeal-linked
-  reversals work only through
-  `POST /guilds/{discordGuildID}/appeals/{appealID}/reversals` today.
-  `/case reverse` can still undo the action, but without linking it to the
-  appeal.
-- **The Discord adapter does not use the newer core ports yet.** Nothing
-  runs the case publication refresh loop, and `internal/discord` implements
-  neither `CaseNotificationSender`, `AppealDecisionSender`, nor
-  `AppealQueuePublisher`, so DMs and appeal updates use the plain wording.
+- **The Discord adapter does not use every newer core port yet.** Nothing
+  runs the case publication refresh loop, and `internal/discord` does not
+  implement `CaseNotificationSender`, so case DMs use the plain wording.
+- **The Discord appeal form asks one question.** Guilds with a custom
+  appeal form whose questions do not include `reason` must take appeals
+  through the dashboard.
 - **No real-guild rehearsal yet.** Install, permissions, enforcement, DMs,
   appeals, and the modules have been tested against fakes, SQLite, and MySQL,
   but not end to end in a live Discord guild.

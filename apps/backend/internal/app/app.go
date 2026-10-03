@@ -70,6 +70,7 @@ func Run(ctx context.Context, cfg config.Config) (err error) {
 		AppID:   cfg.Discord.AppID,
 		GuildID: cfg.Discord.CommandGuildID,
 		Prune:   cfg.Discord.CommandPrune,
+		Dev:     cfg.Environment == "dev",
 	}); err != nil {
 		return fmt.Errorf("sync Discord commands: %w", err)
 	}
