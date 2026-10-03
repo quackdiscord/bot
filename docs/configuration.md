@@ -13,8 +13,8 @@ startup, so typos don't pass silently. `quack serve` then validates the result
 and reports every problem at once. `migrate` and `import-v4` need only
 `database.dsn`.
 
-Quack does not read `.env` files. air and Docker Compose load the repository's
-`.env` for you; in a shell, run `set -a; source .env; set +a` first.
+Quack reads the nearest `.env`, searching up from the working directory, before
+the environment. Real environment variables override values from `.env`.
 
 ## Environment variables
 

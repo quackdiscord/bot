@@ -13,7 +13,6 @@ Redis, and a Discord application for development, separate from production.
 3. Run Quack from `apps/backend`:
 
    ```sh
-   set -a; source ../../.env; set +a
    go run ./cmd/quack serve
    ```
 

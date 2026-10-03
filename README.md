@@ -32,7 +32,6 @@ You need Go, Docker, and a Discord application for development.
 cp .env.example .env        # then fill in the QUACK_DISCORD_* values
 docker compose up -d        # MySQL and Redis
 cd apps/backend
-set -a; source ../../.env; set +a
 go run ./cmd/quack serve
 ```
 

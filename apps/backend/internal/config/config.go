@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -203,8 +204,61 @@ func Default() Config {
 // Load reads the configuration. path names a TOML file; when it is empty,
 // QUACK_CONFIG is used, and failing that the optional DefaultFile. Load does
 // not validate; call Validate before relying on required settings.
+//
+// A .env file in the working directory or any parent is read first, so local
+// development works without exporting anything; real environment variables
+// still win over it.
 func Load(path string) (Config, error) {
-	return load(path, os.Environ())
+	dotenv, err := readDotenv()
+	if err != nil {
+		return Config{}, err
+	}
+	return load(path, append(dotenv, os.Environ()...))
+}
+
+// readDotenv finds the nearest .env walking up from the working directory and
+// returns its KEY=VALUE lines. A missing file is not an error.
+func readDotenv() ([]string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return nil, nil
+	}
+	for {
+		body, err := os.ReadFile(filepath.Join(dir, ".env"))
+		if err == nil {
+			return parseDotenv(string(body)), nil
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return nil, fmt.Errorf("read .env: %w", err)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return nil, nil
+		}
+		dir = parent
+	}
+}
+
+// parseDotenv understands the subset of .env syntax .env.example uses:
+// comments, blank lines, an optional "export ", and quoted values.
+func parseDotenv(body string) []string {
+	var environ []string
+	for line := range strings.Lines(body) {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(strings.TrimPrefix(line, "export "), "=")
+		if !ok {
+			continue
+		}
+		value = strings.TrimSpace(value)
+		if len(value) >= 2 && (value[0] == '"' || value[0] == '\'') && value[len(value)-1] == value[0] {
+			value = value[1 : len(value)-1]
+		}
+		environ = append(environ, strings.TrimSpace(key)+"="+value)
+	}
+	return environ
 }
 
 // load is Load with the environment passed in, so tests don't depend on the
