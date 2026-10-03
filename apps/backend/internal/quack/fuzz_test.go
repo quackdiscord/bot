@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-// FuzzNormalizeTemplatePolicyJSON exercises the bounded JSON object boundary
-// used by imported policy and action configuration payloads.
-func FuzzNormalizeTemplatePolicyJSON(f *testing.F) {
+// FuzzNormalizeJSONObject checks that case metadata is only ever stored as a
+// JSON object.
+func FuzzNormalizeJSONObject(f *testing.F) {
 	for _, seed := range []string{`{}`, `{"duration_seconds":60}`, `null`, `[]`, `{bad`} {
 		f.Add(seed)
 	}
@@ -23,8 +23,8 @@ func FuzzNormalizeTemplatePolicyJSON(f *testing.F) {
 	})
 }
 
-// FuzzStructuredContextValue exercises type, length, and malformed-JSON
-// handling without requiring persistence or Discord adapters.
+// FuzzStructuredContextValue checks that any context value that passes
+// validation is stored as a well-formed snapshot.
 func FuzzStructuredContextValue(f *testing.F) {
 	f.Add("summary", `"visible context"`)
 	f.Add("summary", `null`)

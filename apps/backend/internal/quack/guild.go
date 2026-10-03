@@ -7,6 +7,51 @@ import (
 	"time"
 )
 
+// PermissionAction names a capability a staff member can hold in a guild.
+// Capabilities are derived from live Discord permissions, never stored.
+type PermissionAction string
+
+// The capabilities checked by the services and HTTP middleware.
+const (
+	PermissionActionCaseCreate         PermissionAction = "case.create"
+	PermissionActionCaseRead           PermissionAction = "case.read"
+	PermissionActionCaseTemplateRead   PermissionAction = "case_template.read"
+	PermissionActionCaseTemplateWrite  PermissionAction = "case_template.write"
+	PermissionActionCaseTemplateDelete PermissionAction = "case_template.delete"
+	PermissionActionAppealReview       PermissionAction = "appeal.review"
+	PermissionActionTicketResolve      PermissionAction = "ticket.resolve"
+	PermissionActionAuditRead          PermissionAction = "audit.read"
+	PermissionActionGuildSettingsRead  PermissionAction = "guild_settings.read"
+	PermissionActionGuildSettingsWrite PermissionAction = "guild_settings.write"
+	PermissionActionCaseVoid           PermissionAction = "case.void"
+	PermissionActionFailureDismiss     PermissionAction = "action_failure.dismiss"
+)
+
+// OAuthState is the server-side half of a Discord OAuth login in progress.
+type OAuthState struct {
+	RedirectTo   string    `json:"redirect_to"`
+	ResponseMode string    `json:"response_mode"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// AuthSession is a signed-in dashboard user. Tokens never leave the server.
+type AuthSession struct {
+	ID               string    `json:"-"`
+	DiscordUserID    string    `json:"discord_user_id"`
+	Username         string    `json:"username"`
+	GlobalName       string    `json:"global_name"`
+	Avatar           string    `json:"avatar"`
+	AccessToken      string    `json:"-"`
+	RefreshToken     string    `json:"-"`
+	CSRFToken        string    `json:"-"`
+	TokenType        string    `json:"token_type"`
+	Scope            string    `json:"scope"`
+	TokenExpiresAt   time.Time `json:"token_expires_at"`
+	SessionExpiresAt time.Time `json:"session_expires_at"`
+	CreatedAt        time.Time `json:"created_at"`
+	LastSeenAt       time.Time `json:"last_seen_at"`
+}
+
 // GuildService turns Discord identities into authorized staff contexts and
 // handles the guild lifecycle: install, departure, and channel cleanup.
 type GuildService struct {
@@ -42,8 +87,8 @@ func (c *GuildStaffContext) Can(action PermissionAction) bool {
 	return c.Permissions[action]
 }
 
-// actorID returns the acting Discord user, falling back to the cached staff
-// record for contexts built before ActorDiscordUserID existed.
+// actorID returns the acting Discord user, falling back to the staff record
+// for contexts built by hand rather than resolved from Discord.
 func (c *GuildStaffContext) actorID() string {
 	if c.ActorDiscordUserID == "" && c.Staff != nil {
 		return c.Staff.DiscordUserID
@@ -198,6 +243,8 @@ func (s *GuildService) ResolveDiscordStaffContext(ctx context.Context, input Dis
 	return s.resolve(ctx, input.DiscordGuildID, strings.TrimSpace(input.DiscordUserID), input.DisplayName)
 }
 
+// resolve fetches the guild and actor from Discord, refreshes the cached
+// guild and staff records, and derives the actor's capabilities.
 func (s *GuildService) resolve(ctx context.Context, discordGuildID, actorID, fallbackDisplayName string) (*GuildStaffContext, error) {
 	if s.discord == nil {
 		return nil, errors.New("discord client is not configured")
@@ -210,14 +257,10 @@ func (s *GuildService) resolve(ctx context.Context, discordGuildID, actorID, fal
 	if errors.Is(err, ErrBotNotInGuild) {
 		return nil, ErrBotNotInGuild
 	}
-	if err != nil || snapshot == nil || snapshot.Guild.ID != discordGuildID {
-		return nil, ErrAuthorizationUnavailable
-	}
-	if snapshot.Actor.DiscordUserID != actorID {
+	if err != nil || snapshot == nil || snapshot.Guild.ID != discordGuildID || snapshot.Actor.DiscordUserID != actorID {
 		return nil, ErrAuthorizationUnavailable
 	}
 
-	// Refresh the cached guild and staff records used for attribution.
 	guild, err := s.store.UpsertGuild(ctx, UpsertGuildParams{
 		DiscordGuildID:     snapshot.Guild.ID,
 		Name:               snapshot.Guild.Name,
@@ -255,6 +298,7 @@ func (s *GuildService) resolve(ctx context.Context, discordGuildID, actorID, fal
 	return guildContext, nil
 }
 
+// sessionDisplayName is the name a dashboard user shows in Discord.
 func sessionDisplayName(session *AuthSession) string {
 	if strings.TrimSpace(session.GlobalName) != "" {
 		return session.GlobalName
@@ -275,7 +319,11 @@ type GuildOperationalHealth struct {
 // managed channels. Deleted channels are cleared when Discord reports them,
 // so an empty reference means the channel is gone.
 func (s *GuildService) OperationalGuildHealth(ctx context.Context, discordGuildID string) (GuildOperationalHealth, error) {
-	status := GuildOperationalHealth{Reasons: []string{}, BotPermissions: map[string]bool{}, ManagedChannels: map[string]bool{}}
+	status := GuildOperationalHealth{
+		Reasons:         []string{},
+		BotPermissions:  map[string]bool{},
+		ManagedChannels: map[string]bool{},
+	}
 	if s.discord == nil {
 		return status, ErrAuthorizationUnavailable
 	}
@@ -348,7 +396,8 @@ func (s *GuildService) BootstrapDiscordGuild(ctx context.Context, input DiscordG
 // DeactivateDiscordGuild marks a guild Quack left as inactive. Its history
 // and settings are kept in case Quack is added back.
 func (s *GuildService) DeactivateDiscordGuild(ctx context.Context, discordGuildID string) (*Guild, error) {
-	return s.store.DeactivateGuild(ctx, strings.TrimSpace(discordGuildID), systemGuildAudit("guild.lifecycle.leave", "guild"))
+	audit := systemGuildAudit("guild.lifecycle.leave", "guild")
+	return s.store.DeactivateGuild(ctx, strings.TrimSpace(discordGuildID), audit)
 }
 
 // ClearDeletedChannel removes settings references to a channel Discord
@@ -358,7 +407,8 @@ func (s *GuildService) ClearDeletedChannel(ctx context.Context, discordGuildID, 
 	if err != nil || guild == nil {
 		return nil, err
 	}
-	return s.store.ClearGuildChannelReferences(ctx, guild.ID, strings.TrimSpace(channelID), systemGuildAudit("guild_settings.channel_reference.cleared", "guild_settings"))
+	audit := systemGuildAudit("guild_settings.channel_reference.cleared", "guild_settings")
+	return s.store.ClearGuildChannelReferences(ctx, guild.ID, strings.TrimSpace(channelID), audit)
 }
 
 // systemGuildAudit attributes a lifecycle change to Quack, which acts on

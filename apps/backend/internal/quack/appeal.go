@@ -10,6 +10,27 @@ import (
 	"time"
 )
 
+// AppealStatus is where an appeal sits in review.
+type AppealStatus string
+
+// Appeal statuses.
+const (
+	AppealStatusPending          AppealStatus = "pending"
+	AppealStatusNeedsInformation AppealStatus = "needs_information"
+	AppealStatusAccepted         AppealStatus = "accepted"
+	AppealStatusRejected         AppealStatus = "rejected"
+	AppealStatusClosed           AppealStatus = "closed"
+)
+
+func validAppealStatus(status AppealStatus) bool {
+	switch status {
+	case AppealStatusPending, AppealStatusNeedsInformation, AppealStatusAccepted, AppealStatusRejected, AppealStatusClosed:
+		return true
+	default:
+		return false
+	}
+}
+
 // AppealEventType names a step in an appeal timeline.
 type AppealEventType string
 
@@ -23,6 +44,74 @@ const (
 	AppealEventRejected         AppealEventType = "rejected"
 	AppealEventClosed           AppealEventType = "closed"
 )
+
+// AppealNotificationAudience says who an appeal notification is for.
+type AppealNotificationAudience string
+
+// Appeal notification audiences.
+const (
+	AppealNotificationMember AppealNotificationAudience = "member"
+	AppealNotificationStaff  AppealNotificationAudience = "staff"
+)
+
+// AppealNotificationStatus tracks delivery of an appeal notification.
+type AppealNotificationStatus string
+
+// Appeal notification statuses.
+const (
+	AppealNotificationPending AppealNotificationStatus = "pending"
+	AppealNotificationClaimed AppealNotificationStatus = "claimed"
+	AppealNotificationSent    AppealNotificationStatus = "sent"
+	AppealNotificationFailed  AppealNotificationStatus = "failed"
+)
+
+// Appeal is a member's request to reconsider one of their cases. Each case
+// has at most one appeal; reopening reuses it.
+type Appeal struct {
+	ULIDModel
+	GuildID                 string
+	CaseID                  *string
+	TargetDiscordUserID     string
+	Status                  AppealStatus
+	Content                 string
+	QuestionSnapshotJSON    string
+	AnswersJSON             string
+	Version                 uint64
+	DecisionReason          string
+	ReviewedByDiscordUserID string
+	ReviewedAt              *time.Time
+	ReviewMessageDiscordID  string
+	MetadataJSON            string
+}
+
+// AppealEvent is one entry in an appeal timeline.
+type AppealEvent struct {
+	ULIDModel
+	AppealID           string
+	GuildID            string
+	EventType          string
+	ActorDiscordUserID string
+	ActorType          string
+	Body               string
+	MetadataJSON       string
+}
+
+// AppealNotification is an outbox row written in the same transaction as the
+// appeal change it announces. Member-facing bodies never name staff.
+type AppealNotification struct {
+	ULIDModel
+	AppealID            string
+	EventID             string
+	GuildID             string
+	TargetDiscordUserID string
+	Audience            AppealNotificationAudience
+	Status              AppealNotificationStatus
+	Body                string
+	DeliveryMessageID   string
+	LastErrorCode       string
+	LeaseToken          string
+	LeaseExpiresAt      *time.Time
+}
 
 // AppealService handles appeals: members submit and follow up, staff ask for
 // more information, accept, reject, close, or reopen. Members never see
@@ -81,16 +170,10 @@ type AppealResponse struct {
 	UpdatedAt               time.Time             `json:"updated_at"`
 }
 
-// canAppeal reports whether a member can appeal item now: its template
-// allowed appeals when the case was created, the case is still valid, and it
-// has no appeal yet.
-func canAppeal(item Case, existing *Appeal) bool {
-	return existing == nil && item.Validity == CaseValidityValid && snapshotAppealable(item.TemplateSnapshotJSON)
-}
-
 // Submit files an appeal for a case targeting the member. Each case can be
 // appealed once.
 func (s *AppealService) Submit(ctx context.Context, caseID, memberDiscordUserID string, input AppealSubmissionInput) (*AppealResponse, error) {
+	const action = string(AuditActionAppealSubmit)
 	caseID = strings.TrimSpace(caseID)
 	memberDiscordUserID = strings.TrimSpace(memberDiscordUserID)
 	if caseID == "" || memberDiscordUserID == "" {
@@ -100,14 +183,15 @@ func (s *AppealService) Submit(ctx context.Context, caseID, memberDiscordUserID 
 	if err != nil {
 		return nil, err
 	}
-	if item == nil || item.TargetDiscordUserID != memberDiscordUserID {
-		if item != nil {
-			_ = s.auditMember(ctx, item.GuildID, memberDiscordUserID, string(AuditActionAppealSubmit), item.ID, AuditResultDenied)
-		}
+	if item == nil {
+		return nil, ErrAppealNotFound
+	}
+	if item.TargetDiscordUserID != memberDiscordUserID {
+		_ = s.auditMember(ctx, item.GuildID, memberDiscordUserID, action, item.ID, AuditResultDenied)
 		return nil, ErrAppealNotFound
 	}
 	if !canAppeal(*item, nil) {
-		_ = s.auditMember(ctx, item.GuildID, memberDiscordUserID, string(AuditActionAppealSubmit), item.ID, AuditResultDenied)
+		_ = s.auditMember(ctx, item.GuildID, memberDiscordUserID, action, item.ID, AuditResultDenied)
 		return nil, ErrAppealCaseIneligible
 	}
 	existing, err := s.store.GetAppealByCaseID(ctx, item.ID)
@@ -127,11 +211,10 @@ func (s *AppealService) Submit(ctx context.Context, caseID, memberDiscordUserID 
 	}
 	questionJSON, _ := json.Marshal(settings.Questions)
 	answersJSON, _ := json.Marshal(answers)
-	caseRef := item.ID
 	created, err := s.store.CreateAppeal(ctx, CreateAppealParams{
 		Appeal: Appeal{
 			GuildID:              item.GuildID,
-			CaseID:               &caseRef,
+			CaseID:               &item.ID,
 			TargetDiscordUserID:  memberDiscordUserID,
 			Status:               AppealStatusPending,
 			QuestionSnapshotJSON: string(questionJSON),
@@ -154,7 +237,7 @@ func (s *AppealService) Submit(ctx context.Context, caseID, memberDiscordUserID 
 			Body:               "Appeal submitted",
 			MetadataJSON:       "{}",
 		},
-		Audit: appealAudit(ctx, item.GuildID, memberDiscordUserID, 0, string(AuditActionAppealSubmit), "appeal", "", AuditResultSuccess),
+		Audit: webAudit(ctx, item.GuildID, memberDiscordUserID, 0, action, "appeal", "", AuditResultSuccess),
 		Notification: AppealNotification{
 			TargetDiscordUserID: memberDiscordUserID,
 			Audience:            AppealNotificationStaff,
@@ -174,17 +257,19 @@ func (s *AppealService) Submit(ctx context.Context, caseID, memberDiscordUserID 
 
 // GetMember returns an appeal to the member who filed it.
 func (s *AppealService) GetMember(ctx context.Context, appealID, memberDiscordUserID string) (*AppealResponse, error) {
+	const action = string(AuditActionAppealRead)
 	item, err := s.store.GetAppealByID(ctx, strings.TrimSpace(appealID))
 	if err != nil {
 		return nil, err
 	}
-	if item == nil || item.TargetDiscordUserID != strings.TrimSpace(memberDiscordUserID) {
-		if item != nil {
-			_ = s.auditMember(ctx, item.GuildID, memberDiscordUserID, string(AuditActionAppealRead), item.ID, AuditResultDenied)
-		}
+	if item == nil {
 		return nil, ErrAppealNotFound
 	}
-	if err := s.auditMember(ctx, item.GuildID, memberDiscordUserID, string(AuditActionAppealRead), item.ID, AuditResultSuccess); err != nil {
+	if item.TargetDiscordUserID != strings.TrimSpace(memberDiscordUserID) {
+		_ = s.auditMember(ctx, item.GuildID, memberDiscordUserID, action, item.ID, AuditResultDenied)
+		return nil, ErrAppealNotFound
+	}
+	if err := s.auditMember(ctx, item.GuildID, memberDiscordUserID, action, item.ID, AuditResultSuccess); err != nil {
 		return nil, err
 	}
 	return s.response(ctx, item, true)
@@ -215,7 +300,8 @@ func (s *AppealService) SubmitInformation(ctx context.Context, appealID, memberD
 			Body:               body,
 			MetadataJSON:       "{}",
 		},
-		Audit: appealAudit(ctx, item.GuildID, memberDiscordUserID, 0, string(AuditActionAppealInformationSubmit), "appeal", item.ID, AuditResultSuccess),
+		Audit: webAudit(ctx, item.GuildID, memberDiscordUserID, 0,
+			string(AuditActionAppealInformationSubmit), "appeal", item.ID, AuditResultSuccess),
 		Notification: AppealNotification{
 			TargetDiscordUserID: memberDiscordUserID,
 			Audience:            AppealNotificationStaff,
@@ -230,6 +316,13 @@ func (s *AppealService) SubmitInformation(ctx context.Context, appealID, memberD
 		return nil, err
 	}
 	return s.response(ctx, updated, true)
+}
+
+// canAppeal reports whether a member can appeal item now: its template
+// allowed appeals when the case was created, the case is still valid, and it
+// has no appeal yet.
+func canAppeal(item Case, existing *Appeal) bool {
+	return existing == nil && item.Validity == CaseValidityValid && snapshotAppealable(item.TemplateSnapshotJSON)
 }
 
 // response builds an appeal response. For members, staff identities are
@@ -297,121 +390,16 @@ func (s *AppealService) response(ctx context.Context, item *Appeal, member bool)
 			continue
 		}
 		if reversal, ok := reversalOf(action.ActionType); ok {
-			response.ReversalOffers = append(response.ReversalOffers, AppealReversalOffer{OriginalExecutionID: action.ID, ActionType: reversal})
+			response.ReversalOffers = append(response.ReversalOffers, AppealReversalOffer{
+				OriginalExecutionID: action.ID,
+				ActionType:          reversal,
+			})
 		}
 	}
 	return response, nil
 }
 
-func validAppealStatus(status AppealStatus) bool {
-	switch status {
-	case AppealStatusPending, AppealStatusNeedsInformation, AppealStatusAccepted, AppealStatusRejected, AppealStatusClosed:
-		return true
-	default:
-		return false
-	}
-}
-
-// appealAudit builds an appeal audit entry. Appeals are only reachable from
-// the dashboard, so the source is always web.
-func appealAudit(ctx context.Context, guildID, actorID string, permissionBits uint64, action, resourceType, resourceID string, result AuditResult) AuditLogEntry {
-	requestID, correlationID := TraceIDsFromContext(ctx)
-	return AuditLogEntry{
-		GuildID:             guildID,
-		ActorDiscordUserID:  actorID,
-		ActorPermissionBits: permissionBits,
-		Source:              AuditSourceWeb,
-		Action:              action,
-		ResourceType:        resourceType,
-		ResourceID:          resourceID,
-		Result:              result,
-		RequestID:           requestID,
-		CorrelationID:       correlationID,
-		MetadataJSON:        "{}",
-	}
-}
-
-func (s *AppealService) auditMember(ctx context.Context, guildID, actorID, action, resourceID string, result AuditResult) error {
-	entry := appealAudit(ctx, guildID, actorID, 0, action, "appeal", resourceID, result)
+func (s *AppealService) auditMember(ctx context.Context, guildID, memberID, action, appealID string, result AuditResult) error {
+	entry := webAudit(ctx, guildID, memberID, 0, action, "appeal", appealID, result)
 	return recordAudit(ctx, s.store, &entry)
-}
-
-// AppealStatus is where an appeal sits in review.
-type AppealStatus string
-
-// Appeal statuses.
-const (
-	AppealStatusPending          AppealStatus = "pending"
-	AppealStatusNeedsInformation AppealStatus = "needs_information"
-	AppealStatusAccepted         AppealStatus = "accepted"
-	AppealStatusRejected         AppealStatus = "rejected"
-	AppealStatusClosed           AppealStatus = "closed"
-)
-
-// Appeal is a member's request to reconsider one of their cases. Each case
-// has at most one appeal; reopening reuses it.
-type Appeal struct {
-	ULIDModel
-	GuildID                 string
-	CaseID                  *string
-	TargetDiscordUserID     string
-	Status                  AppealStatus
-	Content                 string
-	QuestionSnapshotJSON    string
-	AnswersJSON             string
-	Version                 uint64
-	DecisionReason          string
-	ReviewedByDiscordUserID string
-	ReviewedAt              *time.Time
-	ReviewMessageDiscordID  string
-	MetadataJSON            string
-}
-
-// AppealEvent is one entry in an appeal timeline.
-type AppealEvent struct {
-	ULIDModel
-	AppealID           string
-	GuildID            string
-	EventType          string
-	ActorDiscordUserID string
-	ActorType          string
-	Body               string
-	MetadataJSON       string
-}
-
-// AppealNotificationAudience says who an appeal notification is for.
-type AppealNotificationAudience string
-
-// Appeal notification audiences.
-const (
-	AppealNotificationMember AppealNotificationAudience = "member"
-	AppealNotificationStaff  AppealNotificationAudience = "staff"
-)
-
-// AppealNotificationStatus tracks delivery of an appeal notification.
-type AppealNotificationStatus string
-
-// Appeal notification statuses.
-const (
-	AppealNotificationPending AppealNotificationStatus = "pending"
-	AppealNotificationClaimed AppealNotificationStatus = "claimed"
-	AppealNotificationSent    AppealNotificationStatus = "sent"
-	AppealNotificationFailed  AppealNotificationStatus = "failed"
-)
-
-// AppealNotification is an outbox row written in the same transaction as the
-// appeal change it announces. Member-facing bodies never name staff.
-type AppealNotification struct {
-	ULIDModel
-	AppealID            string
-	EventID             string
-	GuildID             string
-	TargetDiscordUserID string
-	Audience            AppealNotificationAudience
-	Status              AppealNotificationStatus
-	Body                string
-	DeliveryMessageID   string
-	LastErrorCode       string
-	LeaseToken          string
-	LeaseExpiresAt      *time.Time
 }

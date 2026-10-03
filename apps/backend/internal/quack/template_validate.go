@@ -3,7 +3,6 @@ package quack
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -22,21 +21,33 @@ const (
 	MaxBanDeleteMessageSeconds = 7 * 24 * 60 * 60
 )
 
+// maxContextFields bounds how much a moderator is asked to fill in per case.
+const maxContextFields = 10
+
+// templateSlugPattern is the shape of template slugs and context field keys.
 var templateSlugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{1,63}$`)
 
-// normalizedTemplate is a validated template ready to store.
-type normalizedTemplate struct {
-	Template      CaseTemplate
-	ContextFields []CaseTemplateContextField
-	Levels        []ExpandedCaseTemplateLevel
+// actionConfig is a level action's settings as stored in ConfigJSON and
+// copied into each execution's ConfigSnapshotJSON. Only the setting that
+// belongs to the action type is set.
+type actionConfig struct {
+	DurationSeconds      int `json:"duration_seconds,omitempty"`
+	DeleteMessageSeconds int `json:"delete_message_seconds,omitempty"`
+}
+
+// decodeActionConfig reads a stored action configuration. Malformed JSON
+// reads as no settings, which enforcement then rejects.
+func decodeActionConfig(body string) actionConfig {
+	var config actionConfig
+	if err := json.Unmarshal([]byte(body), &config); err != nil {
+		return actionConfig{}
+	}
+	return config
 }
 
 // validate checks input and normalizes it into storable records. templateID
 // is the template being updated, so its own slug doesn't count as taken.
-func (s *TemplateService) validate(ctx context.Context, guildContext *GuildStaffContext, templateID string, input TemplateInput) (*normalizedTemplate, error) {
-	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
-		return nil, templateValidationError("missing guild context")
-	}
+func (s *TemplateService) validate(ctx context.Context, guildContext *GuildStaffContext, templateID string, input TemplateInput) (*ExpandedCaseTemplate, error) {
 	slug := strings.ToLower(strings.TrimSpace(input.Slug))
 	if !templateSlugPattern.MatchString(slug) {
 		return nil, templateValidationError("slug must be 2-64 lowercase letters, numbers, underscores, or hyphens")
@@ -64,7 +75,7 @@ func (s *TemplateService) validate(ctx context.Context, guildContext *GuildStaff
 	if err != nil {
 		return nil, err
 	}
-	return &normalizedTemplate{
+	return &ExpandedCaseTemplate{
 		Template: CaseTemplate{
 			GuildID:                guildContext.Guild.ID,
 			Slug:                   slug,
@@ -83,8 +94,8 @@ func (s *TemplateService) validate(ctx context.Context, guildContext *GuildStaff
 // normalizeContextFields validates up to ten fields with unique keys and
 // positions. A zero position means "in input order".
 func normalizeContextFields(inputs []TemplateContextFieldInput) ([]CaseTemplateContextField, error) {
-	if len(inputs) > 10 {
-		return nil, templateValidationError("at most 10 context fields are allowed")
+	if len(inputs) > maxContextFields {
+		return nil, templateValidationError(fmt.Sprintf("at most %d context fields are allowed", maxContextFields))
 	}
 	keys := map[string]bool{}
 	positions := map[int]bool{}
@@ -117,19 +128,14 @@ func normalizeContextFields(inputs []TemplateContextFieldInput) ([]CaseTemplateC
 		}
 		positions[position] = true
 		fields = append(fields, CaseTemplateContextField{
-			Key: key, Label: label, FieldType: input.FieldType, Position: position, Required: input.Required,
+			Key:       key,
+			Label:     label,
+			FieldType: input.FieldType,
+			Position:  position,
+			Required:  input.Required,
 		})
 	}
 	return fields, nil
-}
-
-func validContextFieldType(value ContextFieldType) bool {
-	switch value {
-	case ContextFieldShortText, ContextFieldLongText, ContextFieldBoolean, ContextFieldNumber, ContextFieldMessageLink:
-		return true
-	default:
-		return false
-	}
 }
 
 // normalizeLevels requires exactly one default level, distinct positive
@@ -252,25 +258,6 @@ func normalizeActionConfig(input TemplateActionInput) (string, error) {
 	body, err := json.Marshal(config)
 	if err != nil {
 		return "", fmt.Errorf("marshal template action config: %w", err)
-	}
-	return string(body), nil
-}
-
-// normalizeJSONObject re-encodes raw, which must be a JSON object or absent.
-func normalizeJSONObject(raw json.RawMessage) (string, error) {
-	if len(raw) == 0 || string(raw) == "null" {
-		return "{}", nil
-	}
-	var object map[string]any
-	if err := json.Unmarshal(raw, &object); err != nil {
-		return "", err
-	}
-	if object == nil {
-		return "", errors.New("not an object")
-	}
-	body, err := json.Marshal(object)
-	if err != nil {
-		return "", err
 	}
 	return string(body), nil
 }

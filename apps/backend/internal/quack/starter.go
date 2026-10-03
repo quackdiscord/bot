@@ -1,9 +1,11 @@
 package quack
 
-// StarterSlug is the slug of the template every guild gets on install.
-const StarterSlug = "general-rule-violation"
-
-const starterName = "General rule violation"
+// The starter template's identity. Bootstrap matches an existing template by
+// slug and then checks its policy with IsStarterTemplate.
+const (
+	starterSlug = "general-rule-violation"
+	starterName = "General rule violation"
+)
 
 // StarterTemplate returns the template Quack creates when it joins a guild:
 // a general rule with a warning by default, a 24-hour timeout at three
@@ -12,7 +14,7 @@ const starterName = "General rule violation"
 func StarterTemplate() ExpandedCaseTemplate {
 	return ExpandedCaseTemplate{
 		Template: CaseTemplate{
-			Slug:                   StarterSlug,
+			Slug:                   starterSlug,
 			Name:                   starterName,
 			Description:            "A starter rule for general violations. Review and customize it for this guild.",
 			ReasonTemplate:         starterName,
@@ -22,14 +24,20 @@ func StarterTemplate() ExpandedCaseTemplate {
 			UpdatedByDiscordUserID: systemActorID,
 		},
 		Levels: []ExpandedCaseTemplateLevel{
-			{Level: CaseTemplateLevel{Position: 1, Name: "Default", IsDefault: true, NotifyUser: true}},
 			{
-				Level:   CaseTemplateLevel{Position: 2, Name: "24-hour timeout", TriggerCaseCount: 3, NotifyUser: true},
-				Actions: []CaseTemplateLevelAction{{ActionType: ActionTimeoutUser, ConfigJSON: `{"duration_seconds":86400}`}},
+				Level: CaseTemplateLevel{Position: 1, Name: "Default", IsDefault: true, NotifyUser: true},
 			},
 			{
-				Level:   CaseTemplateLevel{Position: 3, Name: "Ban", TriggerCaseCount: 5, NotifyUser: true},
-				Actions: []CaseTemplateLevelAction{{ActionType: ActionBanUser, ConfigJSON: `{"delete_message_seconds":86400}`}},
+				Level: CaseTemplateLevel{Position: 2, Name: "24-hour timeout", TriggerCaseCount: 3, NotifyUser: true},
+				Actions: []CaseTemplateLevelAction{
+					{ActionType: ActionTimeoutUser, ConfigJSON: `{"duration_seconds":86400}`},
+				},
+			},
+			{
+				Level: CaseTemplateLevel{Position: 3, Name: "Ban", TriggerCaseCount: 5, NotifyUser: true},
+				Actions: []CaseTemplateLevelAction{
+					{ActionType: ActionBanUser, ConfigJSON: `{"delete_message_seconds":86400}`},
+				},
 			},
 		},
 	}
@@ -37,7 +45,7 @@ func StarterTemplate() ExpandedCaseTemplate {
 
 // IsStarterTemplate reports whether t still has the starter template's
 // policy. Bootstrap uses it to avoid adopting an unrelated template that
-// happens to use StarterSlug.
+// happens to use the starter slug.
 func IsStarterTemplate(t ExpandedCaseTemplate) bool {
 	want := StarterTemplate()
 	if t.Template.Name != want.Template.Name ||

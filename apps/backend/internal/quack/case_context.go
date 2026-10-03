@@ -2,6 +2,7 @@ package quack
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 )
 
@@ -21,9 +22,16 @@ type CaseContextValueResponse struct {
 	Value     any              `json:"value"`
 }
 
+// Context value length limits, in runes.
+const (
+	maxShortContextRunes = 500
+	maxLongContextRunes  = 4000
+)
+
 // validateContextValues checks values against the template's context fields
 // and returns the stored JSON, any message links to capture as evidence, and
-// whether any non-link value was given.
+// whether any non-link value was given. Message links count as evidence, not
+// as context the member can see.
 func validateContextValues(fields []CaseTemplateContextField, inputs []CaseContextValueInput) (valuesJSON string, links []string, hasOtherContext bool, err error) {
 	byKey := make(map[string]json.RawMessage, len(inputs))
 	for _, input := range inputs {
@@ -41,7 +49,12 @@ func validateContextValues(fields []CaseTemplateContextField, inputs []CaseConte
 	for _, field := range fields {
 		raw, provided := byKey[field.Key]
 		delete(byKey, field.Key)
-		value := CaseContextValueResponse{Key: field.Key, Label: field.Label, FieldType: field.FieldType, Required: field.Required}
+		value := CaseContextValueResponse{
+			Key:       field.Key,
+			Label:     field.Label,
+			FieldType: field.FieldType,
+			Required:  field.Required,
+		}
 		if !provided || len(raw) == 0 || string(raw) == "null" {
 			if field.Required {
 				return "", nil, false, caseValidationError("required context value is missing: " + field.Key)
@@ -56,9 +69,9 @@ func validateContextValues(fields []CaseTemplateContextField, inputs []CaseConte
 				return "", nil, false, caseValidationError("context value has wrong type: " + field.Key)
 			}
 			text = strings.TrimSpace(text)
-			limit := 4000
+			limit := maxLongContextRunes
 			if field.FieldType == ContextFieldShortText {
-				limit = 500
+				limit = maxShortContextRunes
 			}
 			if text == "" && field.Required {
 				return "", nil, false, caseValidationError("required context value is empty: " + field.Key)
@@ -101,11 +114,13 @@ func validateContextValues(fields []CaseTemplateContextField, inputs []CaseConte
 	}
 	body, err := json.Marshal(values)
 	if err != nil {
-		return "", nil, false, err
+		return "", nil, false, fmt.Errorf("marshal context values: %w", err)
 	}
 	return string(body), links, hasOtherContext, nil
 }
 
+// parseContextValues decodes a case's stored context values, reading
+// anything malformed as none.
 func parseContextValues(body string) []CaseContextValueResponse {
 	var values []CaseContextValueResponse
 	if json.Unmarshal([]byte(body), &values) != nil {

@@ -30,6 +30,37 @@ func validAuditSource(source AuditSource) bool {
 	}
 }
 
+// AuditSourceForModuleAction returns the audit source for a module audit
+// action. Imports and honeypot automation are attributed to themselves;
+// staff-driven module actions keep the caller's source.
+func AuditSourceForModuleAction(ctx context.Context, action string) AuditSource {
+	action = strings.ToLower(strings.TrimSpace(action))
+	if strings.Contains(action, "v4_import") || strings.Contains(action, "v4_settings_import") {
+		return AuditSourceImport
+	}
+	if strings.HasPrefix(action, "honeypot.trigger.") ||
+		action == "honeypot.case.created" ||
+		action == "honeypot.configuration.disabled" {
+		return AuditSourceHoneypot
+	}
+	return AuditSourceFromContext(ctx)
+}
+
+// auditSourceForCaseSource maps where a case came from to the audit source
+// its entries record.
+func auditSourceForCaseSource(source CaseSource) AuditSource {
+	switch source {
+	case CaseSourceDiscord:
+		return AuditSourceDiscord
+	case CaseSourceHoneypot:
+		return AuditSourceHoneypot
+	case CaseSourceV4Import:
+		return AuditSourceImport
+	default:
+		return AuditSourceWeb
+	}
+}
+
 // AuditResult is the outcome an audit entry records.
 type AuditResult string
 
@@ -250,7 +281,8 @@ func recordAudit(ctx context.Context, writer auditWriter, entry *AuditLogEntry) 
 
 // staffAudit builds an audit entry attributed to the staff member in
 // guildContext. It returns nil when there is no staff member to attribute,
-// which callers treat as "nothing to record".
+// which callers treat as "nothing to record". An empty resourceID becomes
+// "unknown".
 func staffAudit(ctx context.Context, guildContext *GuildStaffContext, action, resourceType, resourceID string, result AuditResult, failureReason string) *AuditLogEntry {
 	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
 		return nil
@@ -275,24 +307,31 @@ func staffAudit(ctx context.Context, guildContext *GuildStaffContext, action, re
 	}
 }
 
-// parseJSON decodes a stored JSON column for a response, returning an empty
-// object when the column is empty or malformed.
-func parseJSON(body string) any {
-	if body == "" {
-		return map[string]any{}
+// webAudit builds an entry for an action only the dashboard offers: member
+// case reads, appeals, and appeal review. permissionBits is 0 for members.
+func webAudit(ctx context.Context, guildID, actorID string, permissionBits uint64, action, resourceType, resourceID string, result AuditResult) AuditLogEntry {
+	requestID, correlationID := TraceIDsFromContext(ctx)
+	return AuditLogEntry{
+		GuildID:             guildID,
+		ActorDiscordUserID:  actorID,
+		ActorPermissionBits: permissionBits,
+		Source:              AuditSourceWeb,
+		Action:              action,
+		ResourceType:        resourceType,
+		ResourceID:          resourceID,
+		Result:              result,
+		RequestID:           requestID,
+		CorrelationID:       correlationID,
+		MetadataJSON:        "{}",
 	}
-	var value any
-	if err := json.Unmarshal([]byte(body), &value); err != nil {
-		return map[string]any{}
-	}
-	return value
 }
 
-// marshalJSONObject encodes metadata, falling back to an empty object.
-func marshalJSONObject(value any) string {
-	body, err := json.Marshal(value)
-	if err != nil {
-		return "{}"
+// recordStaffAudit writes a staffAudit entry, or nothing when there is no
+// staff member to attribute it to.
+func recordStaffAudit(ctx context.Context, writer auditWriter, guildContext *GuildStaffContext, action, resourceType, resourceID string, result AuditResult, failureReason string) error {
+	entry := staffAudit(ctx, guildContext, action, resourceType, resourceID, result, failureReason)
+	if entry == nil {
+		return nil
 	}
-	return string(body)
+	return recordAudit(ctx, writer, entry)
 }

@@ -3,6 +3,7 @@ package quack
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -39,7 +40,8 @@ type Enforcer interface {
 	UnbanMember(ctx context.Context, discordGuildID, discordUserID, reason string) (map[string]any, error)
 }
 
-// Messenger sends direct messages to members.
+// Messenger sends case notifications to members by DM. Responses carry the
+// Discord message ID under "message_id".
 type Messenger interface {
 	SendDM(ctx context.Context, discordUserID, message string) (map[string]any, error)
 	// PrepareDM opens a DM channel and returns its ID. Quack calls it before a
@@ -118,6 +120,7 @@ type DiscordError struct {
 	OutcomeUncertain bool
 }
 
+// Error returns the adapter's message, which is safe to store and show.
 func (e DiscordError) Error() string {
 	if e.Message != "" {
 		return e.Message
@@ -125,6 +128,8 @@ func (e DiscordError) Error() string {
 	return e.Code
 }
 
+// hasAllBits reports whether bits include every bit of required, without
+// Discord's administrator override.
 func hasAllBits(bits, required uint64) bool {
 	return bits&required == required
 }
@@ -138,9 +143,11 @@ func hasDiscordPermission(bits, required uint64) bool {
 // PermissionBitsString formats permission bits the way Discord's API does,
 // as a decimal string, since they overflow JavaScript numbers.
 func PermissionBitsString(bits uint64) string {
-	return fmt.Sprintf("%d", bits)
+	return strconv.FormatUint(bits, 10)
 }
 
+// discordGuildIconURL is the CDN URL of a guild icon. Animated icons, whose
+// hashes start with "a_", are served as GIFs.
 func discordGuildIconURL(guildID, iconHash string) string {
 	if guildID == "" || iconHash == "" {
 		return ""

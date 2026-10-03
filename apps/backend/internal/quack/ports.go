@@ -168,20 +168,6 @@ type Store interface {
 	OpsStore
 }
 
-// ExpandedCaseTemplate is a template with its context fields, levels, and
-// level actions.
-type ExpandedCaseTemplate struct {
-	Template      CaseTemplate
-	ContextFields []CaseTemplateContextField
-	Levels        []ExpandedCaseTemplateLevel
-}
-
-// ExpandedCaseTemplateLevel is a level with its action.
-type ExpandedCaseTemplateLevel struct {
-	Level   CaseTemplateLevel
-	Actions []CaseTemplateLevelAction
-}
-
 // CreateCaseTemplateParams creates a template at version 1.
 type CreateCaseTemplateParams struct {
 	Template      CaseTemplate

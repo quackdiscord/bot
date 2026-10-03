@@ -27,6 +27,40 @@ const (
 
 var discordMessageLinkPattern = regexp.MustCompile(`^/channels/([0-9]{2,32})/([0-9]{2,32})/([0-9]{2,32})$`)
 
+// CaseEvidenceSnapshot is a copy of a linked Discord message taken before the
+// case was committed, so later edits or deletions don't change the record.
+type CaseEvidenceSnapshot struct {
+	ULIDModel
+	CaseID              string
+	GuildID             string
+	ChannelDiscordID    string
+	MessageDiscordID    string
+	AuthorDiscordUserID string
+	MessageURL          string
+	Content             string
+	MessageCreatedAt    time.Time
+	MessageEditedAt     *time.Time
+	EmbedsJSON          string
+	CaptureOutcome      string
+	CaptureWarning      string
+}
+
+// CaseEvidenceAttachment records an attachment on an evidence message and,
+// when copying succeeded, its stable copy in the managed evidence channel.
+type CaseEvidenceAttachment struct {
+	ULIDModel
+	EvidenceID                   string
+	Filename                     string
+	ContentType                  string
+	SizeBytes                    int64
+	OriginalURL                  string
+	PreservedURL                 string
+	PreservedMessageDiscordID    string
+	PreservedAttachmentDiscordID string
+	CopyOutcome                  string
+	Warning                      string
+}
+
 // EvidenceClient reads messages from Discord and manages the per-guild
 // evidence channel where attachments are copied so they outlive the
 // original message.
@@ -76,6 +110,32 @@ type CapturedEvidence struct {
 	Warnings []string
 }
 
+// CaseEvidenceResponse is a captured message.
+type CaseEvidenceResponse struct {
+	ID                  string                           `json:"id"`
+	AuthorDiscordUserID string                           `json:"author_discord_user_id"`
+	MessageURL          string                           `json:"message_url"`
+	Content             string                           `json:"content"`
+	CaptureOutcome      string                           `json:"capture_outcome"`
+	CaptureWarning      string                           `json:"capture_warning,omitempty"`
+	MessageCreatedAt    time.Time                        `json:"message_created_at"`
+	MessageEditedAt     *time.Time                       `json:"message_edited_at,omitempty"`
+	Embeds              any                              `json:"embeds"`
+	Attachments         []CaseEvidenceAttachmentResponse `json:"attachments"`
+}
+
+// CaseEvidenceAttachmentResponse is an attachment on a captured message. The
+// managed evidence channel's identity is never exposed.
+type CaseEvidenceAttachmentResponse struct {
+	Filename     string `json:"filename"`
+	ContentType  string `json:"content_type"`
+	OriginalURL  string `json:"original_url"`
+	PreservedURL string `json:"preserved_url,omitempty"`
+	CopyOutcome  string `json:"copy_outcome"`
+	Warning      string `json:"warning,omitempty"`
+	SizeBytes    int64  `json:"size_bytes"`
+}
+
 // EvidenceService captures linked Discord messages as case evidence and
 // maintains each guild's evidence channel.
 type EvidenceService struct {
@@ -92,8 +152,8 @@ func NewEvidenceService(store EvidenceStore, client EvidenceClient) *EvidenceSer
 // EnsureGuildEvidenceChannel makes sure the guild has an evidence channel
 // and records it in settings if it changed.
 func (s *EvidenceService) EnsureGuildEvidenceChannel(ctx context.Context, guild Guild, settings GuildSettings) (string, error) {
-	if s.client == nil || s.store == nil {
-		return "", errors.New("evidence service is not configured")
+	if s.client == nil {
+		return "", errors.New("evidence client is not configured")
 	}
 	channelID, err := s.client.EnsureEvidenceChannel(ctx, guild.DiscordGuildID, settings.ManagedEvidenceChannelDiscordID)
 	if err != nil {
@@ -121,9 +181,6 @@ func (s *EvidenceService) EnsureGuildEvidenceChannel(ctx context.Context, guild 
 // RepairDiscordGuildEvidenceChannel re-checks a guild's evidence channel
 // after Discord reports channel changes.
 func (s *EvidenceService) RepairDiscordGuildEvidenceChannel(ctx context.Context, discordGuildID string) (string, error) {
-	if s.store == nil {
-		return "", errors.New("evidence service is not configured")
-	}
 	guild, err := s.store.GetGuildByDiscordID(ctx, discordGuildID)
 	if err != nil || guild == nil {
 		return "", err
@@ -156,19 +213,11 @@ func ParseDiscordMessageLink(raw string) (DiscordMessageReference, error) {
 
 // Capture snapshots each linked message and copies supported attachments
 // into evidenceChannelID. Messages must be in guildID and, when
-// targetDiscordUserID is set, written by the target. With allowUnavailable,
-// a deleted or inaccessible message is recorded as unavailable instead of
-// failing the capture.
+// targetDiscordUserID is set, written by the target. An empty
+// actorDiscordUserID marks a system capture, which skips the actor's
+// channel access check. With allowUnavailable, a deleted or inaccessible
+// message is recorded as unavailable instead of failing the capture.
 func (s *EvidenceService) Capture(ctx context.Context, guildID, actorDiscordUserID, targetDiscordUserID, evidenceChannelID string, links []string, allowUnavailable bool) (*CapturedEvidence, error) {
-	if actorDiscordUserID == "" && len(links) > 0 {
-		return nil, fmt.Errorf("%w: evidence actor is required", ErrEvidenceValidation)
-	}
-	return s.capture(ctx, guildID, actorDiscordUserID, targetDiscordUserID, evidenceChannelID, links, allowUnavailable)
-}
-
-// capture is Capture without the actor check, so system cases can capture
-// without an actor.
-func (s *EvidenceService) capture(ctx context.Context, guildID, actorDiscordUserID, targetDiscordUserID, evidenceChannelID string, links []string, allowUnavailable bool) (*CapturedEvidence, error) {
 	if len(links) > maxEvidenceMessages {
 		return nil, fmt.Errorf("%w: at most %d message links can be captured", ErrEvidenceValidation, maxEvidenceMessages)
 	}
@@ -198,10 +247,6 @@ func (s *EvidenceService) capture(ctx context.Context, guildID, actorDiscordUser
 			if !allowUnavailable || !errors.As(err, &unavailable) {
 				return nil, err
 			}
-			outcome, warning := "unavailable", "linked message could not be captured; moderator supplied other visible context"
-			if unavailable != nil {
-				outcome, warning = unavailable.Outcome, unavailable.Error()
-			}
 			result.Snapshots = append(result.Snapshots, CaseEvidenceSnapshot{
 				ULIDModel:        ULIDModel{ID: NewID()},
 				GuildID:          guildID,
@@ -209,11 +254,11 @@ func (s *EvidenceService) capture(ctx context.Context, guildID, actorDiscordUser
 				MessageDiscordID: ref.MessageID,
 				MessageURL:       ref.URL,
 				MessageCreatedAt: time.Now().UTC(),
-				CaptureOutcome:   outcome,
-				CaptureWarning:   warning,
+				CaptureOutcome:   unavailable.Outcome,
+				CaptureWarning:   unavailable.Error(),
 				EmbedsJSON:       "[]",
 			})
-			result.Warnings = append(result.Warnings, warning)
+			result.Warnings = append(result.Warnings, unavailable.Error())
 			continue
 		}
 		if message == nil || message.GuildID != guildID || message.MessageID != ref.MessageID || message.ChannelID != ref.ChannelID {
@@ -238,8 +283,7 @@ func (s *EvidenceService) capture(ctx context.Context, guildID, actorDiscordUser
 		}
 		embedJSON, _ := json.Marshal(embeds)
 		evidenceID := NewID()
-		snapshotIndex := len(result.Snapshots)
-		result.Snapshots = append(result.Snapshots, CaseEvidenceSnapshot{
+		snapshot := CaseEvidenceSnapshot{
 			ULIDModel:           ULIDModel{ID: evidenceID},
 			GuildID:             guildID,
 			ChannelDiscordID:    message.ChannelID,
@@ -251,7 +295,7 @@ func (s *EvidenceService) capture(ctx context.Context, guildID, actorDiscordUser
 			MessageEditedAt:     message.EditedAt,
 			EmbedsJSON:          string(embedJSON),
 			CaptureOutcome:      "captured",
-		})
+		}
 
 		attachments := message.Attachments
 		if len(attachments) > maxEvidenceAttachments {
@@ -274,13 +318,47 @@ func (s *EvidenceService) capture(ctx context.Context, guildID, actorDiscordUser
 			}
 			result.Attachments = append(result.Attachments, record)
 		}
-		result.Snapshots[snapshotIndex].CaptureWarning = strings.Join(warnings, "; ")
+		snapshot.CaptureWarning = strings.Join(warnings, "; ")
+		result.Snapshots = append(result.Snapshots, snapshot)
 	}
 	if len(result.Warnings) > 0 {
 		slog.WarnContext(ctx, "Evidence capture incomplete", "discord_guild_id", guildID,
 			"messages", len(result.Snapshots), "attachments", len(result.Attachments), "warnings", len(result.Warnings))
 	}
 	return result, nil
+}
+
+// captureEvidence captures a new case's linked messages into the guild's
+// evidence channel. A message that can't be captured is only acceptable
+// when the moderator gave other context the member can see.
+func (s *CaseService) captureEvidence(ctx context.Context, guildContext *GuildStaffContext, targetID string, links []string, hasOtherContext bool, attribution caseAttribution) (CapturedEvidence, error) {
+	if len(links) == 0 {
+		return CapturedEvidence{}, nil
+	}
+	if s.evidence == nil {
+		return CapturedEvidence{}, caseValidationError("evidence capture is not configured")
+	}
+	settings, err := s.store.GetGuildSettings(ctx, guildContext.Guild.ID)
+	if err != nil {
+		return CapturedEvidence{}, err
+	}
+	channelID := ""
+	if settings != nil {
+		channelID = settings.ManagedEvidenceChannelDiscordID
+	}
+	actorID := guildContext.ActorDiscordUserID
+	if attribution.system {
+		actorID = ""
+	} else if actorID == "" {
+		return CapturedEvidence{}, caseValidationError("evidence actor is required")
+	}
+	captured, err := s.evidence.Capture(ctx, guildContext.Guild.DiscordGuildID, actorID, targetID, channelID, links, hasOtherContext)
+	if err != nil {
+		_ = s.audit(ctx, guildContext, attribution, string(AuditActionEvidenceCapture),
+			"case_evidence", "unknown", AuditResultFailure, err.Error())
+		return CapturedEvidence{}, caseValidationError(err.Error())
+	}
+	return *captured, nil
 }
 
 // preserve copies an attachment into the evidence channel when it is small
@@ -319,46 +397,13 @@ func (s *EvidenceService) preserve(ctx context.Context, guildID, evidenceChannel
 	return record
 }
 
-func truncateRunes(value string, limit int) string {
-	runes := []rune(value)
-	if len(runes) > limit {
-		return string(runes[:limit])
-	}
-	return value
-}
-
 // supportedEvidenceContentType reports whether an attachment is a type staff
 // can view in Discord: images, video, audio, plain text, and PDF.
-func supportedEvidenceContentType(value string) bool {
-	value = strings.ToLower(strings.TrimSpace(strings.Split(value, ";")[0]))
-	return strings.HasPrefix(value, "image/") || strings.HasPrefix(value, "video/") ||
-		strings.HasPrefix(value, "audio/") || value == "text/plain" || value == "application/pdf"
-}
-
-// CaseEvidenceResponse is a captured message.
-type CaseEvidenceResponse struct {
-	ID                  string                           `json:"id"`
-	AuthorDiscordUserID string                           `json:"author_discord_user_id"`
-	MessageURL          string                           `json:"message_url"`
-	Content             string                           `json:"content"`
-	CaptureOutcome      string                           `json:"capture_outcome"`
-	CaptureWarning      string                           `json:"capture_warning,omitempty"`
-	MessageCreatedAt    time.Time                        `json:"message_created_at"`
-	MessageEditedAt     *time.Time                       `json:"message_edited_at,omitempty"`
-	Embeds              any                              `json:"embeds"`
-	Attachments         []CaseEvidenceAttachmentResponse `json:"attachments"`
-}
-
-// CaseEvidenceAttachmentResponse is an attachment on a captured message. The
-// managed evidence channel's identity is never exposed.
-type CaseEvidenceAttachmentResponse struct {
-	Filename     string `json:"filename"`
-	ContentType  string `json:"content_type"`
-	OriginalURL  string `json:"original_url"`
-	PreservedURL string `json:"preserved_url,omitempty"`
-	CopyOutcome  string `json:"copy_outcome"`
-	Warning      string `json:"warning,omitempty"`
-	SizeBytes    int64  `json:"size_bytes"`
+func supportedEvidenceContentType(contentType string) bool {
+	mediaType, _, _ := strings.Cut(contentType, ";")
+	mediaType = strings.ToLower(strings.TrimSpace(mediaType))
+	return strings.HasPrefix(mediaType, "image/") || strings.HasPrefix(mediaType, "video/") ||
+		strings.HasPrefix(mediaType, "audio/") || mediaType == "text/plain" || mediaType == "application/pdf"
 }
 
 // caseEvidenceResponses builds evidence responses. Members see the preserved
@@ -398,36 +443,11 @@ func caseEvidenceResponses(snapshots []CaseEvidenceSnapshot, attachments []CaseE
 	return out
 }
 
-// CaseEvidenceSnapshot is a copy of a linked Discord message taken before the
-// case was committed, so later edits or deletions don't change the record.
-type CaseEvidenceSnapshot struct {
-	ULIDModel
-	CaseID              string
-	GuildID             string
-	ChannelDiscordID    string
-	MessageDiscordID    string
-	AuthorDiscordUserID string
-	MessageURL          string
-	Content             string
-	MessageCreatedAt    time.Time
-	MessageEditedAt     *time.Time
-	EmbedsJSON          string
-	CaptureOutcome      string
-	CaptureWarning      string
-}
-
-// CaseEvidenceAttachment records an attachment on an evidence message and,
-// when copying succeeded, its stable copy in the managed evidence channel.
-type CaseEvidenceAttachment struct {
-	ULIDModel
-	EvidenceID                   string
-	Filename                     string
-	ContentType                  string
-	SizeBytes                    int64
-	OriginalURL                  string
-	PreservedURL                 string
-	PreservedMessageDiscordID    string
-	PreservedAttachmentDiscordID string
-	CopyOutcome                  string
-	Warning                      string
+// truncateRunes cuts value to at most limit runes, never splitting one.
+func truncateRunes(value string, limit int) string {
+	runes := []rune(value)
+	if len(runes) > limit {
+		return string(runes[:limit])
+	}
+	return value
 }

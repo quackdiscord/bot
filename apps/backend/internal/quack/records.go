@@ -1,25 +1,11 @@
 package quack
 
-import "time"
+import (
+	"encoding/json"
+	"errors"
+	"time"
 
-// PermissionAction names a capability a staff member can hold in a guild.
-// Capabilities are derived from live Discord permissions, never stored.
-type PermissionAction string
-
-// The capabilities checked by the services and HTTP middleware.
-const (
-	PermissionActionCaseCreate         PermissionAction = "case.create"
-	PermissionActionCaseRead           PermissionAction = "case.read"
-	PermissionActionCaseTemplateRead   PermissionAction = "case_template.read"
-	PermissionActionCaseTemplateWrite  PermissionAction = "case_template.write"
-	PermissionActionCaseTemplateDelete PermissionAction = "case_template.delete"
-	PermissionActionAppealReview       PermissionAction = "appeal.review"
-	PermissionActionTicketResolve      PermissionAction = "ticket.resolve"
-	PermissionActionAuditRead          PermissionAction = "audit.read"
-	PermissionActionGuildSettingsRead  PermissionAction = "guild_settings.read"
-	PermissionActionGuildSettingsWrite PermissionAction = "guild_settings.write"
-	PermissionActionCaseVoid           PermissionAction = "case.void"
-	PermissionActionFailureDismiss     PermissionAction = "action_failure.dismiss"
+	"github.com/oklog/ulid/v2"
 )
 
 // CaseValidity says whether a case still counts toward escalation.
@@ -43,12 +29,21 @@ const (
 	CaseSourceV4Import  CaseSource = "v4_import"
 )
 
+func validCaseSource(source CaseSource) bool {
+	switch source {
+	case CaseSourceDashboard, CaseSourceDiscord, CaseSourceHoneypot, CaseSourceV4Import:
+		return true
+	default:
+		return false
+	}
+}
+
 // ActionType is a Discord action Quack can perform against a member.
 type ActionType string
 
 // Action types. Templates may use timeout, kick, and ban. Remove-timeout and
-// unban only exist as staff-confirmed reversals. Send-DM is kept for
-// executions created before notifications moved onto the case.
+// unban only exist as staff-confirmed reversals. Send-DM is not an
+// enforcement: a case's DM is its CaseNotification, and templates reject it.
 const (
 	ActionSendDM        ActionType = "send_dm"
 	ActionTimeoutUser   ActionType = "timeout_user"
@@ -103,6 +98,15 @@ const (
 	ContextFieldMessageLink ContextFieldType = "discord_message_link"
 )
 
+func validContextFieldType(fieldType ContextFieldType) bool {
+	switch fieldType {
+	case ContextFieldShortText, ContextFieldLongText, ContextFieldBoolean, ContextFieldNumber, ContextFieldMessageLink:
+		return true
+	default:
+		return false
+	}
+}
+
 // NotificationStatus tracks the single member notification a case may send.
 type NotificationStatus string
 
@@ -129,6 +133,16 @@ const (
 	ActionExecutionRetrying  ActionExecutionStatus = "retrying"
 	ActionExecutionCancelled ActionExecutionStatus = "cancelled"
 )
+
+func validActionExecutionStatus(status ActionExecutionStatus) bool {
+	switch status {
+	case ActionExecutionPending, ActionExecutionRunning, ActionExecutionSucceeded,
+		ActionExecutionFailed, ActionExecutionRetrying, ActionExecutionCancelled:
+		return true
+	default:
+		return false
+	}
+}
 
 // Label describes execution progress to members and staff without exposing
 // internal state names.
@@ -190,22 +204,18 @@ const (
 	CaseEventAppealCreated      CaseEventType = "appeal_created"
 )
 
-// TicketStatus is the lifecycle state of a support ticket.
-type TicketStatus string
-
-// Ticket statuses.
-const (
-	TicketStatusOpen      TicketStatus = "open"
-	TicketStatusResolved  TicketStatus = "resolved"
-	TicketStatusCancelled TicketStatus = "cancelled"
-)
-
 // ULIDModel is the identity and timestamps every record carries. IDs are
 // ULIDs so they sort by creation time.
 type ULIDModel struct {
 	ID        string
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+// NewID returns a new ULID. Every record and lease token uses this format so
+// IDs sort by creation time.
+func NewID() string {
+	return ulid.Make().String()
 }
 
 // Guild is a Discord server Quack has been installed in.
@@ -292,6 +302,29 @@ type CaseTemplateLevelAction struct {
 	ActionType ActionType
 	ConfigJSON string
 	MaxRetries uint8
+}
+
+// ExpandedCaseTemplate is a template with its context fields, levels, and
+// level actions: everything needed to apply it.
+type ExpandedCaseTemplate struct {
+	Template      CaseTemplate
+	ContextFields []CaseTemplateContextField
+	Levels        []ExpandedCaseTemplateLevel
+}
+
+// ExpandedCaseTemplateLevel is a level with its action.
+type ExpandedCaseTemplateLevel struct {
+	Level   CaseTemplateLevel
+	Actions []CaseTemplateLevelAction
+}
+
+// actionType returns the level's enforcement, or "" for a warning-only
+// level.
+func (l ExpandedCaseTemplateLevel) actionType() ActionType {
+	if len(l.Actions) == 1 {
+		return l.Actions[0].ActionType
+	}
+	return ""
 }
 
 // Case is one application of a template to a member. Everything that
@@ -424,27 +457,41 @@ type AuditLogEntry struct {
 	MetadataJSON        string
 }
 
-// OAuthState is the server-side half of a Discord OAuth login in progress.
-type OAuthState struct {
-	RedirectTo   string    `json:"redirect_to"`
-	ResponseMode string    `json:"response_mode"`
-	CreatedAt    time.Time `json:"created_at"`
+// parseJSON decodes a stored JSON column for a response, returning an empty
+// object when the column is empty or malformed.
+func parseJSON(body string) any {
+	var value any
+	if err := json.Unmarshal([]byte(body), &value); err != nil {
+		return map[string]any{}
+	}
+	return value
 }
 
-// AuthSession is a signed-in dashboard user. Tokens never leave the server.
-type AuthSession struct {
-	ID               string    `json:"-"`
-	DiscordUserID    string    `json:"discord_user_id"`
-	Username         string    `json:"username"`
-	GlobalName       string    `json:"global_name"`
-	Avatar           string    `json:"avatar"`
-	AccessToken      string    `json:"-"`
-	RefreshToken     string    `json:"-"`
-	CSRFToken        string    `json:"-"`
-	TokenType        string    `json:"token_type"`
-	Scope            string    `json:"scope"`
-	TokenExpiresAt   time.Time `json:"token_expires_at"`
-	SessionExpiresAt time.Time `json:"session_expires_at"`
-	CreatedAt        time.Time `json:"created_at"`
-	LastSeenAt       time.Time `json:"last_seen_at"`
+// marshalJSONObject encodes metadata, falling back to an empty object.
+func marshalJSONObject(value any) string {
+	body, err := json.Marshal(value)
+	if err != nil {
+		return "{}"
+	}
+	return string(body)
+}
+
+// normalizeJSONObject re-encodes raw, which must be a JSON object or absent,
+// for storage in a JSON column.
+func normalizeJSONObject(raw json.RawMessage) (string, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "{}", nil
+	}
+	var object map[string]any
+	if err := json.Unmarshal(raw, &object); err != nil {
+		return "", err
+	}
+	if object == nil {
+		return "", errors.New("not an object")
+	}
+	body, err := json.Marshal(object)
+	if err != nil {
+		return "", err
+	}
+	return string(body), nil
 }

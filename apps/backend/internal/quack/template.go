@@ -2,8 +2,6 @@ package quack
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"log/slog"
 	"strings"
 	"time"
@@ -103,7 +101,8 @@ type TemplateLevelResponse struct {
 	Actions []TemplateActionResponse `json:"actions"`
 }
 
-// TemplateActionResponse is a stored level action.
+// TemplateActionResponse is a stored level action with its settings
+// unpacked. Case snapshots keep the selected level's action in this shape.
 type TemplateActionResponse struct {
 	ID                     string     `json:"id"`
 	ActionType             ActionType `json:"action_type"`
@@ -112,16 +111,32 @@ type TemplateActionResponse struct {
 	MaxRetries             uint8      `json:"max_retries"`
 }
 
+// TemplatePolicy is a template stripped of anything guild-specific, for
+// sharing between guilds.
+type TemplatePolicy struct {
+	SchemaVersion  int                         `json:"schema_version"`
+	Slug           string                      `json:"slug"`
+	Name           string                      `json:"name"`
+	Description    string                      `json:"description"`
+	OfficialReason string                      `json:"official_reason"`
+	Appealable     bool                        `json:"appealable"`
+	ContextFields  []TemplateContextFieldInput `json:"context_fields"`
+	Levels         []TemplateLevelInput        `json:"levels"`
+}
+
+// TemplateImportInput is an exported policy to import. Confirm must be set,
+// since an imported template is live as soon as it is created.
+type TemplateImportInput struct {
+	Confirm bool           `json:"confirm"`
+	Policy  TemplatePolicy `json:"policy"`
+}
+
 // List returns all of the guild's templates, including archived ones.
 func (s *TemplateService) List(ctx context.Context, guildContext *GuildStaffContext) ([]TemplateResponse, error) {
 	ctx = ensureTraceContext(ctx)
 	const action = string(AuditActionTemplateRead)
-	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
-		return nil, errors.New("template service is not configured")
-	}
-	if !guildContext.Can(PermissionActionCaseTemplateRead) {
-		_ = s.audit(ctx, guildContext, action, "list", AuditResultDenied, ErrTemplatePermissionDenied.Error())
-		return nil, ErrTemplatePermissionDenied
+	if err := s.requireRead(ctx, guildContext, "list"); err != nil {
+		return nil, err
 	}
 	templates, err := s.store.ListCaseTemplates(ctx, guildContext.Guild.ID)
 	if err != nil {
@@ -145,9 +160,9 @@ func (s *TemplateService) ListActive(ctx context.Context, guildContext *GuildSta
 		return nil, err
 	}
 	active := make([]TemplateResponse, 0, len(all))
-	for _, item := range all {
-		if item.ArchivedAt == nil {
-			active = append(active, item)
+	for _, template := range all {
+		if template.ArchivedAt == nil {
+			active = append(active, template)
 		}
 	}
 	return active, nil
@@ -157,12 +172,8 @@ func (s *TemplateService) ListActive(ctx context.Context, guildContext *GuildSta
 func (s *TemplateService) Get(ctx context.Context, guildContext *GuildStaffContext, templateID string) (*TemplateResponse, error) {
 	ctx = ensureTraceContext(ctx)
 	const action = string(AuditActionTemplateRead)
-	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
-		return nil, errors.New("template service is not configured")
-	}
-	if !guildContext.Can(PermissionActionCaseTemplateRead) {
-		_ = s.audit(ctx, guildContext, action, templateID, AuditResultDenied, ErrTemplatePermissionDenied.Error())
-		return nil, ErrTemplatePermissionDenied
+	if err := s.requireRead(ctx, guildContext, templateID); err != nil {
+		return nil, err
 	}
 	template, err := s.store.GetCaseTemplateExpanded(ctx, guildContext.Guild.ID, templateID)
 	if err != nil {
@@ -173,47 +184,31 @@ func (s *TemplateService) Get(ctx context.Context, guildContext *GuildStaffConte
 		_ = s.audit(ctx, guildContext, action, templateID, AuditResultFailure, "not_found")
 		return nil, ErrTemplateNotFound
 	}
-	response := templateResponse(*template)
 	if err := s.audit(ctx, guildContext, action, templateID, AuditResultSuccess, ""); err != nil {
 		return nil, err
 	}
+	response := templateResponse(*template)
 	return &response, nil
 }
 
 // Create validates input and stores it as a new template at version 1.
 func (s *TemplateService) Create(ctx context.Context, guildContext *GuildStaffContext, input TemplateInput) (*TemplateResponse, error) {
+	ctx = ensureTraceContext(ctx)
 	const action = string(AuditActionTemplateCreate)
 	if err := s.requireWrite(ctx, guildContext, action, ""); err != nil {
 		return nil, err
 	}
-	ctx = ensureTraceContext(ctx)
-	normalized, err := s.validate(ctx, guildContext, "", input)
-	if err != nil {
-		_ = s.audit(ctx, guildContext, action, "unknown", AuditResultFailure, err.Error())
-		return nil, err
-	}
-	expanded, err := s.store.CreateCaseTemplate(ctx, CreateCaseTemplateParams{
-		Template:      normalized.Template,
-		ContextFields: normalized.ContextFields,
-		Levels:        normalized.Levels,
-		Audit:         staffAudit(ctx, guildContext, action, "case_template", "", AuditResultSuccess, ""),
-	})
-	if err != nil {
-		return nil, err
-	}
-	logTemplate(ctx, "Template created", expanded)
-	response := templateResponse(*expanded)
-	return &response, nil
+	return s.create(ctx, guildContext, action, input, "Template created")
 }
 
 // Update replaces a template's policy and bumps its version. Existing cases
 // keep the snapshot they were created with.
 func (s *TemplateService) Update(ctx context.Context, guildContext *GuildStaffContext, templateID string, input TemplateInput) (*TemplateResponse, error) {
+	ctx = ensureTraceContext(ctx)
 	const action = string(AuditActionTemplateUpdate)
 	if err := s.requireWrite(ctx, guildContext, action, templateID); err != nil {
 		return nil, err
 	}
-	ctx = ensureTraceContext(ctx)
 	existing, err := s.store.GetCaseTemplateExpanded(ctx, guildContext.Guild.ID, templateID)
 	if err != nil {
 		return nil, err
@@ -226,7 +221,7 @@ func (s *TemplateService) Update(ctx context.Context, guildContext *GuildStaffCo
 		_ = s.audit(ctx, guildContext, action, templateID, AuditResultFailure, err.Error())
 		return nil, err
 	}
-	expanded, err := s.store.UpdateCaseTemplate(ctx, UpdateCaseTemplateParams{
+	updated, err := s.store.UpdateCaseTemplate(ctx, UpdateCaseTemplateParams{
 		GuildID:       guildContext.Guild.ID,
 		TemplateID:    templateID,
 		Template:      normalized.Template,
@@ -237,58 +232,170 @@ func (s *TemplateService) Update(ctx context.Context, guildContext *GuildStaffCo
 	if err != nil {
 		return nil, err
 	}
-	if expanded == nil {
+	if updated == nil {
 		return nil, ErrTemplateNotFound
 	}
-	logTemplate(ctx, "Template updated", expanded)
-	response := templateResponse(*expanded)
-	return &response, nil
+	return logTemplate(ctx, "Template updated", updated), nil
 }
 
 // Archive hides a template from new cases. Its history stays intact and it
 // can be restored.
 func (s *TemplateService) Archive(ctx context.Context, guildContext *GuildStaffContext, templateID string) (*TemplateResponse, error) {
-	const action = string(AuditActionTemplateArchive)
-	if err := s.requireWrite(ctx, guildContext, action, templateID); err != nil {
-		return nil, err
-	}
-	ctx = ensureTraceContext(ctx)
-	audit := staffAudit(ctx, guildContext, action, "case_template", templateID, AuditResultSuccess, "")
-	expanded, err := s.store.ArchiveCaseTemplate(ctx, guildContext.Guild.ID, templateID, audit)
-	return s.finishArchiveChange(ctx, guildContext, action, templateID, "Template archived", expanded, err)
+	return s.setArchived(ctx, guildContext, strings.TrimSpace(templateID), true)
 }
 
 // Restore makes an archived template available again. Its identity and
 // version are unchanged.
 func (s *TemplateService) Restore(ctx context.Context, guildContext *GuildStaffContext, templateID string) (*TemplateResponse, error) {
-	const action = string(AuditActionTemplateRestore)
+	return s.setArchived(ctx, guildContext, strings.TrimSpace(templateID), false)
+}
+
+// Export returns a template's policy for import elsewhere. Guild identity,
+// history, and authorship are left out.
+func (s *TemplateService) Export(ctx context.Context, guildContext *GuildStaffContext, templateID string) (*TemplatePolicy, error) {
+	ctx = ensureTraceContext(ctx)
+	const action = string(AuditActionTemplateExport)
 	if err := s.requireWrite(ctx, guildContext, action, templateID); err != nil {
 		return nil, err
 	}
-	ctx = ensureTraceContext(ctx)
-	audit := staffAudit(ctx, guildContext, action, "case_template", templateID, AuditResultSuccess, "")
-	expanded, err := s.store.RestoreCaseTemplate(ctx, guildContext.Guild.ID, strings.TrimSpace(templateID), audit)
-	return s.finishArchiveChange(ctx, guildContext, action, templateID, "Template restored", expanded, err)
-}
-
-func (s *TemplateService) finishArchiveChange(ctx context.Context, guildContext *GuildStaffContext, action, templateID, logMessage string, expanded *ExpandedCaseTemplate, err error) (*TemplateResponse, error) {
+	template, err := s.Get(ctx, guildContext, templateID)
 	if err != nil {
 		_ = s.audit(ctx, guildContext, action, templateID, AuditResultFailure, err.Error())
 		return nil, err
 	}
-	if expanded == nil {
-		_ = s.audit(ctx, guildContext, action, templateID, AuditResultFailure, ErrTemplateNotFound.Error())
-		return nil, ErrTemplateNotFound
+	policy := &TemplatePolicy{
+		SchemaVersion:  1,
+		Slug:           template.Slug,
+		Name:           template.Name,
+		Description:    template.Description,
+		OfficialReason: template.ReasonTemplate,
+		Appealable:     template.Appealable,
 	}
-	logTemplate(ctx, logMessage, expanded)
-	response := templateResponse(*expanded)
-	return &response, nil
+	for _, field := range template.ContextFields {
+		policy.ContextFields = append(policy.ContextFields, TemplateContextFieldInput{
+			Key:       field.Key,
+			Label:     field.Label,
+			FieldType: field.FieldType,
+			Position:  field.Position,
+			Required:  field.Required,
+		})
+	}
+	for _, level := range template.Levels {
+		levelInput := TemplateLevelInput{
+			Name:             level.Name,
+			Position:         level.Position,
+			IsDefault:        level.IsDefault,
+			TriggerCaseCount: level.TriggerCaseCount,
+			NotifyUser:       level.NotifyUser,
+		}
+		for _, action := range level.Actions {
+			levelInput.Actions = append(levelInput.Actions, TemplateActionInput{
+				ActionType:             action.ActionType,
+				TimeoutDurationSeconds: action.TimeoutDurationSeconds,
+				DeleteMessageSeconds:   action.DeleteMessageSeconds,
+				MaxRetries:             int(action.MaxRetries),
+			})
+		}
+		policy.Levels = append(policy.Levels, levelInput)
+	}
+	if err := s.audit(ctx, guildContext, action, templateID, AuditResultSuccess, ""); err != nil {
+		return nil, err
+	}
+	return policy, nil
+}
+
+// Import creates a new template in this guild from an exported policy.
+func (s *TemplateService) Import(ctx context.Context, guildContext *GuildStaffContext, input TemplateImportInput) (*TemplateResponse, error) {
+	ctx = ensureTraceContext(ctx)
+	const action = string(AuditActionTemplateImport)
+	if err := s.requireWrite(ctx, guildContext, action, ""); err != nil {
+		return nil, err
+	}
+	var err error
+	switch {
+	case !input.Confirm:
+		err = templateValidationError("template import must be explicitly confirmed")
+	case input.Policy.SchemaVersion != 1:
+		err = templateValidationError("unsupported template policy schema_version")
+	}
+	if err != nil {
+		_ = s.audit(ctx, guildContext, action, "unknown", AuditResultFailure, err.Error())
+		return nil, err
+	}
+	policy := input.Policy
+	return s.create(ctx, guildContext, action, TemplateInput{
+		Slug:           policy.Slug,
+		Name:           policy.Name,
+		Description:    policy.Description,
+		ReasonTemplate: policy.OfficialReason,
+		Appealable:     policy.Appealable,
+		ContextFields:  policy.ContextFields,
+		Levels:         policy.Levels,
+	}, "Template imported")
+}
+
+// create validates input and stores it as a new template at version 1,
+// auditing any failure under action. Create and Import share it.
+func (s *TemplateService) create(ctx context.Context, guildContext *GuildStaffContext, action string, input TemplateInput, logMessage string) (*TemplateResponse, error) {
+	normalized, err := s.validate(ctx, guildContext, "", input)
+	if err != nil {
+		_ = s.audit(ctx, guildContext, action, "unknown", AuditResultFailure, err.Error())
+		return nil, err
+	}
+	created, err := s.store.CreateCaseTemplate(ctx, CreateCaseTemplateParams{
+		Template:      normalized.Template,
+		ContextFields: normalized.ContextFields,
+		Levels:        normalized.Levels,
+		Audit:         staffAudit(ctx, guildContext, action, "case_template", "", AuditResultSuccess, ""),
+	})
+	if err != nil {
+		_ = s.audit(ctx, guildContext, action, "unknown", AuditResultFailure, err.Error())
+		return nil, err
+	}
+	return logTemplate(ctx, logMessage, created), nil
+}
+
+// setArchived archives or restores a template.
+func (s *TemplateService) setArchived(ctx context.Context, guildContext *GuildStaffContext, templateID string, archive bool) (*TemplateResponse, error) {
+	ctx = ensureTraceContext(ctx)
+	action, logMessage := string(AuditActionTemplateRestore), "Template restored"
+	change := s.store.RestoreCaseTemplate
+	if archive {
+		action, logMessage = string(AuditActionTemplateArchive), "Template archived"
+		change = s.store.ArchiveCaseTemplate
+	}
+	if err := s.requireWrite(ctx, guildContext, action, templateID); err != nil {
+		return nil, err
+	}
+	audit := staffAudit(ctx, guildContext, action, "case_template", templateID, AuditResultSuccess, "")
+	changed, err := change(ctx, guildContext.Guild.ID, templateID, audit)
+	if err == nil && changed == nil {
+		err = ErrTemplateNotFound
+	}
+	if err != nil {
+		_ = s.audit(ctx, guildContext, action, templateID, AuditResultFailure, err.Error())
+		return nil, err
+	}
+	return logTemplate(ctx, logMessage, changed), nil
+}
+
+// requireRead checks template read access, auditing a denial.
+func (s *TemplateService) requireRead(ctx context.Context, guildContext *GuildStaffContext, templateID string) error {
+	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
+		return errNoGuildContext
+	}
+	if !guildContext.Can(PermissionActionCaseTemplateRead) {
+		_ = s.audit(ctx, guildContext, string(AuditActionTemplateRead), templateID, AuditResultDenied, ErrTemplatePermissionDenied.Error())
+		return ErrTemplatePermissionDenied
+	}
+	return nil
 }
 
 // requireWrite checks Manage Guild before any template write, auditing the
 // denial without reading the template.
 func (s *TemplateService) requireWrite(ctx context.Context, guildContext *GuildStaffContext, action, templateID string) error {
-	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil || !guildContext.Can(PermissionActionCaseTemplateWrite) {
+	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil ||
+		!guildContext.Can(PermissionActionCaseTemplateWrite) {
 		_ = s.audit(ctx, guildContext, action, templateID, AuditResultDenied, "permission_denied")
 		return ErrTemplatePermissionDenied
 	}
@@ -296,52 +403,53 @@ func (s *TemplateService) requireWrite(ctx context.Context, guildContext *GuildS
 }
 
 func (s *TemplateService) audit(ctx context.Context, guildContext *GuildStaffContext, action, templateID string, result AuditResult, failureReason string) error {
-	entry := staffAudit(ctx, guildContext, action, "case_template", templateID, result, failureReason)
-	if entry == nil {
-		return nil
-	}
-	return recordAudit(ctx, s.store, entry)
+	return recordStaffAudit(ctx, s.store, guildContext, action, "case_template", templateID, result, failureReason)
 }
 
-func logTemplate(ctx context.Context, message string, t *ExpandedCaseTemplate) {
-	slog.InfoContext(ctx, message, "guild_id", t.Template.GuildID, "template_id", t.Template.ID, "version", t.Template.Version)
+// logTemplate logs a template change and returns the template's response.
+func logTemplate(ctx context.Context, message string, template *ExpandedCaseTemplate) *TemplateResponse {
+	slog.InfoContext(ctx, message, "guild_id", template.Template.GuildID,
+		"template_id", template.Template.ID, "version", template.Template.Version)
+	response := templateResponse(*template)
+	return &response
 }
 
 func templateResponse(expanded ExpandedCaseTemplate) TemplateResponse {
-	t := expanded.Template
+	template := expanded.Template
 	response := TemplateResponse{
-		ID:                     t.ID,
-		GuildID:                t.GuildID,
-		Slug:                   t.Slug,
-		Name:                   t.Name,
-		Description:            t.Description,
-		ReasonTemplate:         t.ReasonTemplate,
-		Appealable:             t.Appealable,
-		Version:                t.Version,
-		CreatedByDiscordUserID: t.CreatedByDiscordUserID,
-		UpdatedByDiscordUserID: t.UpdatedByDiscordUserID,
-		ArchivedAt:             t.ArchivedAt,
+		ID:                     template.ID,
+		GuildID:                template.GuildID,
+		Slug:                   template.Slug,
+		Name:                   template.Name,
+		Description:            template.Description,
+		ReasonTemplate:         template.ReasonTemplate,
+		Appealable:             template.Appealable,
+		Version:                template.Version,
+		CreatedByDiscordUserID: template.CreatedByDiscordUserID,
+		UpdatedByDiscordUserID: template.UpdatedByDiscordUserID,
+		ArchivedAt:             template.ArchivedAt,
 		ContextFields:          contextFieldResponses(expanded.ContextFields),
 		Levels:                 make([]TemplateLevelResponse, 0, len(expanded.Levels)),
 	}
 	for _, level := range expanded.Levels {
-		levelResponse := TemplateLevelResponse{
+		response.Levels = append(response.Levels, TemplateLevelResponse{
 			TemplateLevelDetails: templateLevelDetails(level.Level),
-			Actions:              make([]TemplateActionResponse, 0, len(level.Actions)),
-		}
-		for _, action := range level.Actions {
-			levelResponse.Actions = append(levelResponse.Actions, templateActionResponse(action))
-		}
-		response.Levels = append(response.Levels, levelResponse)
+			Actions:              templateActionResponses(level.Actions),
+		})
 	}
 	return response
 }
 
 func contextFieldResponses(fields []CaseTemplateContextField) []TemplateContextFieldResponse {
 	out := make([]TemplateContextFieldResponse, 0, len(fields))
-	for _, f := range fields {
+	for _, field := range fields {
 		out = append(out, TemplateContextFieldResponse{
-			ID: f.ID, Key: f.Key, Label: f.Label, FieldType: f.FieldType, Position: f.Position, Required: f.Required,
+			ID:        field.ID,
+			Key:       field.Key,
+			Label:     field.Label,
+			FieldType: field.FieldType,
+			Position:  field.Position,
+			Required:  field.Required,
 		})
 	}
 	return out
@@ -358,37 +466,17 @@ func templateLevelDetails(level CaseTemplateLevel) TemplateLevelDetails {
 	}
 }
 
-func templateActionResponse(action CaseTemplateLevelAction) TemplateActionResponse {
-	config := decodeActionConfig(action.ConfigJSON)
-	return TemplateActionResponse{
-		ID:                     action.ID,
-		ActionType:             action.ActionType,
-		TimeoutDurationSeconds: config.DurationSeconds,
-		DeleteMessageSeconds:   config.DeleteMessageSeconds,
-		MaxRetries:             action.MaxRetries,
+func templateActionResponses(actions []CaseTemplateLevelAction) []TemplateActionResponse {
+	out := make([]TemplateActionResponse, 0, len(actions))
+	for _, action := range actions {
+		config := decodeActionConfig(action.ConfigJSON)
+		out = append(out, TemplateActionResponse{
+			ID:                     action.ID,
+			ActionType:             action.ActionType,
+			TimeoutDurationSeconds: config.DurationSeconds,
+			DeleteMessageSeconds:   config.DeleteMessageSeconds,
+			MaxRetries:             action.MaxRetries,
+		})
 	}
-}
-
-// actionConfig is the stored configuration of a level action.
-type actionConfig struct {
-	DurationSeconds      int `json:"duration_seconds,omitempty"`
-	DeleteMessageSeconds int `json:"delete_message_seconds,omitempty"`
-}
-
-// decodeActionConfig reads a stored action configuration. Older rows stored
-// timeouts as duration_minutes.
-func decodeActionConfig(body string) actionConfig {
-	var stored struct {
-		DurationSeconds      int `json:"duration_seconds"`
-		DurationMinutes      int `json:"duration_minutes"`
-		DeleteMessageSeconds int `json:"delete_message_seconds"`
-	}
-	if err := json.Unmarshal([]byte(body), &stored); err != nil {
-		return actionConfig{}
-	}
-	seconds := stored.DurationSeconds
-	if seconds == 0 && stored.DurationMinutes > 0 {
-		seconds = stored.DurationMinutes * 60
-	}
-	return actionConfig{DurationSeconds: seconds, DeleteMessageSeconds: stored.DeleteMessageSeconds}
+	return out
 }

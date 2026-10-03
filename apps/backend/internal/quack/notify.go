@@ -77,7 +77,8 @@ func (s *ActionService) sendNotification(ctx context.Context, workerID, caseID s
 	case s.messenger == nil:
 		sendErr = errors.New("discord messenger is not configured")
 	case snapshotAppealable(item.TemplateSnapshotJSON) && s.dashboardBaseURL != "":
-		response, sendErr = s.messenger.SendCaseNotification(ctx, item.TargetDiscordUserID, claimed.PreparedChannelDiscordID, message, s.dashboardBaseURL, item.GuildID, item.ID)
+		response, sendErr = s.messenger.SendCaseNotification(ctx, item.TargetDiscordUserID,
+			claimed.PreparedChannelDiscordID, message, s.dashboardBaseURL, item.GuildID, item.ID)
 	case claimed.PreparedChannelDiscordID != "":
 		response, sendErr = s.messenger.SendPreparedDM(ctx, claimed.PreparedChannelDiscordID, message)
 	default:
@@ -109,7 +110,8 @@ func (s *ActionService) sendNotification(ctx context.Context, workerID, caseID s
 	if sendErr != nil {
 		level = slog.LevelWarn
 	}
-	slog.Log(ctx, level, "Case notification recorded", "case_id", caseID, "status", params.Status, "error_code", params.ErrorCode)
+	slog.Log(ctx, level, "Case notification recorded", "case_id", caseID,
+		"status", params.Status, "error_code", params.ErrorCode)
 	return nil
 }
 
@@ -130,7 +132,8 @@ func renderCaseNotification(item Case, guild *Guild, settings *GuildSettings, ac
 		"Reason: "+truncateRunes(item.Reason, 200))
 	for _, value := range parseContextValues(item.ContextValuesJSON) {
 		if value.Value != nil {
-			parts = append(parts, fmt.Sprintf("%s: %s", truncateRunes(value.Label, 40), truncateRunes(fmt.Sprint(value.Value), 50)))
+			parts = append(parts, fmt.Sprintf("%s: %s",
+				truncateRunes(value.Label, 40), truncateRunes(fmt.Sprint(value.Value), 50)))
 		}
 	}
 	outcome := "No Discord enforcement action was configured."
@@ -138,7 +141,7 @@ func renderCaseNotification(item Case, guild *Guild, settings *GuildSettings, ac
 		outcome = fmt.Sprintf("Outcome: %s (%s)", actions[0].ActionType.Label(), actions[0].Status.Label())
 	}
 	parts = append(parts, outcome)
-	if snapshot := parseTemplateSnapshot(item.TemplateSnapshotJSON); snapshot != nil && snapshot.Template.Appealable {
+	if snapshotAppealable(item.TemplateSnapshotJSON) {
 		parts = append(parts, "This case can be appealed from your Quack dashboard.")
 	}
 	if settings != nil && strings.TrimSpace(settings.NotificationFooter) != "" {
@@ -176,9 +179,6 @@ func NewAppealNotificationDispatcher(store AppealNotificationStore, client Appea
 // DispatchPending sends up to limit pending notifications and records each
 // outcome. limit must be between 1 and 100.
 func (d *AppealNotificationDispatcher) DispatchPending(ctx context.Context, limit int) error {
-	if d.store == nil || d.client == nil {
-		return errors.New("appeal notification dispatcher is not configured")
-	}
 	if limit < 1 || limit > 100 {
 		return errors.New("appeal notification limit is invalid")
 	}

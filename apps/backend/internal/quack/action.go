@@ -68,38 +68,30 @@ func (s *ActionService) ProcessCaseActions(ctx context.Context, caseID string) e
 
 // attempt performs one leased execution and records the outcome.
 func (s *ActionService) attempt(ctx context.Context, workerID string, claimed ClaimedCaseAction) error {
-	config := parseActionConfig(claimed.Execution.ConfigSnapshotJSON)
-	guild, guildErr := s.store.GetGuildByID(ctx, claimed.Case.GuildID)
-	discordGuildID := ""
-	if guild != nil {
-		discordGuildID = guild.DiscordGuildID
-	}
-	logger := slog.With("case_id", claimed.Case.ID, "guild_id", claimed.Case.GuildID,
-		"execution_id", claimed.Execution.ID, "action", claimed.Execution.ActionType,
-		"attempt", claimed.Execution.AttemptCount)
+	item, execution := claimed.Case, claimed.Execution
+	config := decodeActionConfig(execution.ConfigSnapshotJSON)
+	logger := slog.With("case_id", item.ID, "guild_id", item.GuildID,
+		"execution_id", execution.ID, "action", execution.ActionType,
+		"attempt", execution.AttemptCount)
 	logger.InfoContext(ctx, "Action attempt started")
 
 	var result attemptResult
+	guild, err := s.store.GetGuildByID(ctx, item.GuildID)
 	switch {
-	case guildErr != nil:
+	case err != nil:
 		// Nothing reached Discord, so retrying is safe.
 		result = retryableFailure("guild_lookup_failed", "Guild information is temporarily unavailable")
-	case discordGuildID == "":
+	case guild == nil || guild.DiscordGuildID == "":
 		result = permanentFailure("guild_not_found", "The case guild is unavailable")
 	default:
 		attemptCtx, cancel := context.WithTimeout(ctx, attemptTimeout)
-		result = s.enforce(attemptCtx, enforcement{
-			Case:           claimed.Case,
-			Execution:      claimed.Execution,
-			Config:         config,
-			DiscordGuildID: discordGuildID,
-		})
+		result = s.enforce(attemptCtx, guild.DiscordGuildID, item, execution, config)
 		cancel()
 	}
 
 	requestID, correlationID := TraceIDsFromContext(ctx)
 	if correlationID == "" {
-		correlationID = claimed.Case.CorrelationID
+		correlationID = item.CorrelationID
 	}
 	attemptStatus := ActionAttemptSucceeded
 	executionStatus := ActionExecutionSucceeded
@@ -111,8 +103,8 @@ func (s *ActionService) attempt(ctx context.Context, workerID string, claimed Cl
 		executionStatus = ActionExecutionFailed
 		eventType = CaseEventActionFailed
 		eventBody = "Discord enforcement failed and requires staff review"
-		if shouldRetry(claimed.Execution, result) {
-			next := nextRetryTime(claimed.Execution)
+		if shouldRetry(execution, result) {
+			next := nextRetryTime(execution)
 			nextRetryAt = &next
 			executionStatus = ActionExecutionRetrying
 			eventBody = "Discord enforcement is waiting for a safe automatic retry"
@@ -125,19 +117,19 @@ func (s *ActionService) attempt(ctx context.Context, workerID string, claimed Cl
 		result.Response["error"] = result.Error
 	}
 
-	err := s.store.CompleteCaseAction(ctx, CompleteCaseActionParams{
-		ExecutionID:     claimed.Execution.ID,
-		LeaseToken:      claimed.Execution.LeaseToken,
-		AttemptNumber:   claimed.Execution.AttemptCount,
+	err = s.store.CompleteCaseAction(ctx, CompleteCaseActionParams{
+		ExecutionID:     execution.ID,
+		LeaseToken:      execution.LeaseToken,
+		AttemptNumber:   execution.AttemptCount,
 		WorkerID:        workerID,
 		AttemptStatus:   attemptStatus,
 		ExecutionStatus: executionStatus,
 		ErrorCode:       result.ErrorCode,
 		ErrorMessage:    result.Error,
 		RequestPayloadJSON: marshalJSONObject(map[string]any{
-			"case_id":      claimed.Case.ID,
-			"execution_id": claimed.Execution.ID,
-			"action_type":  claimed.Execution.ActionType,
+			"case_id":      item.ID,
+			"execution_id": execution.ID,
+			"action_type":  execution.ActionType,
 			"config":       config,
 		}),
 		ResponsePayloadJSON: marshalJSONObject(result.Response),
@@ -145,8 +137,8 @@ func (s *ActionService) attempt(ctx context.Context, workerID string, claimed Cl
 		EventType:           eventType,
 		EventBody:           eventBody,
 		EventMetadataJSON: marshalJSONObject(map[string]any{
-			"execution_id": claimed.Execution.ID,
-			"action_type":  claimed.Execution.ActionType,
+			"execution_id": execution.ID,
+			"action_type":  execution.ActionType,
 			"retrying":     executionStatus == ActionExecutionRetrying,
 		}),
 		CorrelationID: correlationID,
@@ -179,7 +171,7 @@ func shouldRetry(execution CaseActionExecution, result attemptResult) bool {
 func nextRetryTime(execution CaseActionExecution) time.Time {
 	backoff := execution.RetryBackoffMS
 	if backoff <= 0 {
-		backoff = 1000
+		backoff = defaultRetryBackoffMS
 	}
 	return time.Now().UTC().Add(time.Duration(backoff) * time.Millisecond)
 }
@@ -189,24 +181,22 @@ func nextRetryTime(execution CaseActionExecution) time.Time {
 func (s *ActionService) ListFailures(ctx context.Context, guildContext *GuildStaffContext, limit, offset int) (*FailedCaseActionResult, error) {
 	const action = string(AuditActionActionFailureRead)
 	if guildContext == nil || guildContext.Guild == nil || !guildContext.Can(PermissionActionCaseRead) {
-		if guildContext != nil && guildContext.Guild != nil && guildContext.Staff != nil {
-			entry := actionControlAudit(ctx, guildContext, action, "list")
-			entry.Result = AuditResultDenied
-			entry.FailureReason = "permission_denied"
-			_ = recordAudit(ctx, s.store, entry)
-		}
+		_ = s.audit(ctx, guildContext, action, "list", AuditResultDenied, "permission_denied")
 		return nil, ErrCasePermissionDenied
 	}
-	result, err := s.store.ListFailedCaseActions(ctx, FailedCaseActionFilter{GuildID: guildContext.Guild.ID, Limit: limit, Offset: offset})
-	entry := actionControlAudit(ctx, guildContext, action, "list")
+	result, err := s.store.ListFailedCaseActions(ctx, FailedCaseActionFilter{
+		GuildID: guildContext.Guild.ID,
+		Limit:   limit,
+		Offset:  offset,
+	})
 	if err != nil {
-		entry.Result = AuditResultFailure
-		entry.FailureReason = "query_failed"
+		_ = s.audit(ctx, guildContext, action, "list", AuditResultFailure, "query_failed")
+		return nil, err
 	}
-	if auditErr := recordAudit(ctx, s.store, entry); auditErr != nil && err == nil {
-		return nil, auditErr
+	if err := s.audit(ctx, guildContext, action, "list", AuditResultSuccess, ""); err != nil {
+		return nil, err
 	}
-	return result, err
+	return result, nil
 }
 
 // Retry requeues a failed execution after re-checking Discord. Staff use it
@@ -246,7 +236,7 @@ func (s *ActionService) Retry(ctx context.Context, guildContext *GuildStaffConte
 		GuildID:            item.GuildID,
 		ExecutionID:        execution.ID,
 		ActorDiscordUserID: guildContext.Staff.DiscordUserID,
-		Audit:              actionControlAudit(ctx, guildContext, string(AuditActionActionRetry), execution.ID),
+		Audit:              controlAudit(ctx, guildContext, string(AuditActionActionRetry), execution.ID),
 	})
 	if err == nil && updated != nil && s.scheduler != nil {
 		s.scheduler.Submit(ctx, item.ID)
@@ -258,14 +248,15 @@ func (s *ActionService) Retry(ctx context.Context, guildContext *GuildStaffConte
 // stay on record.
 func (s *ActionService) Dismiss(ctx context.Context, guildContext *GuildStaffContext, executionID string) (updated *CaseActionExecution, err error) {
 	defer func() { s.auditControlFailure(ctx, guildContext, string(AuditActionActionDismiss), executionID, err) }()
-	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil || !guildContext.Can(PermissionActionFailureDismiss) {
+	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil ||
+		!guildContext.Can(PermissionActionFailureDismiss) {
 		return nil, ErrCasePermissionDenied
 	}
 	return s.store.DismissCaseAction(ctx, DismissCaseActionParams{
 		GuildID:            guildContext.Guild.ID,
 		ExecutionID:        executionID,
 		ActorDiscordUserID: guildContext.Staff.DiscordUserID,
-		Audit:              actionControlAudit(ctx, guildContext, string(AuditActionActionDismiss), executionID),
+		Audit:              controlAudit(ctx, guildContext, string(AuditActionActionDismiss), executionID),
 	})
 }
 
@@ -314,7 +305,7 @@ func (s *ActionService) ReverseForAppeal(ctx context.Context, guildContext *Guil
 		OriginalExecutionID: original.ID,
 		ActionType:          actionType,
 		AppealID:            appealID,
-		Audit:               actionControlAudit(ctx, guildContext, string(AuditActionActionReverse), originalExecutionID),
+		Audit:               controlAudit(ctx, guildContext, string(AuditActionActionReverse), originalExecutionID),
 	})
 	if err == nil && queued != nil && s.scheduler != nil {
 		s.scheduler.Submit(ctx, item.ID)
@@ -360,32 +351,22 @@ func (s *ActionService) checkReversal(ctx context.Context, item *Case, original 
 
 // auditControlFailure records a failed or denied staff control. Successes
 // are audited by the store in the same transaction as the change.
-func (s *ActionService) auditControlFailure(ctx context.Context, guildContext *GuildStaffContext, action, resourceID string, err error) {
-	if err == nil || guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
+func (s *ActionService) auditControlFailure(ctx context.Context, guildContext *GuildStaffContext, action, executionID string, err error) {
+	if err == nil {
 		return
 	}
-	entry := actionControlAudit(ctx, guildContext, action, resourceID)
-	entry.Result = AuditResultFailure
+	result := AuditResultFailure
 	if errors.Is(err, ErrCasePermissionDenied) || errors.Is(err, ErrAuthorizationDenied) {
-		entry.Result = AuditResultDenied
+		result = AuditResultDenied
 	}
-	entry.FailureReason = err.Error()
-	_ = recordAudit(ctx, s.store, entry)
+	_ = s.audit(ctx, guildContext, action, executionID, result, err.Error())
 }
 
-func actionControlAudit(ctx context.Context, guildContext *GuildStaffContext, action, resourceID string) *AuditLogEntry {
-	requestID, correlationID := TraceIDsFromContext(ctx)
-	return &AuditLogEntry{
-		GuildID:             guildContext.Guild.ID,
-		ActorDiscordUserID:  guildContext.Staff.DiscordUserID,
-		ActorPermissionBits: guildContext.PermissionBits,
-		Source:              AuditSourceFromContext(ctx),
-		Action:              action,
-		ResourceType:        "case_action_execution",
-		ResourceID:          resourceID,
-		Result:              AuditResultSuccess,
-		RequestID:           requestID,
-		CorrelationID:       correlationID,
-		MetadataJSON:        "{}",
-	}
+func (s *ActionService) audit(ctx context.Context, guildContext *GuildStaffContext, action, executionID string, result AuditResult, failureReason string) error {
+	return recordStaffAudit(ctx, s.store, guildContext, action, "case_action_execution", executionID, result, failureReason)
+}
+
+// controlAudit is the success entry the store writes with a staff control.
+func controlAudit(ctx context.Context, guildContext *GuildStaffContext, action, executionID string) *AuditLogEntry {
+	return staffAudit(ctx, guildContext, action, "case_action_execution", executionID, AuditResultSuccess, "")
 }

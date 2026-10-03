@@ -21,6 +21,13 @@ func NewOpsService(store OpsStore, scheduler Scheduler) *OpsService {
 	return &OpsService{store: store, scheduler: scheduler}
 }
 
+// ActionQueueSnapshot summarizes stored executions, as counted by the store.
+type ActionQueueSnapshot struct {
+	StatusCounts         []ActionStatusCount
+	OldestPendingOrRetry *OldestActionExecution
+	RecentFailures       []RecentActionFailure
+}
+
 // ActionStatusCount is how many executions are in one status.
 type ActionStatusCount struct {
 	Status ActionExecutionStatus
@@ -29,29 +36,25 @@ type ActionStatusCount struct {
 
 // OldestActionExecution is the execution that has waited longest to run.
 type OldestActionExecution struct {
-	ID, CaseID  string
-	CaseNumber  uint64
-	ActionType  ActionType
-	Status      ActionExecutionStatus
-	CreatedAt   time.Time
-	NextRetryAt *time.Time
+	ID          string                `json:"id"`
+	CaseID      string                `json:"case_id"`
+	CaseNumber  uint64                `json:"case_number"`
+	ActionType  ActionType            `json:"action_type"`
+	Status      ActionExecutionStatus `json:"status"`
+	CreatedAt   time.Time             `json:"created_at"`
+	NextRetryAt *time.Time            `json:"next_retry_at,omitempty"`
 }
 
 // RecentActionFailure is a recently failed execution.
 type RecentActionFailure struct {
-	ID, CaseID               string
-	CaseNumber               uint64
-	ActionType               ActionType
-	Status                   ActionExecutionStatus
-	LastErrorCode, LastError string
-	UpdatedAt                time.Time
-}
-
-// ActionQueueSnapshot summarizes stored executions.
-type ActionQueueSnapshot struct {
-	StatusCounts         []ActionStatusCount
-	OldestPendingOrRetry *OldestActionExecution
-	RecentFailures       []RecentActionFailure
+	ID            string                `json:"id"`
+	CaseID        string                `json:"case_id"`
+	CaseNumber    uint64                `json:"case_number"`
+	ActionType    ActionType            `json:"action_type"`
+	Status        ActionExecutionStatus `json:"status"`
+	LastErrorCode string                `json:"last_error_code,omitempty"`
+	LastError     string                `json:"last_error,omitempty"`
+	UpdatedAt     time.Time             `json:"updated_at"`
 }
 
 // OpsStatusResponse is an operator status report. Queue describes the
@@ -67,10 +70,10 @@ type OpsStatusResponse struct {
 
 // OpsActionStatus is the stored execution backlog.
 type OpsActionStatus struct {
-	Capabilities         []OpsActionCapability     `json:"capabilities"`
-	StatusCounts         map[string]int64          `json:"status_counts"`
-	OldestPendingOrRetry *OpsOldestActionExecution `json:"oldest_pending_or_retry,omitempty"`
-	RecentFailures       []OpsRecentActionFailure  `json:"recent_failures"`
+	Capabilities         []OpsActionCapability  `json:"capabilities"`
+	StatusCounts         map[string]int64       `json:"status_counts"`
+	OldestPendingOrRetry *OldestActionExecution `json:"oldest_pending_or_retry,omitempty"`
+	RecentFailures       []RecentActionFailure  `json:"recent_failures"`
 }
 
 // OpsActionCapability says whether Quack can perform an action type.
@@ -78,29 +81,6 @@ type OpsActionCapability struct {
 	ActionType ActionType `json:"action_type"`
 	Executable bool       `json:"executable"`
 	Status     string     `json:"status"`
-}
-
-// OpsOldestActionExecution is OldestActionExecution as JSON.
-type OpsOldestActionExecution struct {
-	ID          string                `json:"id"`
-	CaseID      string                `json:"case_id"`
-	CaseNumber  uint64                `json:"case_number"`
-	ActionType  ActionType            `json:"action_type"`
-	Status      ActionExecutionStatus `json:"status"`
-	CreatedAt   time.Time             `json:"created_at"`
-	NextRetryAt *time.Time            `json:"next_retry_at,omitempty"`
-}
-
-// OpsRecentActionFailure is RecentActionFailure as JSON.
-type OpsRecentActionFailure struct {
-	ID            string                `json:"id"`
-	CaseID        string                `json:"case_id"`
-	CaseNumber    uint64                `json:"case_number"`
-	ActionType    ActionType            `json:"action_type"`
-	Status        ActionExecutionStatus `json:"status"`
-	LastErrorCode string                `json:"last_error_code,omitempty"`
-	LastError     string                `json:"last_error,omitempty"`
-	UpdatedAt     time.Time             `json:"updated_at"`
 }
 
 // GlobalStatus reports on every guild.
@@ -118,9 +98,6 @@ func (s *OpsService) GuildStatus(ctx context.Context, guildID string) (*OpsStatu
 }
 
 func (s *OpsService) status(ctx context.Context, guildID, scope string) (*OpsStatusResponse, error) {
-	if s.store == nil {
-		return nil, errors.New("ops service is not configured")
-	}
 	snapshot, err := s.store.ActionQueueSnapshot(ctx, guildID, opsFailureLimit)
 	if err != nil {
 		return nil, err
@@ -155,29 +132,10 @@ func opsActionStatus(snapshot *ActionQueueSnapshot) OpsActionStatus {
 	for _, row := range snapshot.StatusCounts {
 		status.StatusCounts[string(row.Status)] = row.Count
 	}
-	if oldest := snapshot.OldestPendingOrRetry; oldest != nil {
-		status.OldestPendingOrRetry = &OpsOldestActionExecution{
-			ID:          oldest.ID,
-			CaseID:      oldest.CaseID,
-			CaseNumber:  oldest.CaseNumber,
-			ActionType:  oldest.ActionType,
-			Status:      oldest.Status,
-			CreatedAt:   oldest.CreatedAt,
-			NextRetryAt: oldest.NextRetryAt,
-		}
-	}
-	status.RecentFailures = make([]OpsRecentActionFailure, 0, len(snapshot.RecentFailures))
-	for _, failure := range snapshot.RecentFailures {
-		status.RecentFailures = append(status.RecentFailures, OpsRecentActionFailure{
-			ID:            failure.ID,
-			CaseID:        failure.CaseID,
-			CaseNumber:    failure.CaseNumber,
-			ActionType:    failure.ActionType,
-			Status:        failure.Status,
-			LastErrorCode: failure.LastErrorCode,
-			LastError:     failure.LastError,
-			UpdatedAt:     failure.UpdatedAt,
-		})
+	status.OldestPendingOrRetry = snapshot.OldestPendingOrRetry
+	status.RecentFailures = snapshot.RecentFailures
+	if status.RecentFailures == nil {
+		status.RecentFailures = []RecentActionFailure{}
 	}
 	return status
 }

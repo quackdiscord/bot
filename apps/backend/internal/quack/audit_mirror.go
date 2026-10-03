@@ -3,11 +3,13 @@ package quack
 import (
 	"context"
 	"errors"
-	"maps"
 	"strings"
 	"sync"
 	"time"
 )
+
+// auditMirrorBatch is how many pending entries one poll mirrors.
+const auditMirrorBatch = 50
 
 // AuditMirrorMessage is an important audit entry, already redacted, ready to
 // post in a guild's audit channel.
@@ -35,28 +37,27 @@ type AuditMirrorMessage struct {
 type AuditMirror struct {
 	store  AuditMirrorStore
 	sender AuditMirrorSender
-	batch  int
 	pollMu sync.Mutex
 }
 
 // NewAuditMirror returns an AuditMirror that reads store and sends through
 // sender.
 func NewAuditMirror(store AuditMirrorStore, sender AuditMirrorSender) *AuditMirror {
-	return &AuditMirror{store: store, sender: sender, batch: 50}
+	return &AuditMirror{store: store, sender: sender}
 }
 
 // PollOnce mirrors one batch of pending entries. Concurrent calls run one at
 // a time so an entry is never sent twice.
-func (w *AuditMirror) PollOnce(ctx context.Context) error {
-	w.pollMu.Lock()
-	defer w.pollMu.Unlock()
-	entries, err := w.store.ListPendingAuditMirrorEntries(ctx, w.batch)
+func (m *AuditMirror) PollOnce(ctx context.Context) error {
+	m.pollMu.Lock()
+	defer m.pollMu.Unlock()
+	entries, err := m.store.ListPendingAuditMirrorEntries(ctx, auditMirrorBatch)
 	if err != nil {
 		return err
 	}
 	var failures []error
-	for i := range entries {
-		if err := w.process(ctx, entries[i]); err != nil {
+	for _, entry := range entries {
+		if err := m.mirror(ctx, entry); err != nil {
 			failures = append(failures, err)
 			if ctx.Err() != nil {
 				break
@@ -66,22 +67,25 @@ func (w *AuditMirror) PollOnce(ctx context.Context) error {
 	return errors.Join(failures...)
 }
 
-func (w *AuditMirror) process(ctx context.Context, entry AuditLogEntry) error {
-	settings, err := w.store.GetGuildSettings(ctx, entry.GuildID)
+// mirror sends one entry and records the outcome. When Discord reports the
+// channel gone, the channel is cleared from settings so later entries are
+// skipped instead of failing one by one.
+func (m *AuditMirror) mirror(ctx context.Context, entry AuditLogEntry) error {
+	settings, err := m.store.GetGuildSettings(ctx, entry.GuildID)
 	if err != nil {
-		return w.recordOutcome(ctx, entry, AuditActionMirrorFailed, AuditResultFailure, "settings_unavailable", nil)
+		return m.recordOutcome(ctx, entry, AuditActionMirrorFailed, AuditResultFailure, "settings_unavailable")
 	}
 	if settings == nil || strings.TrimSpace(settings.AuditMirrorChannelDiscordID) == "" {
-		return w.recordOutcome(ctx, entry, AuditActionMirrorSkipped, AuditResultSuccess, "not_configured", nil)
+		return m.recordOutcome(ctx, entry, AuditActionMirrorSkipped, AuditResultSuccess, "not_configured")
 	}
-	guild, err := w.store.GetGuildByID(ctx, entry.GuildID)
+	guild, err := m.store.GetGuildByID(ctx, entry.GuildID)
 	if err != nil || guild == nil {
-		return w.recordOutcome(ctx, entry, AuditActionMirrorFailed, AuditResultFailure, "guild_unavailable", nil)
+		return m.recordOutcome(ctx, entry, AuditActionMirrorFailed, AuditResultFailure, "guild_unavailable")
 	}
-	if w.sender == nil {
-		return w.recordOutcome(ctx, entry, AuditActionMirrorFailed, AuditResultFailure, "sender_unavailable", nil)
+	if m.sender == nil {
+		return m.recordOutcome(ctx, entry, AuditActionMirrorFailed, AuditResultFailure, "sender_unavailable")
 	}
-	message := AuditMirrorMessage{
+	err = m.sender.SendAuditMirror(ctx, AuditMirrorMessage{
 		AuditEntryID:       entry.ID,
 		DiscordGuildID:     guild.DiscordGuildID,
 		ChannelDiscordID:   settings.AuditMirrorChannelDiscordID,
@@ -95,16 +99,14 @@ func (w *AuditMirror) process(ctx context.Context, entry AuditLogEntry) error {
 		RequestID:          entry.RequestID,
 		CorrelationID:      entry.CorrelationID,
 		MetadataJSON:       RedactAuditMetadata(entry.MetadataJSON),
-	}
-	err = w.sender.SendAuditMirror(ctx, message)
+	})
 	switch {
 	case err == nil:
-		return w.recordOutcome(ctx, entry, AuditActionMirrorDelivered, AuditResultSuccess, "", nil)
+		return m.recordOutcome(ctx, entry, AuditActionMirrorDelivered, AuditResultSuccess, "")
 	case errors.Is(err, ErrAuditMirrorChannelUnavailable):
-		if err := w.recordOutcome(ctx, entry, AuditActionMirrorFailed, AuditResultFailure, "channel_unavailable", nil); err != nil {
+		if err := m.recordOutcome(ctx, entry, AuditActionMirrorFailed, AuditResultFailure, "channel_unavailable"); err != nil {
 			return err
 		}
-		// The channel is gone, so stop trying it for every later entry.
 		repair := &AuditLogEntry{
 			GuildID:            entry.GuildID,
 			ActorDiscordUserID: systemActorID,
@@ -114,17 +116,22 @@ func (w *AuditMirror) process(ctx context.Context, entry AuditLogEntry) error {
 			ResourceID:         settings.ID,
 			Result:             AuditResultSuccess,
 			CorrelationID:      entry.CorrelationID,
-			MetadataJSON:       auditMirrorMetadata(entry.ID, map[string]any{"cleared_channel_reference": true}),
+			MetadataJSON: marshalJSONObject(map[string]any{
+				"audit_entry_id":            entry.ID,
+				"cleared_channel_reference": true,
+			}),
 		}
-		_, err := w.store.ClearGuildChannelReferences(ctx, entry.GuildID, settings.AuditMirrorChannelDiscordID, repair)
+		_, err := m.store.ClearGuildChannelReferences(ctx, entry.GuildID, settings.AuditMirrorChannelDiscordID, repair)
 		return err
 	default:
-		return w.recordOutcome(ctx, entry, AuditActionMirrorFailed, AuditResultFailure, "delivery_failed", nil)
+		return m.recordOutcome(ctx, entry, AuditActionMirrorFailed, AuditResultFailure, "delivery_failed")
 	}
 }
 
-func (w *AuditMirror) recordOutcome(ctx context.Context, original AuditLogEntry, action AuditAction, result AuditResult, failure string, extra map[string]any) error {
-	return recordAudit(ctx, w.store, &AuditLogEntry{
+// recordOutcome audits what happened to original. The outcome entry is what
+// takes original off the pending list.
+func (m *AuditMirror) recordOutcome(ctx context.Context, original AuditLogEntry, action AuditAction, result AuditResult, failure string) error {
+	return recordAudit(ctx, m.store, &AuditLogEntry{
 		GuildID:            original.GuildID,
 		ActorDiscordUserID: systemActorID,
 		Source:             AuditSourceSystem,
@@ -135,12 +142,6 @@ func (w *AuditMirror) recordOutcome(ctx context.Context, original AuditLogEntry,
 		FailureReason:      failure,
 		RequestID:          original.RequestID,
 		CorrelationID:      original.CorrelationID,
-		MetadataJSON:       auditMirrorMetadata(original.ID, extra),
+		MetadataJSON:       marshalJSONObject(map[string]any{"audit_entry_id": original.ID}),
 	})
-}
-
-func auditMirrorMetadata(originalID string, extra map[string]any) string {
-	metadata := map[string]any{"audit_entry_id": originalID}
-	maps.Copy(metadata, extra)
-	return marshalJSONObject(metadata)
 }

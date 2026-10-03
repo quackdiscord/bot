@@ -87,7 +87,7 @@ func (s *AppealService) UpdateSettings(ctx context.Context, guildContext *GuildS
 			QuestionsJSON:          string(body),
 			UpdatedByDiscordUserID: guildContext.Staff.DiscordUserID,
 		},
-		Audit: appealAudit(ctx, guildContext.Guild.ID, guildContext.Staff.DiscordUserID, guildContext.PermissionBits,
+		Audit: webAudit(ctx, guildContext.Guild.ID, guildContext.Staff.DiscordUserID, guildContext.PermissionBits,
 			string(AuditActionAppealSettingsUpdate), "guild_appeal_settings", "", AuditResultSuccess),
 	})
 	if err != nil {

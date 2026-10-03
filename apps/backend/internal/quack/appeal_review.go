@@ -33,8 +33,7 @@ func (s *AppealService) GetStaff(ctx context.Context, guildContext *GuildStaffCo
 	if item == nil || item.GuildID != guildContext.Guild.ID {
 		return nil, ErrAppealNotFound
 	}
-	entry := appealAudit(ctx, item.GuildID, guildContext.Staff.DiscordUserID, guildContext.PermissionBits, string(AuditActionAppealRead), "appeal", item.ID, AuditResultSuccess)
-	if err := recordAudit(ctx, s.store, &entry); err != nil {
+	if err := s.auditStaff(ctx, guildContext, string(AuditActionAppealRead), item.ID); err != nil {
 		return nil, err
 	}
 	return s.response(ctx, item, false)
@@ -49,7 +48,12 @@ func (s *AppealService) ListStaff(ctx context.Context, guildContext *GuildStaffC
 	if limit < 1 || limit > 100 || offset < 0 || (status != "" && !validAppealStatus(status)) {
 		return nil, appealValidationError("invalid appeal queue filter")
 	}
-	page, err := s.store.ListAppeals(ctx, AppealListParams{GuildID: guildContext.Guild.ID, Status: status, Limit: limit, Offset: offset})
+	page, err := s.store.ListAppeals(ctx, AppealListParams{
+		GuildID: guildContext.Guild.ID,
+		Status:  status,
+		Limit:   limit,
+		Offset:  offset,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -61,43 +65,83 @@ func (s *AppealService) ListStaff(ctx context.Context, guildContext *GuildStaffC
 		}
 		responses = append(responses, *response)
 	}
-	entry := appealAudit(ctx, guildContext.Guild.ID, guildContext.Staff.DiscordUserID, guildContext.PermissionBits, string(AuditActionAppealQueueRead), "appeal", "list", AuditResultSuccess)
-	if err := recordAudit(ctx, s.store, &entry); err != nil {
+	if err := s.auditStaff(ctx, guildContext, string(AuditActionAppealQueueRead), "list"); err != nil {
 		return nil, err
 	}
 	return &AppealListResponse{Appeals: responses, Total: page.Total, Limit: limit, Offset: offset}, nil
 }
 
+// appealTransition is one staff decision: the states it applies to, the
+// state it leads to, and the timeline event it records.
+type appealTransition struct {
+	from     []AppealStatus
+	to       AppealStatus
+	event    AppealEventType
+	voidCase bool
+}
+
+// The staff decisions on an appeal.
+var (
+	requestInformation = appealTransition{
+		from:  []AppealStatus{AppealStatusPending},
+		to:    AppealStatusNeedsInformation,
+		event: AppealEventInformationAsked,
+	}
+	reopenAppeal = appealTransition{
+		from:  []AppealStatus{AppealStatusRejected, AppealStatusClosed},
+		to:    AppealStatusNeedsInformation,
+		event: AppealEventReopened,
+	}
+	acceptAppeal = appealTransition{
+		from:     []AppealStatus{AppealStatusPending},
+		to:       AppealStatusAccepted,
+		event:    AppealEventAccepted,
+		voidCase: true,
+	}
+	rejectAppeal = appealTransition{
+		from:  []AppealStatus{AppealStatusPending},
+		to:    AppealStatusRejected,
+		event: AppealEventRejected,
+	}
+	closeAppeal = appealTransition{
+		from:  []AppealStatus{AppealStatusPending, AppealStatusNeedsInformation},
+		to:    AppealStatusClosed,
+		event: AppealEventClosed,
+	}
+)
+
 // RequestInformation asks the member for more information on a pending
 // appeal.
 func (s *AppealService) RequestInformation(ctx context.Context, guildContext *GuildStaffContext, appealID, reason string) (*AppealResponse, error) {
-	return s.transition(ctx, guildContext, appealID, reason, []AppealStatus{AppealStatusPending}, AppealStatusNeedsInformation, AppealEventInformationAsked, false)
+	return s.transition(ctx, guildContext, appealID, reason, requestInformation)
 }
 
 // Reopen asks for more information on a rejected or closed appeal. The
 // same appeal is reused; a case never gets a second one.
 func (s *AppealService) Reopen(ctx context.Context, guildContext *GuildStaffContext, appealID, reason string) (*AppealResponse, error) {
-	return s.transition(ctx, guildContext, appealID, reason, []AppealStatus{AppealStatusRejected, AppealStatusClosed}, AppealStatusNeedsInformation, AppealEventReopened, false)
+	return s.transition(ctx, guildContext, appealID, reason, reopenAppeal)
 }
 
 // Accept accepts a pending appeal and voids its case in the same
 // transaction. Reversing a timeout or ban is a separate, explicit step.
 func (s *AppealService) Accept(ctx context.Context, guildContext *GuildStaffContext, appealID, reason string) (*AppealResponse, error) {
-	return s.transition(ctx, guildContext, appealID, reason, []AppealStatus{AppealStatusPending}, AppealStatusAccepted, AppealEventAccepted, true)
+	return s.transition(ctx, guildContext, appealID, reason, acceptAppeal)
 }
 
 // Reject rejects a pending appeal. The case stays valid.
 func (s *AppealService) Reject(ctx context.Context, guildContext *GuildStaffContext, appealID, reason string) (*AppealResponse, error) {
-	return s.transition(ctx, guildContext, appealID, reason, []AppealStatus{AppealStatusPending}, AppealStatusRejected, AppealEventRejected, false)
+	return s.transition(ctx, guildContext, appealID, reason, rejectAppeal)
 }
 
 // Close closes an undecided appeal without a decision. The case stays
 // valid.
 func (s *AppealService) Close(ctx context.Context, guildContext *GuildStaffContext, appealID, reason string) (*AppealResponse, error) {
-	return s.transition(ctx, guildContext, appealID, reason, []AppealStatus{AppealStatusPending, AppealStatusNeedsInformation}, AppealStatusClosed, AppealEventClosed, false)
+	return s.transition(ctx, guildContext, appealID, reason, closeAppeal)
 }
 
-func (s *AppealService) transition(ctx context.Context, guildContext *GuildStaffContext, appealID, reason string, from []AppealStatus, to AppealStatus, eventType AppealEventType, voidCase bool) (*AppealResponse, error) {
+// transition applies a staff decision. The store enforces from atomically,
+// so two staff members deciding at once cannot both succeed.
+func (s *AppealService) transition(ctx context.Context, guildContext *GuildStaffContext, appealID, reason string, change appealTransition) (*AppealResponse, error) {
 	if err := requireAppealReview(guildContext); err != nil {
 		return nil, err
 	}
@@ -117,27 +161,29 @@ func (s *AppealService) transition(ctx context.Context, guildContext *GuildStaff
 		GuildID:            item.GuildID,
 		AppealID:           item.ID,
 		ActorDiscordUserID: actorID,
-		AllowedFrom:        from,
-		To:                 to,
+		AllowedFrom:        change.from,
+		To:                 change.to,
 		Reason:             reason,
-		VoidCase:           voidCase,
+		VoidCase:           change.voidCase,
 		Event: AppealEvent{
-			EventType:          string(eventType),
+			EventType:          string(change.event),
 			ActorDiscordUserID: actorID,
 			ActorType:          "staff",
 			Body:               reason,
 			MetadataJSON:       "{}",
 		},
-		AppealAudit: appealAudit(ctx, item.GuildID, actorID, bits, "appeal."+string(eventType), "appeal", item.ID, AuditResultSuccess),
+		AppealAudit: webAudit(ctx, item.GuildID, actorID, bits,
+			"appeal."+string(change.event), "appeal", item.ID, AuditResultSuccess),
 		Notification: AppealNotification{
 			TargetDiscordUserID: item.TargetDiscordUserID,
 			Audience:            AppealNotificationMember,
 			Status:              AppealNotificationPending,
-			Body:                memberNotificationBody(to, reason),
+			Body:                memberNotificationBody(change.to, reason),
 		},
 	}
-	if voidCase {
-		caseAudit := appealAudit(ctx, item.GuildID, actorID, bits, string(AuditActionCaseVoidAppeal), "case", "", AuditResultSuccess)
+	if change.voidCase {
+		caseAudit := webAudit(ctx, item.GuildID, actorID, bits,
+			string(AuditActionCaseVoidAppeal), "case", "", AuditResultSuccess)
 		params.CaseAudit = &caseAudit
 	}
 	updated, err := s.store.TransitionAppeal(ctx, params)
@@ -164,6 +210,13 @@ func memberNotificationBody(status AppealStatus, reason string) string {
 	default:
 		return "Your appeal was closed: " + reason
 	}
+}
+
+// auditStaff records a successful staff read of the guild's appeals.
+func (s *AppealService) auditStaff(ctx context.Context, guildContext *GuildStaffContext, action, resourceID string) error {
+	entry := webAudit(ctx, guildContext.Guild.ID, guildContext.Staff.DiscordUserID, guildContext.PermissionBits,
+		action, "appeal", resourceID, AuditResultSuccess)
+	return recordAudit(ctx, s.store, &entry)
 }
 
 func requireAppealReview(guildContext *GuildStaffContext) error {

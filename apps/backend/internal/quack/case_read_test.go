@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -40,11 +39,6 @@ func TestCaseServiceDashboardReads(t *testing.T) {
 	if list.Cases[0].SelectedLevel == nil {
 		t.Fatalf("expected selected level in case list response")
 	}
-	legacySnapshot := fmt.Sprintf(`{"template":{"id":%q,"slug":"spam","name":"Spam","version":1,"reason_template":"No spam","default_severity":"medium"},"selected_level":{"id":"level-1","name":"Default","position":1,"is_default":true,"trigger_case_count":0,"window_minutes":0,"notify_user":true,"notification_type":"warning","matched_case_count":1},"actions":[{"id":"action-1","position":1,"action_type":"timeout_user","config":{"duration_minutes":60},"notify_user":false,"continue_on_error":false,"max_retries":2,"retry_backoff_ms":1000,"timeout_ms":0,"idempotency_scope":"case"}]}`, template.ID)
-	if err := store.DB().Model(&quack.Case{}).Where("id = ?", first.ID).Update("template_snapshot_json", legacySnapshot).Error; err != nil {
-		t.Fatalf("install legacy snapshot fixture: %v", err)
-	}
-
 	detail, err := service.Get(ctx, modContext, "1")
 	if err != nil {
 		t.Fatalf("get case detail: %v", err)
@@ -52,8 +46,10 @@ func TestCaseServiceDashboardReads(t *testing.T) {
 	if detail.ID != first.ID || detail.TemplateSnapshot == nil || len(detail.Events) != 1 || len(detail.Actions) != 0 || detail.Notification == nil {
 		t.Fatalf("unexpected case detail: %+v", detail)
 	}
-	if len(detail.TemplateSnapshot.Actions) != 1 || detail.TemplateSnapshot.Actions[0].TimeoutDurationSeconds != 3600 || detail.TemplateSnapshot.Actions[0].MaxRetries != 2 {
-		t.Fatalf("expected legacy snapshot settings to remain readable, got %+v", detail.TemplateSnapshot.Actions)
+	snapshot := detail.TemplateSnapshot
+	if snapshot.Template.ID != template.ID || !snapshot.SelectedLevel.IsDefault ||
+		snapshot.SelectedLevel.MatchedCaseCount != 1 || len(snapshot.Actions) != 0 {
+		t.Fatalf("got snapshot %+v, want the default level of %s at case count 1", snapshot, template.ID)
 	}
 
 	profile, err := service.UserHistory(ctx, modContext, "target-1", quack.CaseListInput{Limit: "10"})

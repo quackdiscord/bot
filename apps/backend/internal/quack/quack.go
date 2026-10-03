@@ -31,6 +31,7 @@ const systemActorID = "quack-system"
 type Scheduler interface {
 	// Submit queues caseID and reports whether it was accepted.
 	Submit(ctx context.Context, caseID string) bool
+	// Stats snapshots the queue for operator status reports.
 	Stats() QueueStats
 }
 

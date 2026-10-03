@@ -2,28 +2,15 @@ package quack
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// errNoGuildContext is returned when an adapter calls a staff operation
-// without resolving a staff context first.
-var errNoGuildContext = errors.New("guild settings service is not configured")
-
 // maxNotificationBrandingLength bounds the guild text added to case
 // notifications. Rendering truncates further; this only rejects abuse.
 const maxNotificationBrandingLength = 2000
-
-// GuildSettingsService reads and updates a guild's core settings. All access
-// needs Manage Guild and is audited.
-type GuildSettingsService struct {
-	store    SettingsStore
-	channels StaffChannelValidator
-	modules  ModuleToggles
-}
 
 // ModuleStates says which optional modules a guild has switched on.
 type ModuleStates struct {
@@ -37,6 +24,14 @@ type ModuleStates struct {
 type ModuleToggles interface {
 	ModuleStates(ctx context.Context, guildID string) (ModuleStates, error)
 	SetModuleStates(ctx context.Context, guildID string, states ModuleStates) error
+}
+
+// GuildSettingsService reads and updates a guild's core settings. All access
+// needs Manage Guild and is audited.
+type GuildSettingsService struct {
+	store    SettingsStore
+	channels StaffChannelValidator
+	modules  ModuleToggles
 }
 
 // NewGuildSettingsService returns a GuildSettingsService. Without channels,
@@ -155,7 +150,7 @@ func (s *GuildSettingsService) Update(ctx context.Context, guildContext *GuildSt
 	}
 	updated, err := s.store.UpdateGuildSettings(ctx, UpdateGuildSettingsParams{
 		Settings: *settings,
-		Audit:    s.auditEntry(ctx, guildContext, action, AuditResultSuccess, ""),
+		Audit:    settingsAudit(ctx, guildContext, action),
 	})
 	if err != nil {
 		_ = s.audit(ctx, guildContext, action, AuditResultFailure, err.Error())
@@ -232,7 +227,7 @@ func (s *GuildSettingsService) AcknowledgeStarterPolicyNotice(ctx context.Contex
 	}
 	updated, err := s.store.UpdateGuildSettings(ctx, UpdateGuildSettingsParams{
 		Settings: *settings,
-		Audit:    s.auditEntry(ctx, guildContext, action, AuditResultSuccess, ""),
+		Audit:    settingsAudit(ctx, guildContext, action),
 	})
 	if err != nil {
 		_ = s.audit(ctx, guildContext, action, AuditResultFailure, err.Error())
@@ -301,31 +296,12 @@ func normalizeChannelID(raw string) (string, error) {
 }
 
 func (s *GuildSettingsService) audit(ctx context.Context, guildContext *GuildStaffContext, action string, result AuditResult, failureReason string) error {
-	entry := s.auditEntry(ctx, guildContext, action, result, failureReason)
-	if entry == nil {
-		return nil
-	}
-	return recordAudit(ctx, s.store, entry)
+	return recordStaffAudit(ctx, s.store, guildContext, action, "guild_settings", "", result, failureReason)
 }
 
-func (s *GuildSettingsService) auditEntry(ctx context.Context, guildContext *GuildStaffContext, action string, result AuditResult, failureReason string) *AuditLogEntry {
-	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
-		return nil
-	}
-	requestID, correlationID := TraceIDsFromContext(ctx)
-	return &AuditLogEntry{
-		GuildID:             guildContext.Guild.ID,
-		ActorDiscordUserID:  guildContext.Staff.DiscordUserID,
-		ActorPermissionBits: guildContext.PermissionBits,
-		Source:              AuditSourceFromContext(ctx),
-		Action:              action,
-		ResourceType:        "guild_settings",
-		Result:              result,
-		FailureReason:       failureReason,
-		RequestID:           requestID,
-		CorrelationID:       correlationID,
-		MetadataJSON:        "{}",
-	}
+// settingsAudit is the success entry the store writes with a settings change.
+func settingsAudit(ctx context.Context, guildContext *GuildStaffContext, action string) *AuditLogEntry {
+	return staffAudit(ctx, guildContext, action, "guild_settings", "", AuditResultSuccess, "")
 }
 
 func guildSettingsResponse(settings GuildSettings, modules ModuleStates) GuildSettingsResponse {

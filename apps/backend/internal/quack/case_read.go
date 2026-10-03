@@ -34,10 +34,7 @@ type CaseListResponse struct {
 // CaseProfileResponse is a page of one member's cases plus totals across all
 // of them.
 type CaseProfileResponse struct {
-	Cases   []CaseResponse     `json:"cases"`
-	Total   int64              `json:"total"`
-	Limit   int                `json:"limit"`
-	Offset  int                `json:"offset"`
+	CaseListResponse
 	Summary CaseProfileSummary `json:"summary"`
 }
 
@@ -155,10 +152,11 @@ type CaseNotificationResponse struct {
 
 // List returns a filtered page of the guild's cases.
 func (s *CaseService) List(ctx context.Context, guildContext *GuildStaffContext, input CaseListInput) (*CaseListResponse, error) {
-	params, err := s.listParams(guildContext, input)
+	const action = string(AuditActionCaseSearch)
+	params, err := caseListParams(guildContext, input)
 	if err != nil {
 		if errors.Is(err, ErrCasePermissionDenied) {
-			_ = s.audit(ctx, guildContext, staffAttribution, string(AuditActionCaseSearch), "case", "list", AuditResultDenied, "permission_denied")
+			_ = s.audit(ctx, guildContext, staffAttribution, action, "case", "list", AuditResultDenied, "permission_denied")
 		}
 		return nil, err
 	}
@@ -170,7 +168,7 @@ func (s *CaseService) List(ctx context.Context, guildContext *GuildStaffContext,
 	if err != nil {
 		return nil, err
 	}
-	if err := s.audit(ctx, guildContext, staffAttribution, string(AuditActionCaseSearch), "case", "list", AuditResultSuccess, ""); err != nil {
+	if err := s.audit(ctx, guildContext, staffAttribution, action, "case", "list", AuditResultSuccess, ""); err != nil {
 		return nil, err
 	}
 	return &CaseListResponse{Cases: responses, Total: page.Total, Limit: params.Limit, Offset: params.Offset}, nil
@@ -178,9 +176,10 @@ func (s *CaseService) List(ctx context.Context, guildContext *GuildStaffContext,
 
 // Get returns one case, by ID or case number, with its full history.
 func (s *CaseService) Get(ctx context.Context, guildContext *GuildStaffContext, caseRef string) (*CaseDetailResponse, error) {
+	const action = string(AuditActionCaseRead)
 	caseRef = strings.TrimSpace(caseRef)
 	if err := requireCaseRead(guildContext); err != nil {
-		_ = s.audit(ctx, guildContext, staffAttribution, string(AuditActionCaseRead), "case", caseRef, AuditResultDenied, "permission_denied")
+		_ = s.audit(ctx, guildContext, staffAttribution, action, "case", caseRef, AuditResultDenied, "permission_denied")
 		return nil, err
 	}
 	if caseRef == "" {
@@ -217,7 +216,7 @@ func (s *CaseService) Get(ctx context.Context, guildContext *GuildStaffContext, 
 	if err != nil {
 		return nil, err
 	}
-	if err := s.audit(ctx, guildContext, staffAttribution, string(AuditActionCaseRead), "case", item.ID, AuditResultSuccess, ""); err != nil {
+	if err := s.audit(ctx, guildContext, staffAttribution, action, "case", item.ID, AuditResultSuccess, ""); err != nil {
 		return nil, err
 	}
 	return &CaseDetailResponse{
@@ -246,7 +245,9 @@ func (s *CaseService) UserHistory(ctx context.Context, guildContext *GuildStaffC
 	if err != nil {
 		return nil, err
 	}
-	if err := s.audit(ctx, guildContext, staffAttribution, string(AuditActionCaseHistoryRead), "member", targetDiscordUserID, AuditResultSuccess, ""); err != nil {
+	err = s.audit(ctx, guildContext, staffAttribution, string(AuditActionCaseHistoryRead),
+		"member", targetDiscordUserID, AuditResultSuccess, "")
+	if err != nil {
 		return nil, err
 	}
 	byValidity := make(map[string]int64, len(summary.ByValidity))
@@ -254,10 +255,7 @@ func (s *CaseService) UserHistory(ctx context.Context, guildContext *GuildStaffC
 		byValidity[string(validity)] = count
 	}
 	return &CaseProfileResponse{
-		Cases:  list.Cases,
-		Total:  list.Total,
-		Limit:  list.Limit,
-		Offset: list.Offset,
+		CaseListResponse: *list,
 		Summary: CaseProfileSummary{
 			Total:      summary.Total,
 			ByValidity: byValidity,
@@ -282,7 +280,8 @@ func requireCaseRead(guildContext *GuildStaffContext) error {
 	return nil
 }
 
-func (s *CaseService) listParams(guildContext *GuildStaffContext, input CaseListInput) (ListCasesParams, error) {
+// caseListParams checks read access and validates the raw filters.
+func caseListParams(guildContext *GuildStaffContext, input CaseListInput) (ListCasesParams, error) {
 	if err := requireCaseRead(guildContext); err != nil {
 		return ListCasesParams{}, err
 	}
@@ -330,16 +329,6 @@ func (s *CaseService) listParams(guildContext *GuildStaffContext, input CaseList
 		Limit:                  limit,
 		Offset:                 offset,
 	}, nil
-}
-
-func validActionExecutionStatus(value ActionExecutionStatus) bool {
-	switch value {
-	case ActionExecutionPending, ActionExecutionRunning, ActionExecutionSucceeded,
-		ActionExecutionFailed, ActionExecutionRetrying, ActionExecutionCancelled:
-		return true
-	default:
-		return false
-	}
 }
 
 func caseResponse(item Case, actions []CaseActionExecution) CaseResponse {

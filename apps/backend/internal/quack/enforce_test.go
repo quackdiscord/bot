@@ -3,7 +3,6 @@ package quack
 import (
 	"context"
 	"errors"
-	"math"
 	"testing"
 )
 
@@ -37,14 +36,23 @@ func TestClassifiedFailuresKeepTheirClassification(t *testing.T) {
 	}
 }
 
-func TestConfigIntRejectsFractionalAndOverflowValues(t *testing.T) {
-	for _, value := range []float64{1.5, math.Inf(1), math.NaN(), math.MaxFloat64} {
-		if got := configInt(map[string]any{"duration": value}, "duration"); got != 0 {
-			t.Errorf("configInt(%v) = %d, want 0", value, got)
-		}
+func TestDecodeActionConfigRejectsInexactValues(t *testing.T) {
+	tests := []struct {
+		body string
+		want actionConfig
+	}{
+		{`{"duration_seconds":60}`, actionConfig{DurationSeconds: 60}},
+		{`{"delete_message_seconds":86400}`, actionConfig{DeleteMessageSeconds: 86400}},
+		{`{"duration_seconds":1.5}`, actionConfig{}},
+		{`{"duration_seconds":1e400}`, actionConfig{}},
+		{`{"duration_seconds":"60"}`, actionConfig{}},
+		{`not json`, actionConfig{}},
+		{``, actionConfig{}},
 	}
-	if got := configInt(map[string]any{"duration": float64(60)}, "duration"); got != 60 {
-		t.Errorf("configInt(60) = %d, want 60", got)
+	for _, tt := range tests {
+		if got := decodeActionConfig(tt.body); got != tt.want {
+			t.Errorf("decodeActionConfig(%q) = %+v, want %+v", tt.body, got, tt.want)
+		}
 	}
 }
 

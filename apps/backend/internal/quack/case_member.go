@@ -71,7 +71,12 @@ func (s *CaseService) ListMemberCases(ctx context.Context, guildID, memberDiscor
 	if err != nil {
 		return nil, err
 	}
-	page, err := s.store.ListCasesFiltered(ctx, ListCasesParams{GuildID: guildID, TargetDiscordUserID: memberDiscordUserID, Limit: limit, Offset: offset})
+	page, err := s.store.ListCasesFiltered(ctx, ListCasesParams{
+		GuildID:             guildID,
+		TargetDiscordUserID: memberDiscordUserID,
+		Limit:               limit,
+		Offset:              offset,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -176,19 +181,8 @@ func (s *CaseService) GetMemberCase(ctx context.Context, caseID, memberDiscordUs
 	return detail, nil
 }
 
-func (s *CaseService) memberReadAudit(ctx context.Context, guildID, actorID, action, resourceType, resourceID string, result AuditResult, failureReason string) error {
-	requestID, correlationID := TraceIDsFromContext(ctx)
-	return recordAudit(ctx, s.store, &AuditLogEntry{
-		GuildID:            guildID,
-		ActorDiscordUserID: actorID,
-		Source:             AuditSourceWeb,
-		Action:             action,
-		ResourceType:       resourceType,
-		ResourceID:         resourceID,
-		Result:             result,
-		FailureReason:      failureReason,
-		RequestID:          requestID,
-		CorrelationID:      correlationID,
-		MetadataJSON:       "{}",
-	})
+func (s *CaseService) memberReadAudit(ctx context.Context, guildID, memberID, action, resourceType, resourceID string, result AuditResult, failureReason string) error {
+	entry := webAudit(ctx, guildID, memberID, 0, action, resourceType, resourceID, result)
+	entry.FailureReason = failureReason
+	return recordAudit(ctx, s.store, &entry)
 }
