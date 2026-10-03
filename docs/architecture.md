@@ -61,7 +61,7 @@ belong there, not in handlers.
    `quack.Services`, the three modules, the background loops (appeal
    notifications every 5s, audit mirror every 5s, case receipt refresh every
    2s, ticket transcript and journal sweep every hour, honeypot upkeep and
-   honeypot warnings every second), gateway intents for enabled modules,
+   honeypot warnings every second), gateway intents for every module,
    guild lifecycle handlers, module gateway handlers, the interaction router
    with each module's components and `/setup` subcommand, and the HTTP server.
 4. Sync slash commands (`discord.SyncCommands`). Command definitions are
@@ -78,11 +78,13 @@ newest first (Discord gateway, honeypot pool, logging pool, worker, Redis,
 MySQL). One `api.shutdown_timeout`, started when shutdown begins, bounds the
 whole sequence. The worker stops polling and drains cases already queued.
 
-Gateway intents are decided once at startup. Logging adds members, moderation,
-messages, and message content; honeypot adds guild messages; tickets add
-members, guild messages, and message content for the message journal. Each is
-added only if at least one guild has that module on, so a module switched on
-later gets its events after the next restart.
+Gateway intents are fixed when the bot connects, so Quack always requests
+everything its modules can use: logging needs members, moderation, messages,
+and message content; honeypot needs guild messages; tickets need members,
+guild messages, and message content for the message journal. A module
+switched on with `/setup` hears events immediately. Members and message
+content are privileged intents: enable both for the application in the Discord
+developer portal, or the gateway refuses to connect.
 
 ## How `/case add` flows
 

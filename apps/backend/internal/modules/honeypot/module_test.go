@@ -197,3 +197,13 @@ func TestPoolDrainsOnStop(t *testing.T) {
 		t.Fatalf("drain applied %d cases", fixture.applier.count())
 	}
 }
+
+// TestIntentsNeverIncludeMessageContent keeps the honeypot off the
+// privileged message content intent: it only needs to see that a message
+// was posted in the trap channel.
+func TestIntentsNeverIncludeMessageContent(t *testing.T) {
+	intents := (&honeypot.Module{}).Intents()
+	if intents&discordgo.IntentGuildMessages == 0 || intents&discordgo.IntentMessageContent != 0 {
+		t.Fatalf("intents = %d, want guild messages without message content", intents)
+	}
+}

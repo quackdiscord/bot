@@ -128,14 +128,11 @@ func (m *Module) RegisterGateway(session *discordgo.Session) {
 	session.AddHandler(m.onGuildDelete)
 }
 
-// Intents returns the gateway intents the honeypot needs: guild messages,
-// once any guild has it on. It never needs message content.
-func (m *Module) Intents(ctx context.Context) (discordgo.Intent, error) {
-	enabled, err := m.registry.AnyEnabled(ctx, modules.Honeypots)
-	if err != nil || !enabled {
-		return 0, err
-	}
-	return discordgo.IntentGuilds | discordgo.IntentGuildMessages, nil
+// Intents returns the gateway intents the honeypot needs: guild messages.
+// It never needs message content. They are requested whether or not any
+// guild has the honeypot on, so /setup honeypot works without a restart.
+func (m *Module) Intents() discordgo.Intent {
+	return discordgo.IntentGuilds | discordgo.IntentGuildMessages
 }
 
 // Start starts the trap message workers.

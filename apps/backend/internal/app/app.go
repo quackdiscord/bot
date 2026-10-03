@@ -160,11 +160,7 @@ func build(ctx context.Context, cfg config.Config, st *store.Store, rdb *redis.C
 	w.Every("honeypot upkeep", honeypotInterval, q.honeypot.Sweep)
 	w.Every("honeypot warnings", honeypotInterval, q.honeypot.RefreshWarnings)
 
-	intents, err := gatewayIntents(ctx, q.logging, q.honeypot, q.tickets)
-	if err != nil {
-		return nil, err
-	}
-	bot.Session.Identify.Intents = intents
+	bot.Session.Identify.Intents = gatewayIntents(q.logging, q.honeypot, q.tickets)
 
 	discord.HandleGuildLifecycle(bot, services)
 	q.tickets.RegisterGateway(bot.Session)
@@ -209,22 +205,21 @@ func (q *quackApp) startBackground(ctx context.Context, st *store.Store, stops *
 
 // intentSource is a module that asks for gateway intents.
 type intentSource interface {
-	Intents(ctx context.Context) (discordgo.Intent, error)
+	Intents() discordgo.Intent
 }
 
 // gatewayIntents returns the gateway intents Quack needs: guilds, plus
-// whatever the enabled modules ask for. A module switched on later gets its
-// events after the next restart.
-func gatewayIntents(ctx context.Context, sources ...intentSource) (discordgo.Intent, error) {
+// everything the modules can use. Intents are fixed when the gateway
+// connects, so they are requested even for modules no guild has on yet;
+// otherwise a module switched on with /setup would hear nothing until a
+// restart. Members and message content are privileged and must be enabled
+// for the application in the Discord developer portal.
+func gatewayIntents(sources ...intentSource) discordgo.Intent {
 	intents := discordgo.IntentGuilds
 	for _, source := range sources {
-		extra, err := source.Intents(ctx)
-		if err != nil {
-			return 0, fmt.Errorf("derive gateway intents: %w", err)
-		}
-		intents |= extra
+		intents |= source.Intents()
 	}
-	return intents, nil
+	return intents
 }
 
 // closeBot closes the gateway, giving up when ctx ends in case the

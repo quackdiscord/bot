@@ -11,7 +11,6 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/config"
 	"github.com/quackdiscord/bot/internal/discord"
-	"github.com/quackdiscord/bot/internal/modules"
 	"github.com/quackdiscord/bot/internal/testutil"
 )
 
@@ -41,8 +40,12 @@ func TestBuildWiresEverySurface(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bot.Session.Identify.Intents != discordgo.IntentGuilds {
-		t.Errorf("intents = %d with no modules on, want only guilds", bot.Session.Identify.Intents)
+	// Every module's intents are requested even with no module on, so
+	// switching one on with /setup works without a restart.
+	want := discordgo.IntentGuilds | discordgo.IntentGuildMembers | discordgo.IntentGuildModeration |
+		discordgo.IntentGuildMessages | discordgo.IntentMessageContent
+	if got := bot.Session.Identify.Intents; got != want {
+		t.Errorf("intents = %d with no modules on, want %d", got, want)
 	}
 	for _, route := range []string{
 		"GET /livez",
@@ -87,38 +90,6 @@ func serve(a *quackApp, route string) int {
 	response := httptest.NewRecorder()
 	a.server.ServeHTTP(response, httptest.NewRequest(method, path, nil))
 	return response.Code
-}
-
-// TestIntentsFollowEnabledModules checks that only enabled modules add
-// gateway intents, and that the honeypot never asks for message content.
-func TestIntentsFollowEnabledModules(t *testing.T) {
-	ctx := context.Background()
-	st := testutil.NewSQLiteRedisStore(t)
-	registry := modules.NewRegistry(st.DB())
-	intents := func() discordgo.Intent {
-		t.Helper()
-		bot, err := discord.New("Bot offline")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := build(ctx, config.Default(), st, st.Redis(), bot); err != nil {
-			t.Fatal(err)
-		}
-		return bot.Session.Identify.Intents
-	}
-	if _, err := registry.SetConfiguration(ctx, modules.Configuration{GuildID: "guild", ModuleID: modules.Honeypots, Enabled: true}); err != nil {
-		t.Fatal(err)
-	}
-	if got := intents(); got&discordgo.IntentGuildMessages == 0 || got&discordgo.IntentMessageContent != 0 {
-		t.Fatalf("honeypot intents = %d", got)
-	}
-	if _, err := registry.SetConfiguration(ctx, modules.Configuration{GuildID: "guild", ModuleID: modules.GeneralLogging, Enabled: true}); err != nil {
-		t.Fatal(err)
-	}
-	want := discordgo.IntentGuildMembers | discordgo.IntentGuildModeration | discordgo.IntentMessageContent
-	if got := intents(); got&want != want {
-		t.Fatalf("logging intents = %d", got)
-	}
 }
 
 // TestStopListSharesOneDeadline checks that every stop func sees the same

@@ -76,18 +76,15 @@ func (m *Module) RegisterGateway(session *discordgo.Session) {
 	session.AddHandler(m.onChannelDelete)
 }
 
-// Intents returns the gateway intents tickets need when any guild has them
-// on: guild messages with their content for the journal, and members for
-// thread membership repair.
-func (m *Module) Intents(ctx context.Context) (discordgo.Intent, error) {
-	enabled, err := m.service.registry.AnyEnabled(ctx, modules.Tickets)
-	if err != nil || !enabled {
-		return 0, err
-	}
+// Intents returns the gateway intents tickets need: guild messages with
+// their content for the journal, and members for thread membership repair.
+// They are requested whether or not any guild has tickets on, so /setup
+// tickets works without a restart.
+func (m *Module) Intents() discordgo.Intent {
 	return discordgo.IntentGuilds |
 		discordgo.IntentGuildMembers |
 		discordgo.IntentGuildMessages |
-		discordgo.IntentMessageContent, nil
+		discordgo.IntentMessageContent
 }
 
 // RegisterComponents installs /setup tickets and the ticket buttons and

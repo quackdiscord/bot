@@ -91,19 +91,16 @@ func (m *Module) RegisterGateway(session *discordgo.Session) {
 	session.AddHandler(m.onChannelDelete)
 }
 
-// Intents returns the gateway intents logging needs once any guild has it
-// on: members, moderation (for audit log entries), messages, and message
-// content.
-func (m *Module) Intents(ctx context.Context) (discordgo.Intent, error) {
-	enabled, err := m.registry.AnyEnabled(ctx, modules.GeneralLogging)
-	if err != nil || !enabled {
-		return 0, err
-	}
+// Intents returns the gateway intents logging needs: members, moderation
+// (for audit log entries), messages, and message content. They are requested
+// whether or not any guild has logging on, so /setup logging works without a
+// restart.
+func (m *Module) Intents() discordgo.Intent {
 	return discordgo.IntentGuilds |
 		discordgo.IntentGuildMembers |
 		discordgo.IntentGuildModeration |
 		discordgo.IntentGuildMessages |
-		discordgo.IntentMessageContent, nil
+		discordgo.IntentMessageContent
 }
 
 // Start starts the delivery workers.
