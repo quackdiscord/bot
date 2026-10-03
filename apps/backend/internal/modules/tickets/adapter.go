@@ -3,41 +3,59 @@ package tickets
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/quackdiscord/bot/internal/modules"
 )
 
-// DiscordClient is what DiscordAdapter needs from Discord. guildID is always
-// Quack's internal guild ID. The module's channels type implements it; tests
-// use a fake.
+// DiscordClient is what DiscordAdapter needs from Discord. guildID is
+// always Quack's internal guild ID. The module's channels type implements
+// it; tests use a fake.
 type DiscordClient interface {
-	// CreateChannel creates a new ticket's private thread or channel and
-	// returns its ID.
-	CreateChannel(ctx context.Context, guildID, ownerID string, settings Settings) (string, error)
-	// EnsureAccess makes a ticket visible to exactly its owner, current
-	// staff, and the bot.
-	EnsureAccess(ctx context.Context, guildID, channelID, ownerID string, staffRoleIDs []string) error
-	// SendReply posts a reply in a ticket.
-	SendReply(ctx context.Context, channelID, body string) error
-	// CaptureTranscript renders a ticket's message history.
-	CaptureTranscript(ctx context.Context, channelID string) (string, error)
-	// ArchiveChannel closes a ticket's channel to further messages.
-	ArchiveChannel(ctx context.Context, channelID string) error
-	// DeleteChannel deletes a channel created for a ticket that was never
-	// committed.
-	DeleteChannel(ctx context.Context, channelID string) error
+	// CreateThread starts a ticket's private thread under the entry channel
+	// and returns its ID.
+	CreateThread(ctx context.Context, guildID, ownerID string, settings Settings) (string, error)
+	// EnsureAccess invites the owner and removes members who are no longer
+	// staff.
+	EnsureAccess(ctx context.Context, guildID, threadID, ownerID string) error
+	// SendWelcome greets the owner in a new thread with a Close button.
+	SendWelcome(ctx context.Context, ticket *Ticket) error
+	// FreezeThread archives and locks a thread so the history stops
+	// changing before it is captured.
+	FreezeThread(ctx context.Context, threadID string) error
+	// CaptureMessages reads a thread's whole surviving history.
+	CaptureMessages(ctx context.Context, threadID string) ([]TranscriptMessage, error)
+	// DeleteThread deletes a closed ticket's thread. A thread already gone
+	// counts as deleted.
+	DeleteThread(ctx context.Context, threadID string) error
+	// PublishQueue posts or edits the ticket's staff queue post; with a
+	// transcript it marks the ticket closed and attaches the transcript. A
+	// definite refusal wraps ErrQueueNotSent, and a saved post that is gone
+	// returns ErrQueueMessageMissing.
+	PublishQueue(ctx context.Context, ticket *Ticket, settings Settings, transcript *Transcript) (*QueueReceipt, error)
+	// QueueMessageExists reports whether a saved queue post still exists.
+	// Only Discord saying it is gone yields false without an error.
+	QueueMessageExists(ctx context.Context, channelID, messageID string) (bool, error)
+	// ValidateQueueMessage checks that a message link an administrator gave
+	// is Quack's queue post for ticket.
+	ValidateQueueMessage(ctx context.Context, ticket *Ticket, messageURL string) (*QueueReceipt, error)
+	// DeliverCloseNotice DMs the member the transcript and returns the DM's
+	// ID. With reconcileOnly it only looks for an earlier DM whose send was
+	// uncertain. A definite refusal wraps ErrCloseNoticeNotSent.
+	DeliverCloseNotice(ctx context.Context, ticket *Ticket, transcript *Transcript, reconcileOnly bool) (string, error)
 }
 
-// DiscordAdapter runs the ticket operations that also change Discord:
-// opening creates a private channel, closing archives it, and so on. The
+// DiscordAdapter runs the ticket operations that also change Discord. The
 // Service holds the rules; the adapter orders the Discord calls around them
-// so that a failure part way leaves nothing a retry cannot finish.
+// so a failure part way leaves nothing a retry cannot finish, and nothing
+// is deleted before its transcript is safe.
 type DiscordAdapter struct {
 	service *Service
 	client  DiscordClient
+	// closes serializes each ticket's close, repair, and recovery in this
+	// process.
+	closes keyedLocks
 }
 
 // NewDiscordAdapter returns a DiscordAdapter over service and client.
@@ -45,18 +63,26 @@ func NewDiscordAdapter(service *Service, client DiscordClient) *DiscordAdapter {
 	return &DiscordAdapter{service: service, client: client}
 }
 
-// Open reserves the member's ticket slot, creates and locks down a private
-// channel, and only then commits the ticket. The reservation comes first so
-// repeated clicks cannot create a pile of channels.
+// Open reserves the member's ticket slot, starts a private thread, and
+// commits the ticket before inviting anyone, so the journal knows the
+// thread before its first message. A ticket returned with an error was
+// saved but its setup did not finish; it keeps the member's slot, and an
+// administrator can repair it.
 func (a *DiscordAdapter) Open(ctx context.Context, actor modules.Actor) (*Ticket, error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	settings, err := a.service.enabledSettings(ctx, actor.GuildID)
+	settings, enabled, err := a.service.loadSettings(ctx, actor.GuildID)
 	if err != nil {
 		return nil, err
 	}
+	if !enabled {
+		return nil, ErrDisabled
+	}
+	if settings.QueueChannelDiscordID == "" {
+		return nil, errors.New("ticket queue channel is not configured")
+	}
 	store := a.service.store
-	token, err := store.reserveOpening(ctx, actor, settings.DailyOpenLimit, a.service.now())
+	token, err := store.reserveOpening(ctx, actor, a.service.now())
 	if err != nil {
 		return nil, err
 	}
@@ -70,120 +96,142 @@ func (a *DiscordAdapter) Open(ctx context.Context, actor modules.Actor) (*Ticket
 				"guild_id", actor.GuildID, "ticket_id", token, "error", err)
 		}
 	}()
-	channelID, err := a.client.CreateChannel(ctx, actor.GuildID, actor.DiscordUserID, settings)
+	threadID, err := a.client.CreateThread(ctx, actor.GuildID, actor.DiscordUserID, settings)
 	if err != nil {
 		return nil, err
 	}
-	err = a.client.EnsureAccess(ctx, actor.GuildID, channelID, actor.DiscordUserID, settings.StaffRoleDiscordIDs)
-	if err != nil {
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-		defer cancel()
-		_ = a.client.DeleteChannel(ctx, channelID)
-		return nil, err
-	}
-	ticket, err := store.finishOpening(ctx, actor, token, channelID, a.service.now())
+	ticket, err := store.finishOpening(ctx, actor, token, threadID, a.service.now())
 	if err != nil {
 		// The commit may have landed even though it reported an error, so
-		// keep the channel rather than delete a ticket that might exist.
+		// keep the thread rather than delete a ticket that might exist.
 		a.service.audit(ctx, actor, "ticket.open", token, "failure", err)
 		return nil, err
 	}
+	a.service.rememberJournalThread(ticket)
 	a.service.audit(ctx, actor, "ticket.open", ticket.ID, "success", nil)
-	return ticket, nil
+	if err := a.client.EnsureAccess(ctx, actor.GuildID, threadID, actor.DiscordUserID); err != nil {
+		// The owner may already be in and posting. Keep the ticket and
+		// still tell staff, so it can be repaired.
+		_, queueErr := a.publishQueue(ctx, ticket, settings, nil)
+		return ticket, errors.Join(err, queueErr)
+	}
+	// A failed greeting must not keep staff from hearing about the ticket.
+	welcomeErr := a.client.SendWelcome(ctx, ticket)
+	_, queueErr := a.publishQueue(ctx, ticket, settings, nil)
+	return ticket, errors.Join(welcomeErr, queueErr)
 }
 
-// Reply posts body in the ticket and records it, once the actor is
-// authorized.
-func (a *DiscordAdapter) Reply(ctx context.Context, actor modules.Actor, ticketID, body string) error {
-	if err := validateReply(body); err != nil {
-		return err
+// Close closes a ticket; see CloseWithProgress.
+func (a *DiscordAdapter) Close(ctx context.Context, actor modules.Actor, ticketID string) (*Ticket, error) {
+	return a.CloseWithProgress(ctx, actor, ticketID, nil)
+}
+
+// CloseWithProgress closes a ticket for its owner or a moderator, even with
+// tickets switched off. It locks the thread, saves the transcript, attaches
+// it to the queue post, DMs the member, and deletes the thread; the member
+// can open another ticket only after that. beforeDelete, if set, runs once
+// the transcript is safe and before the thread goes, so a caller inside the
+// thread can still answer. Each step is safe to retry: a later call resumes
+// where an earlier one stopped, and the returned ticket says how far it got.
+func (a *DiscordAdapter) CloseWithProgress(ctx context.Context, actor modules.Actor, ticketID string, beforeDelete func(*Ticket) error) (*Ticket, error) {
+	release, err := a.closes.acquire(ctx, actor.GuildID+":"+ticketID)
+	if err != nil {
+		return nil, err
 	}
+	defer release()
 	ticket, err := a.service.visibleTicket(ctx, actor, ticketID)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	// Check before posting: Service.Reply would refuse a closed ticket, but
-	// only after the message was already in Discord.
-	if ticket.Status != StatusOpen {
-		return ErrInvalidTransition
+	resolved := ticket
+	switch ticket.Status {
+	case StatusOpen:
+		if err := a.client.FreezeThread(ctx, ticket.ThreadDiscordChannelID); err != nil {
+			return ticket, err
+		}
+		messages, err := a.client.CaptureMessages(ctx, ticket.ThreadDiscordChannelID)
+		if err != nil {
+			return ticket, err
+		}
+		if resolved, err = a.service.ResolveWithHistory(ctx, actor, ticketID, messages); err != nil {
+			return ticket, err
+		}
+	case StatusResolved:
+	default:
+		return nil, ErrInvalidTransition
 	}
-	if err := a.client.SendReply(ctx, ticket.ThreadDiscordChannelID, body); err != nil {
-		return err
+	// A transcript already published is trusted only while its post still
+	// exists; a post Discord says is gone is published again.
+	if resolved.TranscriptURL != "" {
+		if err := a.checkQueueReceipt(ctx, resolved); err != nil {
+			return resolved, err
+		}
 	}
-	return a.service.Reply(ctx, actor, ticketID, body)
+	if resolved.TranscriptURL == "" {
+		transcript, err := a.service.Transcript(ctx, actor, ticketID)
+		if err != nil {
+			return resolved, err
+		}
+		settings, _, err := a.service.loadSettings(ctx, actor.GuildID)
+		if err != nil {
+			return resolved, err
+		}
+		if _, err := a.publishQueue(ctx, resolved, settings, transcript); err != nil {
+			return resolved, err
+		}
+	}
+	if err := a.deliverCloseNotice(ctx, actor, resolved); err != nil {
+		return resolved, err
+	}
+	if beforeDelete != nil {
+		if err := beforeDelete(resolved); err != nil {
+			return resolved, err
+		}
+	}
+	if err := a.client.DeleteThread(ctx, ticket.ThreadDiscordChannelID); err != nil {
+		return resolved, err
+	}
+	return resolved, a.service.store.finishClosure(ctx, actor.GuildID, ticket.ID, a.service.now())
 }
 
-// Close saves the transcript, resolves the ticket, and archives its
-// channel. It needs a moderator. Retrying after an archive failure only
-// retries the archive. The Discord button and the HTTP resolve route both
-// use it.
-func (a *DiscordAdapter) Close(ctx context.Context, actor modules.Actor, ticketID string) (*Ticket, error) {
-	if !actor.CanModerate {
-		return nil, ErrPermissionDenied
-	}
-	return a.archive(ctx, actor, ticketID, StatusResolved, func(transcript string) (*Ticket, error) {
-		return a.service.Resolve(ctx, actor, ticketID, transcript)
-	})
-}
-
-// Cancel is Close for a withdrawal by the owner or a moderator. The HTTP
-// cancel route uses it.
-func (a *DiscordAdapter) Cancel(ctx context.Context, actor modules.Actor, ticketID string) (*Ticket, error) {
-	return a.archive(ctx, actor, ticketID, StatusCancelled, func(transcript string) (*Ticket, error) {
-		return a.service.cancel(ctx, actor, ticketID, &transcript)
-	})
-}
-
-// RepairPermissions resets the ticket's ACL to owner, staff, and bot, and
-// records the repair. It needs Manage Guild.
+// RepairPermissions re-invites an open ticket's owner, removes former
+// staff, and posts the queue post again if Discord says it is gone. A post
+// whose delivery is uncertain is left for QueueRecovery. It needs Manage
+// Guild.
 func (a *DiscordAdapter) RepairPermissions(ctx context.Context, actor modules.Actor, ticketID string) error {
 	if !actor.CanManage {
 		return ErrPermissionDenied
 	}
+	release, err := a.closes.acquire(ctx, actor.GuildID+":"+ticketID)
+	if err != nil {
+		return err
+	}
+	defer release()
 	ticket, err := a.service.visibleTicket(ctx, actor, ticketID)
 	if err != nil {
 		return err
 	}
-	settings, err := a.service.enabledSettings(ctx, actor.GuildID)
+	if ticket.Status != StatusOpen {
+		return ErrInvalidTransition
+	}
+	settings, enabled, err := a.service.loadSettings(ctx, actor.GuildID)
 	if err != nil {
 		return err
 	}
-	err = a.client.EnsureAccess(ctx, actor.GuildID, ticket.ThreadDiscordChannelID,
-		ticket.OwnerDiscordUserID, settings.StaffRoleDiscordIDs)
+	if !enabled {
+		return ErrDisabled
+	}
+	err = a.client.EnsureAccess(ctx, actor.GuildID, ticket.ThreadDiscordChannelID, ticket.OwnerDiscordUserID)
 	if err != nil {
 		return err
+	}
+	if err := a.checkQueueReceipt(ctx, ticket); err != nil {
+		return err
+	}
+	if ticket.LogMessageDiscordID == "" {
+		if _, err := a.publishQueue(ctx, ticket, settings, nil); err != nil {
+			return err
+		}
 	}
 	return a.service.RecordPermissionsRepaired(ctx, actor.GuildID, ticketID)
-}
-
-// archive closes a ticket in two steps: an open ticket's transcript is
-// captured and finish moves it to closed, then its channel is archived. A
-// ticket already in closed skips to the archive, so a retry finishes a
-// close whose archive failed. A ticket whose channel was deleted closes with
-// an empty transcript and nothing to archive. Other Discord failures wrap
-// ErrDiscord.
-func (a *DiscordAdapter) archive(ctx context.Context, actor modules.Actor, ticketID string, closed Status, finish func(transcript string) (*Ticket, error)) (*Ticket, error) {
-	ticket, err := a.service.visibleTicket(ctx, actor, ticketID)
-	if err != nil {
-		return nil, err
-	}
-	result := ticket
-	switch ticket.Status {
-	case StatusOpen:
-		transcript, err := a.client.CaptureTranscript(ctx, ticket.ThreadDiscordChannelID)
-		if err != nil && !errors.Is(err, ErrChannelMissing) {
-			return nil, fmt.Errorf("%w: %w", ErrDiscord, err)
-		}
-		if result, err = finish(transcript); err != nil {
-			return nil, err
-		}
-	case closed:
-	default:
-		return nil, ErrInvalidTransition
-	}
-	err = a.client.ArchiveChannel(ctx, ticket.ThreadDiscordChannelID)
-	if err != nil && !errors.Is(err, ErrChannelMissing) {
-		return result, fmt.Errorf("%w: %w", ErrDiscord, err)
-	}
-	return result, nil
 }

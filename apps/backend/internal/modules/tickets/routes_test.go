@@ -7,8 +7,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/quackdiscord/bot/internal/discord"
 	"github.com/quackdiscord/bot/internal/modules"
 	"github.com/quackdiscord/bot/internal/modules/tickets"
+	"github.com/quackdiscord/bot/internal/quack"
+	"github.com/quackdiscord/bot/internal/testutil"
 )
 
 // testMux mounts module routes under /guilds/{guildID}/modules and enforces
@@ -30,48 +33,62 @@ func (m testMux) HandleWrite(pattern string, allowed func(*http.Request) bool, h
 	}))
 }
 
+func routesFor(service *tickets.Service, closer tickets.Closer, actor modules.Actor) testMux {
+	mux := testMux{http.NewServeMux()}
+	tickets.RegisterRoutes(mux, service, closer, func(r *http.Request) (modules.Actor, error) {
+		actor := actor
+		actor.GuildID = r.PathValue("guildID")
+		return actor, nil
+	})
+	return mux
+}
+
 func TestRoutes(t *testing.T) {
-	service, adapter, _, _ := setup(t)
+	_, service, _ := setup(t)
+	adapter := tickets.NewDiscordAdapter(service, &discordFake{})
+	ticket, err := adapter.Open(context.Background(), modules.Actor{GuildID: "guild-a", DiscordUserID: "member"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	staff := modules.Actor{DiscordUserID: "staff", CanModerate: true}
 	for _, test := range []struct {
 		name         string
 		actor        modules.Actor
 		method, path string
 		want         int
 	}{
-		{"status", modules.Actor{CanModerate: true}, http.MethodGet, "/tickets/status", http.StatusOK},
-		{"settings write needs Manage Guild", modules.Actor{CanModerate: true}, http.MethodPut, "/tickets/settings", http.StatusForbidden},
-		{"resolve needs moderation", modules.Actor{CanManage: true}, http.MethodPost, "/tickets/missing/resolve", http.StatusForbidden},
-		{"cancel needs an existing ticket", modules.Actor{CanModerate: true}, http.MethodPost, "/tickets/missing/cancel", http.StatusForbidden},
-		{"missing ticket", modules.Actor{CanModerate: true}, http.MethodGet, "/tickets/missing", http.StatusNotFound},
+		{"status", staff, http.MethodGet, "/tickets/status", http.StatusOK},
+		{"settings read needs Manage Guild", staff, http.MethodGet, "/tickets/settings", http.StatusForbidden},
+		{"settings write needs Manage Guild", staff, http.MethodPut, "/tickets/settings", http.StatusForbidden},
+		{"queue", staff, http.MethodGet, "/tickets/queue?status=open", http.StatusOK},
+		{"detail", staff, http.MethodGet, "/tickets/" + ticket.ID, http.StatusOK},
+		{"other member's ticket", modules.Actor{DiscordUserID: "other"}, http.MethodGet, "/tickets/" + ticket.ID, http.StatusForbidden},
+		{"missing ticket", staff, http.MethodGet, "/tickets/missing", http.StatusNotFound},
+		{"open ticket has no transcript", staff, http.MethodGet, "/tickets/" + ticket.ID + "/transcript", http.StatusNotFound},
+		{"close needs a visible ticket", modules.Actor{DiscordUserID: "other"}, http.MethodPost, "/tickets/" + ticket.ID + "/close", http.StatusForbidden},
+		{"reopen is gone", staff, http.MethodPost, "/tickets/" + ticket.ID + "/reopen", http.StatusConflict},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			mux := testMux{http.NewServeMux()}
-			tickets.RegisterRoutes(mux, service, adapter, func(r *http.Request) (modules.Actor, error) {
-				actor := test.actor
-				actor.GuildID, actor.DiscordUserID = r.PathValue("guildID"), "staff"
-				return actor, nil
-			})
 			response := httptest.NewRecorder()
-			mux.ServeHTTP(response, httptest.NewRequest(test.method, "/guilds/guild-a/modules"+test.path, nil))
+			request := httptest.NewRequest(test.method, "/guilds/guild-a/modules"+test.path, strings.NewReader(`{}`))
+			routesFor(service, adapter, test.actor).ServeHTTP(response, request)
 			if response.Code != test.want {
-				t.Fatalf("status = %d, want %d; body=%s", response.Code, test.want, response.Body.String())
+				t.Fatalf("status = %d, want %d; body = %s", response.Code, test.want, response.Body.String())
 			}
 		})
 	}
 }
 
-// TestHTTPCloseArchivesLikeDiscord checks that resolving or cancelling from
-// the dashboard captures the transcript and archives the channel, as the
-// Discord close button does.
-func TestHTTPCloseArchivesLikeDiscord(t *testing.T) {
-	service, adapter, client, _ := setup(t)
+// TestEveryCloseRouteRunsTheDiscordClose checks close and its older names
+// resolve, publish, and delete like the Discord button, ignoring any
+// transcript in the body.
+func TestEveryCloseRouteRunsTheDiscordClose(t *testing.T) {
+	_, service, _ := setup(t)
 	ctx := context.Background()
+	client := &discordFake{}
+	adapter := tickets.NewDiscordAdapter(service, client)
 	member := modules.Actor{GuildID: "guild-a", DiscordUserID: "member"}
-	mux := testMux{http.NewServeMux()}
-	tickets.RegisterRoutes(mux, service, adapter, func(r *http.Request) (modules.Actor, error) {
-		return modules.Actor{GuildID: r.PathValue("guildID"), DiscordUserID: "staff", CanModerate: true}, nil
-	})
-	for _, action := range []string{"resolve", "cancel"} {
+	for _, action := range []string{"close", "resolve", "cancel"} {
 		t.Run(action, func(t *testing.T) {
 			ticket, err := adapter.Open(ctx, member)
 			if err != nil {
@@ -79,17 +96,29 @@ func TestHTTPCloseArchivesLikeDiscord(t *testing.T) {
 			}
 			response := httptest.NewRecorder()
 			path := "/guilds/guild-a/modules/tickets/" + ticket.ID + "/" + action
-			mux.ServeHTTP(response, httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{}`)))
-			if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"ticket"`) {
+			request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"transcript":"forged"}`))
+			routesFor(service, adapter, modules.Actor{DiscordUserID: "member"}).ServeHTTP(response, request)
+			if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"status":"resolved"`) {
 				t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 			}
-			if last := client.removed[len(client.removed)-1]; last != ticket.ThreadDiscordChannelID {
-				t.Fatalf("archived %q, want %q", last, ticket.ThreadDiscordChannelID)
+			if last := client.deleted[len(client.deleted)-1]; last != ticket.ThreadDiscordChannelID {
+				t.Fatalf("deleted %q, want %q", last, ticket.ThreadDiscordChannelID)
 			}
-			transcript, err := service.Transcript(ctx, modules.Actor{GuildID: "guild-a", CanModerate: true}, ticket.ID)
-			if err != nil || transcript.Content != "captured" {
-				t.Fatalf("transcript = %+v, %v; want the captured one", transcript, err)
+			if got := transcriptOf(t, service, member, ticket.ID); strings.Contains(got, "forged") || !strings.Contains(got, "captured") {
+				t.Fatalf("transcript = %q", got)
 			}
 		})
 	}
+}
+
+func TestComponentsAndSetupInstallBesideCoreRoutes(t *testing.T) {
+	db := testutil.NewSQLiteDB(t)
+	bot, err := discord.New("Bot test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	services := quack.New(quack.Deps{})
+	router := discord.NewRouter(bot, services, nil)
+	// The router panics on a duplicate or empty route.
+	tickets.New(db, modules.NewRegistry(db), nil, nil, bot.Session, services.Guilds).RegisterComponents(router)
 }

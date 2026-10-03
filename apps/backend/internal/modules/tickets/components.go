@@ -3,7 +3,6 @@ package tickets
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"strings"
 
@@ -13,176 +12,138 @@ import (
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
-// componentNamespace prefixes every ticket button and modal custom ID.
-const componentNamespace = "ticket"
-
-// EntryComponents are the controls meant for the entry channel: open a
-// ticket, and the staff queue. Nothing posts them yet, so until something
-// does, members have no button to open a ticket with.
-func EntryComponents() []discordgo.MessageComponent {
-	return []discordgo.MessageComponent{discord.Row(
-		discord.Button(customID("open", ""), "Open ticket", discordgo.PrimaryButton, false),
-		discord.Button(customID("queue", ""), "Staff queue", discordgo.SecondaryButton, false),
-	)}
-}
-
-// TicketComponents are one ticket's view, reply, and close controls.
-func TicketComponents(ticketID string) []discordgo.MessageComponent {
-	return []discordgo.MessageComponent{discord.Row(
-		discord.Button(customID("view", ticketID), "View", discordgo.SecondaryButton, false),
-		discord.Button(customID("reply", ticketID), "Reply", discordgo.PrimaryButton, false),
-		discord.Button(customID("close", ticketID), "Close", discordgo.DangerButton, false),
-	)}
-}
-
-// customID encodes a ticket button or modal custom ID.
-func customID(action, ticketID string) string {
-	return discord.MustCustomID(discord.CustomID{
-		Namespace: componentNamespace,
-		Action:    action,
-		Version:   "v1",
-		Payload:   ticketID,
-	})
-}
-
-// ticketControls is TicketComponents plus, for managers, a repair button.
-func ticketControls(ticketID string, includeRepair bool) []discordgo.MessageComponent {
-	components := TicketComponents(ticketID)
-	if !includeRepair {
-		return components
-	}
-	row := components[0].(discordgo.ActionsRow)
-	repair := discord.Button(customID("repair", ticketID), "Repair permissions", discordgo.SecondaryButton, false)
-	row.Components = append(row.Components, repair)
-	components[0] = row
-	return components
-}
-
-// openComponent acknowledges, then provisions the member's private ticket.
+// openComponent acknowledges, then opens the member's ticket, or points
+// them at the one they already hold.
 func (m *Module) openComponent(_ context.Context, interaction *discordgo.InteractionCreate) discord.Result {
-	return m.task(interaction, func(ctx context.Context, responder discord.Responder, actor modules.Actor) error {
-		ticket, err := m.discord.Open(ctx, actor)
-		if err != nil {
+	return m.task(interaction, discord.DeferEphemeral(), func(ctx context.Context, responder discord.Responder, actor modules.Actor) error {
+		ticket, err := m.adapter.Open(ctx, actor)
+		if errors.Is(err, ErrDuplicateOpen) {
+			if active, lookupErr := m.service.ActiveForMember(ctx, actor); lookupErr == nil {
+				_, err = responder.EditOriginal(discord.EditMessage(existingTicketMessage(active)))
+				return err
+			}
+		}
+		if ticket == nil {
 			return showError(ctx, responder, err)
 		}
-		message := discord.Content("Ticket opened: <#"+ticket.ThreadDiscordChannelID+">", true)
-		message.Components = ticketControls(ticket.ID, actor.CanManage)
-		_, err = responder.EditOriginal(discord.EditMessage(message))
+		if err != nil {
+			slog.WarnContext(ctx, "Ticket opened without finishing setup", "ticket_id", ticket.ID, "error", err)
+		}
+		_, err = responder.EditOriginal(discord.EditMessage(openedMessage(ticket, err)))
 		return err
 	})
 }
 
-// queueComponent lists open tickets for staff, without their content.
+// queueComponent lists open tickets for staff, without their content. No
+// current message carries it; it stays routed for older ones.
 func (m *Module) queueComponent(_ context.Context, interaction *discordgo.InteractionCreate) discord.Result {
-	return m.task(interaction, func(ctx context.Context, responder discord.Responder, actor modules.Actor) error {
+	return m.task(interaction, discord.DeferEphemeral(), func(ctx context.Context, responder discord.Responder, actor modules.Actor) error {
 		queue, err := m.service.Queue(ctx, actor, StatusOpen, 25)
 		if err != nil {
 			return showError(ctx, responder, err)
 		}
-		lines := []string{"Open tickets:"}
-		for _, ticket := range queue {
-			lines = append(lines, fmt.Sprintf("• `%s` — <#%s>", ticket.ID, ticket.ThreadDiscordChannelID))
-		}
-		if len(queue) == 0 {
-			lines = append(lines, "No open tickets.")
-		}
-		_, err = responder.EditOriginal(discord.EditMessage(discord.Content(strings.Join(lines, "\n"), true)))
+		_, err = responder.EditOriginal(discord.EditMessage(queueListMessage(queue)))
 		return err
 	})
 }
 
-// viewComponent shows a ticket's state and timeline to its owner or staff.
+// viewComponent shows a ticket's detail and recovery controls. A private
+// view is refreshed in place, so paging and stale thread links update; a
+// press on a public post gets its own private reply.
 func (m *Module) viewComponent(_ context.Context, interaction *discordgo.InteractionCreate) discord.Result {
-	ticketID, err := componentTicketID(interaction)
+	payload, err := componentPayload(interaction)
 	if err != nil {
 		return discord.Immediate(discord.Error("That ticket is unavailable."))
 	}
-	return m.task(interaction, func(ctx context.Context, responder discord.Responder, actor modules.Actor) error {
-		ticket, events, err := m.service.Detail(ctx, actor, ticketID)
+	ticketID, page := detailPayload(payload)
+	acknowledgement := discord.DeferEphemeral()
+	if message := interaction.Message; message != nil && message.Flags&discordgo.MessageFlagsEphemeral != 0 {
+		acknowledgement = discord.DeferUpdate()
+	}
+	return m.task(interaction, acknowledgement, func(ctx context.Context, responder discord.Responder, actor modules.Actor) error {
+		ticket, _, err := m.service.Detail(ctx, actor, ticketID)
 		if err != nil {
 			return showError(ctx, responder, err)
 		}
-		lines := []string{fmt.Sprintf("Ticket `%s` is **%s**.", ticket.ID, ticket.Status)}
-		for _, event := range events {
-			lines = append(lines, fmt.Sprintf("• %s — %s", event.Type, discord.Truncate(event.Body, 240)))
+		pending, err := m.service.ClosurePending(ctx, actor, ticketID)
+		if err != nil {
+			return showError(ctx, responder, err)
 		}
-		message := discord.Content(strings.Join(lines, "\n"), true)
-		message.Components = ticketControls(ticket.ID, actor.CanManage)
-		_, err = responder.EditOriginal(discord.EditMessage(message))
+		var transcript *Transcript
+		if ticket.Status != StatusOpen {
+			transcript, err = m.service.Transcript(ctx, actor, ticketID)
+			if err != nil && !errors.Is(err, ErrNotFound) {
+				return showError(ctx, responder, err)
+			}
+		}
+		_, err = responder.EditOriginal(discord.EditMessage(detailMessage(ticket, nil, actor, pending, transcript, page)))
 		return err
 	})
 }
 
-// repairComponent restores a ticket's private ACL, for managers.
+// repairComponent restores an open ticket's access and missing queue post,
+// for managers.
 func (m *Module) repairComponent(_ context.Context, interaction *discordgo.InteractionCreate) discord.Result {
-	ticketID, err := componentTicketID(interaction)
+	ticketID, err := componentPayload(interaction)
 	if err != nil {
 		return discord.Immediate(discord.Error("That ticket is unavailable."))
 	}
-	return m.task(interaction, func(ctx context.Context, responder discord.Responder, actor modules.Actor) error {
-		if err := m.discord.RepairPermissions(ctx, actor, ticketID); err != nil {
+	return m.task(interaction, discord.DeferEphemeral(), func(ctx context.Context, responder discord.Responder, actor modules.Actor) error {
+		if err := m.adapter.RepairPermissions(ctx, actor, ticketID); err != nil {
 			return showError(ctx, responder, err)
 		}
-		_, err := responder.EditOriginal(discord.EditMessage(discord.Content("Ticket permissions repaired.", true)))
+		_, err := responder.EditOriginal(discord.EditMessage(discord.Signal("lock",
+			"Ticket access and staff queue delivery are repaired. Access is limited to the member and staff.", true)))
 		return err
 	})
 }
 
-// replyComponent opens the reply modal, so reply text never goes in a
-// custom ID.
-func (m *Module) replyComponent(_ context.Context, interaction *discordgo.InteractionCreate) discord.Result {
-	ticketID, err := componentTicketID(interaction)
-	if err != nil {
-		return discord.Immediate(discord.Error("That ticket is unavailable."))
-	}
-	components := []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-		discordgo.TextInput{
-			CustomID:  "body",
-			Label:     "Reply",
-			Style:     discordgo.TextInputParagraph,
-			Required:  true,
-			MinLength: 1,
-			MaxLength: 4000,
-		},
-	}}}
-	return discord.Immediate(discord.Modal("Reply to ticket", customID("reply-submit", ticketID), components))
-}
-
-// submitReplyModal posts the reply in the ticket.
-func (m *Module) submitReplyModal(_ context.Context, interaction *discordgo.InteractionCreate) discord.Result {
-	data := interaction.ModalSubmitData()
-	id, err := discord.DecodeCustomID(data.CustomID)
-	if err != nil || id.Payload == "" {
-		return discord.Immediate(discord.Error("That ticket reply is invalid."))
-	}
-	body := strings.TrimSpace(discord.ModalValue(data, "body"))
-	return m.task(interaction, func(ctx context.Context, responder discord.Responder, actor modules.Actor) error {
-		if err := m.discord.Reply(ctx, actor, id.Payload, body); err != nil {
-			return showError(ctx, responder, err)
-		}
-		_, err := responder.EditOriginal(discord.EditMessage(discord.Content("Reply sent.", true)))
-		return err
-	})
-}
-
-// closeComponent saves the transcript and resolves the ticket.
+// closeComponent closes a ticket, or resumes a close that stopped.
 func (m *Module) closeComponent(_ context.Context, interaction *discordgo.InteractionCreate) discord.Result {
-	ticketID, err := componentTicketID(interaction)
+	ticketID, err := componentPayload(interaction)
 	if err != nil {
 		return discord.Immediate(discord.Error("That ticket is unavailable."))
 	}
-	return m.task(interaction, func(ctx context.Context, responder discord.Responder, actor modules.Actor) error {
-		if _, err := m.discord.Close(ctx, actor, ticketID); err != nil {
-			return showError(ctx, responder, err)
-		}
-		_, err := responder.EditOriginal(discord.EditMessage(discord.Content("Ticket closed and transcript captured.", true)))
-		return err
+	return m.task(interaction, discord.DeferEphemeral(), func(ctx context.Context, responder discord.Responder, actor modules.Actor) error {
+		return closeWithFeedback(ctx, responder, m.adapter, actor, ticketID, interaction.ChannelID)
 	})
 }
 
-// componentTicketID returns the ticket ID a button carries. It proves
+// progressCloser closes a ticket, reporting before the thread is deleted.
+// *DiscordAdapter implements it.
+type progressCloser interface {
+	CloseWithProgress(ctx context.Context, actor modules.Actor, ticketID string, beforeDelete func(*Ticket) error) (*Ticket, error)
+}
+
+// closeWithFeedback closes ticketID. When the button was pressed inside the
+// ticket's own thread, the answer is given before the thread is deleted,
+// since the interaction dies with it; elsewhere the final result is shown.
+func closeWithFeedback(ctx context.Context, responder discord.Responder, closer progressCloser, actor modules.Actor, ticketID, originChannelID string) error {
+	ticket, err := closer.CloseWithProgress(ctx, actor, ticketID, func(ticket *Ticket) error {
+		if ticket.ThreadDiscordChannelID != originChannelID {
+			return nil
+		}
+		_, err := responder.EditOriginal(discord.EditMessage(discord.Signal("lock", closedCopy(ticket), true)))
+		return err
+	})
+	if err != nil {
+		if !expectedError(err) {
+			slog.ErrorContext(ctx, "Ticket close failed", "ticket_id", ticketID, "error", err)
+		}
+		_, editErr := responder.EditOriginal(discord.EditMessage(closeFailureMessage(ticket, err)))
+		return editErr
+	}
+	if ticket.ThreadDiscordChannelID == originChannelID {
+		return nil
+	}
+	text := strings.Replace(closedCopy(ticket), "This ticket is closing.", "Ticket closed.", 1)
+	_, err = responder.EditOriginal(discord.EditMessage(discord.Signal("lock", text, true)))
+	return err
+}
+
+// componentPayload returns the payload a ticket button carries. It proves
 // nothing: the task checks live authority and the service checks access.
-func componentTicketID(interaction *discordgo.InteractionCreate) (string, error) {
+func componentPayload(interaction *discordgo.InteractionCreate) (string, error) {
 	if interaction.GuildID == "" {
 		return "", errors.New("ticket interactions require a guild")
 	}
@@ -193,11 +154,11 @@ func componentTicketID(interaction *discordgo.InteractionCreate) (string, error)
 	return id.Payload, nil
 }
 
-// task defers the response, resolves the caller's live authority, and runs
-// fn. Discord's interaction permissions and the gateway cache never grant
-// staff authority.
-func (m *Module) task(interaction *discordgo.InteractionCreate, fn func(context.Context, discord.Responder, modules.Actor) error) discord.Result {
-	return discord.Async(discord.DeferEphemeral(), func(ctx context.Context, responder discord.Responder) error {
+// task acknowledges with acknowledgement, resolves the caller's live
+// authority, and runs fn. Discord's interaction permissions and the gateway
+// cache never grant staff authority.
+func (m *Module) task(interaction *discordgo.InteractionCreate, acknowledgement *discordgo.InteractionResponse, fn func(context.Context, discord.Responder, modules.Actor) error) discord.Result {
+	return discord.Async(acknowledgement, func(ctx context.Context, responder discord.Responder) error {
 		ctx = quack.ContextWithAuditSource(ctx, quack.AuditSourceDiscord)
 		actor, err := m.actor(ctx, interaction)
 		if err != nil {
@@ -231,37 +192,15 @@ func (m *Module) actor(ctx context.Context, interaction *discordgo.InteractionCr
 	return modules.ActorFor(staff), nil
 }
 
-// showError replaces the deferred response with a message safe to show the
+// showError replaces the deferred response with copy safe to show the
 // member, and logs the error, since returning nil keeps the router from
-// doing so. Errors the member caused are only debug noise.
+// doing so. Refusals the member caused are only debug noise.
 func showError(ctx context.Context, responder discord.Responder, err error) error {
-	message, expected := errorMessage(err)
-	if expected {
+	if expectedError(err) {
 		slog.DebugContext(ctx, "Ticket interaction refused", "error", err)
 	} else {
 		slog.ErrorContext(ctx, "Ticket interaction failed", "error", err)
 	}
-	_, _ = responder.EditOriginal(discord.ErrorEdit(message))
+	_, _ = responder.EditOriginal(discord.ErrorEdit(errorMessage(err)))
 	return nil
-}
-
-// errorMessage maps an error to text safe to show the member, and reports
-// whether it is an expected refusal rather than a failure.
-func errorMessage(err error) (string, bool) {
-	switch {
-	case errors.Is(err, ErrDisabled):
-		return "Tickets are not enabled for this server.", true
-	case errors.Is(err, ErrPermissionDenied):
-		return "You do not have permission to use that ticket.", true
-	case errors.Is(err, ErrDuplicateOpen):
-		return "You already have an open ticket.", true
-	case errors.Is(err, ErrRateLimited):
-		return "You have reached this server's ticket limit.", true
-	case errors.Is(err, ErrNotFound):
-		return "That ticket was not found.", true
-	case errors.Is(err, ErrInvalidTransition):
-		return "That ticket is not open.", true
-	default:
-		return "Quack could not complete that ticket operation.", false
-	}
 }

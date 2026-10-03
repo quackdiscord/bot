@@ -91,7 +91,7 @@ func setup(t *testing.T) *fixture {
 func enable(t *testing.T, fixture *fixture, guildID string) modules.Actor {
 	t.Helper()
 	actor := modules.Actor{GuildID: guildID, DiscordUserID: "admin", CanManage: true}
-	settings := honeypot.Settings{ChannelDiscordID: "trap", TemplateID: "01J500000000000000TEMPLATE", ExemptRoleDiscordIDs: []string{"trusted"}}
+	settings := honeypot.Settings{ChannelDiscordID: "trap", TemplateID: "01J500000000000000TEMPLATE"}
 	if _, status, err := fixture.service.UpdateSettings(context.Background(), actor, true, settings); err != nil || !status.Enabled {
 		t.Fatalf("enable: status=%+v err=%v", status, err)
 	}
@@ -151,10 +151,9 @@ func TestTriggerExemptionsAndLoopPrevention(t *testing.T) {
 		mutate func(*honeypot.Message)
 	}{
 		{"quack", func(message *honeypot.Message) { message.IsQuack = true }},
-		{"bot", func(message *honeypot.Message) { message.IsBot = true }},
 		{"webhook", func(message *honeypot.Message) { message.IsWebhook = true }},
 		{"staff", func(message *honeypot.Message) { message.AuthorCanModerate = true }},
-		{"role", func(message *honeypot.Message) { message.AuthorRoleDiscordIDs = []string{"trusted"} }},
+		{"staff bot", func(message *honeypot.Message) { message.IsBot, message.AuthorCanModerate = true, true }},
 	}
 	for index, testCase := range cases {
 		event := message(fmt.Sprintf("exempt-%d", index))
@@ -224,7 +223,7 @@ func TestFailureAndDriftDisableSafelyAndRepair(t *testing.T) {
 		t.Fatalf("ordinary failure changed enablement: status=%+v err=%v", status, err)
 	}
 	fixture.applier.err = nil
-	fixture.validator.templateErr = errors.New("archived template")
+	fixture.validator.templateErr = honeypot.ErrTemplateUnavailable
 	if _, err := fixture.service.HandleMessage(context.Background(), message("drift")); !errors.Is(err, honeypot.ErrTemplateUnavailable) {
 		t.Fatalf("template drift error=%v", err)
 	}

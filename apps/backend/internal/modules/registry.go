@@ -57,10 +57,56 @@ func Models() []any {
 // Registry reads and writes module configurations. It is the single source
 // of truth for whether a module is on in a guild: the modules read it, and
 // it implements quack.ModuleToggles so the core settings API writes it too.
-type Registry struct{ db *gorm.DB }
+type Registry struct {
+	db     *gorm.DB
+	checks map[ID]EnablementCheck
+}
 
 // NewRegistry returns a Registry over db.
-func NewRegistry(db *gorm.DB) *Registry { return &Registry{db: db} }
+func NewRegistry(db *gorm.DB) *Registry {
+	return &Registry{db: db, checks: map[ID]EnablementCheck{}}
+}
+
+// EnablementCheck checks a module's saved settings, as config JSON, against
+// live Discord the way its /setup does, without writing or posting
+// anything. The error text is shown to the administrator.
+type EnablementCheck func(ctx context.Context, guild *quack.Guild, configJSON string) error
+
+// errNotSetUp points administrators at /setup when they switch on a module
+// they never configured.
+var errNotSetUp = errors.New("module is not configured; run /setup first")
+
+// SetEnablementCheck installs the check CheckModuleEnablement runs for id.
+// Modules call it once while the app is wired, before any requests.
+func (r *Registry) SetEnablementCheck(id ID, check EnablementCheck) {
+	r.checks[id] = check
+}
+
+// CheckModuleEnablement implements quack.ModuleEnablementChecker: each
+// module being switched on must have been set up and pass its check.
+func (r *Registry) CheckModuleEnablement(ctx context.Context, guild *quack.Guild, on quack.ModuleStates) error {
+	for _, want := range []struct {
+		id ID
+		on bool
+	}{{Tickets, on.Tickets}, {GeneralLogging, on.GeneralLogging}, {Honeypots, on.Honeypot}} {
+		if !want.on {
+			continue
+		}
+		c, err := r.Configuration(ctx, guild.ID, want.id)
+		if err != nil {
+			return fmt.Errorf("load %s configuration: %w", want.id, err)
+		}
+		if c == nil {
+			return errNotSetUp
+		}
+		if check := r.checks[want.id]; check != nil {
+			if err := check(ctx, guild, c.ConfigJSON); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
 
 // Configuration returns a guild's configuration for a module, or nil if the
 // guild has never configured it.

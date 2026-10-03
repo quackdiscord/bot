@@ -2,6 +2,7 @@ package tickets
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -9,24 +10,30 @@ import (
 	"github.com/quackdiscord/bot/internal/modules"
 )
 
-// Service holds the ticket rules: who may read, reply to, resolve, cancel,
-// or reopen a ticket, and when. Every change is audited. Operations that
-// also change Discord go through DiscordAdapter, which calls back in here.
+// Service holds the ticket rules: who may read and close a ticket, and
+// what each change records. Every change is audited. Operations that also
+// change Discord go through DiscordAdapter, which calls back in here.
 type Service struct {
 	registry *modules.Registry
 	store    *Store
 	auditor  modules.Auditor
 	now      func() time.Time
+	journal  journal
 }
 
-// NewService returns a Service. A nil auditor only logs operations.
+// NewService returns a Service. A nil auditor only logs operations. It
+// loads the open tickets' threads so the journal recognizes their messages
+// from the first gateway event; if that fails, closing is refused until a
+// restart, since messages may have gone unrecorded.
 func NewService(registry *modules.Registry, store *Store, auditor modules.Auditor) *Service {
-	return &Service{
+	s := &Service{
 		registry: registry,
 		store:    store,
 		auditor:  auditor,
 		now:      func() time.Time { return time.Now().UTC() },
 	}
+	s.loadJournalThreads()
+	return s
 }
 
 // Settings returns the guild's ticket settings and whether tickets are on.
@@ -58,6 +65,18 @@ func (s *Service) UpdateSettings(ctx context.Context, actor modules.Actor, enabl
 	}
 	s.audit(ctx, actor, action, configuration.ID, "success", nil)
 	return settings, nil
+}
+
+// RecordEntryPanel saves where setup posted the entry panel. It is
+// bookkeeping for the setup already audited, so it records no audit entry.
+func (s *Service) RecordEntryPanel(ctx context.Context, actor modules.Actor, channelID, messageID string) error {
+	if !actor.CanManage {
+		return ErrPermissionDenied
+	}
+	if channelID == "" || messageID == "" {
+		return errors.New("entry panel receipt is incomplete")
+	}
+	return s.store.saveEntryPanel(ctx, actor.GuildID, channelID, messageID)
 }
 
 // Status returns a content-free summary of the guild's tickets to staff.
@@ -108,104 +127,72 @@ func (s *Service) Transcript(ctx context.Context, actor modules.Actor, ticketID 
 	return s.store.transcript(ctx, actor.GuildID, ticketID, s.now())
 }
 
-// Reply records a reply on an open ticket's timeline. The owner and
-// moderators may reply.
-func (s *Service) Reply(ctx context.Context, actor modules.Actor, ticketID, body string) error {
-	ticket, err := s.store.get(ctx, actor.GuildID, ticketID)
-	if err != nil {
-		return err
-	}
-	if ticket.Status != StatusOpen {
-		return ErrInvalidTransition
-	}
-	if !canAccess(actor, ticket) {
-		return ErrPermissionDenied
-	}
-	if err := validateReply(body); err != nil {
-		return err
-	}
-	err = s.store.append(ctx, Event{
-		TicketID:           ticket.ID,
-		GuildID:            ticket.GuildID,
-		Type:               EventReplied,
-		ActorDiscordUserID: actor.DiscordUserID,
-		Body:               body,
-		MetadataJSON:       "{}",
-		CreatedAt:          s.now(),
-	})
-	if err != nil {
-		s.audit(ctx, actor, "ticket.reply", ticketID, "failure", err)
-		return err
-	}
-	s.audit(ctx, actor, "ticket.reply", ticketID, "success", nil)
-	return nil
-}
-
-// Resolve closes an open ticket as done and saves transcript. It needs a
-// moderator.
-func (s *Service) Resolve(ctx context.Context, actor modules.Actor, ticketID, transcript string) (*Ticket, error) {
-	if !actor.CanModerate {
-		s.audit(ctx, actor, "ticket.resolve", ticketID, "denied", ErrPermissionDenied)
+// ActiveForMember returns the actor's own ticket that holds their slot,
+// open or still closing. It is nil while an opening is only reserved.
+func (s *Service) ActiveForMember(ctx context.Context, actor modules.Actor) (*Ticket, error) {
+	if actor.GuildID == "" || actor.DiscordUserID == "" {
 		return nil, ErrPermissionDenied
 	}
-	settings, err := s.enabledSettings(ctx, actor.GuildID)
+	return s.store.activeForMember(ctx, actor.GuildID, actor.DiscordUserID)
+}
+
+// ClosurePending reports whether a closed ticket still holds its owner's
+// slot: its transcript has not reached the queue, or its thread is not yet
+// deleted.
+func (s *Service) ClosurePending(ctx context.Context, actor modules.Actor, ticketID string) (bool, error) {
+	ticket, err := s.visibleTicket(ctx, actor, ticketID)
+	if err != nil {
+		return false, err
+	}
+	if ticket.Status != StatusResolved {
+		return false, nil
+	}
+	active, err := s.store.activeForMember(ctx, ticket.GuildID, ticket.OwnerDiscordUserID)
+	return active != nil && active.ID == ticket.ID, err
+}
+
+// Resolve closes an open ticket with transcript as its saved transcript.
+// The owner and moderators may close, even with tickets switched off. The
+// owner's slot stays held until the adapter has published the transcript
+// and deleted the thread.
+func (s *Service) Resolve(ctx context.Context, actor modules.Actor, ticketID, transcript string) (*Ticket, error) {
+	if _, err := s.visibleTicket(ctx, actor, ticketID); err != nil {
+		if errors.Is(err, ErrPermissionDenied) {
+			s.audit(ctx, actor, "ticket.resolve", ticketID, "denied", err)
+		}
+		return nil, err
+	}
+	settings, _, err := s.loadSettings(ctx, actor.GuildID)
 	if err != nil {
 		return nil, err
 	}
 	now := s.now()
-	saved := newTranscript(actor.GuildID, ticketID, transcript, settings, now)
-	ticket, err := s.store.transition(ctx, actor.GuildID, ticketID, StatusResolved, actor.DiscordUserID, saved, now)
+	saved := Transcript{
+		TicketID:   ticketID,
+		GuildID:    actor.GuildID,
+		Content:    transcript,
+		CapturedAt: now,
+		ExpiresAt:  now.AddDate(0, 0, settings.TranscriptRetentionDays),
+	}
+	ticket, err := s.store.captureClosure(ctx, actor.GuildID, ticketID, actor.DiscordUserID, saved, now)
 	if err != nil {
 		s.audit(ctx, actor, "ticket.resolve", ticketID, "failure", err)
 		return nil, err
 	}
+	s.forgetJournalThread(ticket.ThreadDiscordChannelID)
 	s.audit(ctx, actor, "ticket.resolve", ticket.ID, "success", nil)
 	return ticket, nil
 }
 
-// Cancel withdraws an open ticket without saving a transcript or touching
-// its channel. The owner and moderators may cancel. Callers that should also
-// close the channel use DiscordAdapter.Cancel.
-func (s *Service) Cancel(ctx context.Context, actor modules.Actor, ticketID string) (*Ticket, error) {
-	return s.cancel(ctx, actor, ticketID, nil)
-}
-
-// Reopen returns a resolved or cancelled ticket to open, within the guild's
-// reopen window. It needs a moderator.
-func (s *Service) Reopen(ctx context.Context, actor modules.Actor, ticketID string) (*Ticket, error) {
-	if !actor.CanModerate {
-		s.audit(ctx, actor, "ticket.reopen", ticketID, "denied", ErrPermissionDenied)
-		return nil, ErrPermissionDenied
-	}
-	settings, err := s.enabledSettings(ctx, actor.GuildID)
-	if err != nil {
-		return nil, err
-	}
-	current, err := s.store.get(ctx, actor.GuildID, ticketID)
-	if err != nil {
-		return nil, err
-	}
-	if s.now().Sub(current.UpdatedAt) > time.Duration(settings.ReopenWindowHours)*time.Hour {
-		return nil, ErrInvalidTransition
-	}
-	ticket, err := s.store.transition(ctx, actor.GuildID, ticketID, StatusOpen, actor.DiscordUserID, nil, s.now())
-	if err != nil {
-		s.audit(ctx, actor, "ticket.reopen", ticketID, "failure", err)
-		return nil, err
-	}
-	s.audit(ctx, actor, "ticket.reopen", ticket.ID, "success", nil)
-	return ticket, nil
-}
-
-// RecordChannelMissing notes on a ticket's timeline that its channel was
+// RecordChannelMissing notes on a ticket's timeline that its thread was
 // deleted. The ticket stays as it was for staff to deal with.
 func (s *Service) RecordChannelMissing(ctx context.Context, guildID, ticketID, channelID string) error {
 	return s.recordSystemEvent(ctx, guildID, ticketID, EventChannelMissing,
 		"Private ticket channel was deleted", fmt.Sprintf(`{"channel_id":%q}`, channelID))
 }
 
-// RecordPermissionsRepaired notes on a ticket's timeline that its ACL was
-// repaired.
+// RecordPermissionsRepaired notes on a ticket's timeline that its access
+// was repaired.
 func (s *Service) RecordPermissionsRepaired(ctx context.Context, guildID, ticketID string) error {
 	return s.recordSystemEvent(ctx, guildID, ticketID, EventPermissionsRepaired,
 		"Private ticket permissions repaired", "{}")
@@ -231,35 +218,11 @@ func (s *Service) RepairDeletedEntryChannel(ctx context.Context, guildID, channe
 	return nil
 }
 
-// PurgeExpiredTranscripts deletes transcripts past their retention and
-// returns how many. Timelines are kept.
+// PurgeExpiredTranscripts deletes transcripts and journaled message text
+// past their retention and returns how many transcripts went. Timelines are
+// kept.
 func (s *Service) PurgeExpiredTranscripts(ctx context.Context) (int64, error) {
-	return s.store.purgeExpiredTranscripts(ctx, s.now())
-}
-
-// cancel cancels an open ticket, saving transcript when the caller captured
-// one. A transcript is dropped, not fatal, if the settings cannot be read.
-func (s *Service) cancel(ctx context.Context, actor modules.Actor, ticketID string, transcript *string) (*Ticket, error) {
-	ticket, err := s.store.get(ctx, actor.GuildID, ticketID)
-	if err != nil {
-		return nil, err
-	}
-	if !canAccess(actor, ticket) {
-		s.audit(ctx, actor, "ticket.cancel", ticketID, "denied", ErrPermissionDenied)
-		return nil, ErrPermissionDenied
-	}
-	now := s.now()
-	var saved *Transcript
-	if settings, _, err := s.loadSettings(ctx, actor.GuildID); err == nil && transcript != nil {
-		saved = newTranscript(actor.GuildID, ticketID, *transcript, settings, now)
-	}
-	ticket, err = s.store.transition(ctx, actor.GuildID, ticketID, StatusCancelled, actor.DiscordUserID, saved, now)
-	if err != nil {
-		s.audit(ctx, actor, "ticket.cancel", ticketID, "failure", err)
-		return nil, err
-	}
-	s.audit(ctx, actor, "ticket.cancel", ticket.ID, "success", nil)
-	return ticket, nil
+	return s.store.purgeExpired(ctx, s.now())
 }
 
 // visibleTicket returns a ticket the actor may read: their own, or any
@@ -269,7 +232,7 @@ func (s *Service) visibleTicket(ctx context.Context, actor modules.Actor, ticket
 	if err != nil {
 		return nil, err
 	}
-	if !canAccess(actor, ticket) {
+	if !actor.CanModerate && actor.DiscordUserID != ticket.OwnerDiscordUserID {
 		return nil, ErrPermissionDenied
 	}
 	return ticket, nil
@@ -282,34 +245,13 @@ func (s *Service) recordSystemEvent(ctx context.Context, guildID, ticketID strin
 	if err != nil {
 		return err
 	}
-	return s.store.append(ctx, Event{
-		TicketID:           ticket.ID,
-		GuildID:            ticket.GuildID,
-		Type:               eventType,
-		ActorDiscordUserID: modules.SystemActorID,
-		Body:               body,
-		MetadataJSON:       metadata,
-		CreatedAt:          s.now(),
-	})
+	return s.store.append(ctx, ticket, eventType, modules.SystemActorID, body, metadata, s.now())
 }
 
 // loadSettings returns the guild's settings, defaults if it has none, and
 // whether tickets are on.
 func (s *Service) loadSettings(ctx context.Context, guildID string) (Settings, bool, error) {
 	return modules.LoadSettings(ctx, s.registry, guildID, modules.Tickets, Defaults())
-}
-
-// enabledSettings returns the guild's settings, or ErrDisabled if tickets
-// are off.
-func (s *Service) enabledSettings(ctx context.Context, guildID string) (Settings, error) {
-	settings, enabled, err := s.loadSettings(ctx, guildID)
-	if err != nil {
-		return Settings{}, err
-	}
-	if !enabled {
-		return Settings{}, ErrDisabled
-	}
-	return settings, nil
 }
 
 // audit logs and records a ticket operation.
@@ -327,21 +269,4 @@ func (s *Service) audit(ctx context.Context, actor modules.Actor, action, resour
 		Result:             result,
 		FailureReason:      reason,
 	})
-}
-
-// canAccess reports whether actor may read and act on ticket: its owner and
-// every moderator may.
-func canAccess(actor modules.Actor, ticket *Ticket) bool {
-	return actor.CanModerate || actor.DiscordUserID == ticket.OwnerDiscordUserID
-}
-
-// newTranscript stamps a captured transcript with the guild's retention.
-func newTranscript(guildID, ticketID, content string, settings Settings, now time.Time) *Transcript {
-	return &Transcript{
-		TicketID:   ticketID,
-		GuildID:    guildID,
-		Content:    content,
-		CapturedAt: now,
-		ExpiresAt:  now.AddDate(0, 0, settings.TranscriptRetentionDays),
-	}
 }

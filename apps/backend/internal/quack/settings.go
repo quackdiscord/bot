@@ -28,6 +28,16 @@ type ModuleToggles interface {
 	SetModuleStates(ctx context.Context, guildID string, states ModuleStates) error
 }
 
+// ModuleEnablementChecker checks a module's saved setup against live
+// Discord before the settings service switches it on, so a module is never
+// on with channels or permissions it cannot use. A ModuleToggles may
+// implement it; modules.Registry does.
+type ModuleEnablementChecker interface {
+	// CheckModuleEnablement returns why the modules set in on cannot be
+	// switched on in guild, or nil.
+	CheckModuleEnablement(ctx context.Context, guild *Guild, on ModuleStates) error
+}
+
 // GuildSettingsService reads and updates a guild's core settings. All access
 // needs Manage Guild and is audited.
 type GuildSettingsService struct {
@@ -150,6 +160,19 @@ func (s *GuildSettingsService) Update(ctx context.Context, guildContext *GuildSt
 		err := settingsValidationError("optional modules are unavailable")
 		_ = s.audit(ctx, guildContext, action, AuditResultFailure, err.Error())
 		return nil, err
+	}
+	if on := (ModuleStates{
+		Tickets:        wantStates.Tickets && !states.Tickets,
+		GeneralLogging: wantStates.GeneralLogging && !states.GeneralLogging,
+		Honeypot:       wantStates.Honeypot && !states.Honeypot,
+	}); on != (ModuleStates{}) {
+		if checker, ok := s.modules.(ModuleEnablementChecker); ok {
+			if err := checker.CheckModuleEnablement(ctx, guildContext.Guild, on); err != nil {
+				err = settingsValidationError(err.Error())
+				_ = s.audit(ctx, guildContext, action, AuditResultFailure, err.Error())
+				return nil, err
+			}
+		}
 	}
 	staffChannels := []struct {
 		changed   bool

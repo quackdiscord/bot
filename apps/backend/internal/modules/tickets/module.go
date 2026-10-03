@@ -23,10 +23,13 @@ type StaffResolver interface {
 type Module struct {
 	service  *Service
 	store    *Store
-	discord  *DiscordAdapter
+	adapter  *DiscordAdapter
 	channels channels
 	guilds   *modules.Guilds
 	staff    StaffResolver
+
+	// setupLocks allows one /setup tickets per guild at a time.
+	setupLocks keyedLocks
 
 	// repairMu guards the thread-repair queue; see repairThreads.
 	repairMu      sync.Mutex
@@ -35,31 +38,37 @@ type Module struct {
 }
 
 // New returns the tickets module. Tickets are stored in db, switched on in
-// registry, audited to audit, and created through session; staff resolves
-// live authority for button presses.
+// registry, audited to audit, and run in Discord through session; staff
+// resolves live authority for button presses. It installs the tickets
+// enablement check on registry, so the settings API switches tickets on
+// only with a working setup.
 func New(db *gorm.DB, registry *modules.Registry, audit modules.Auditor, guilds *modules.Guilds, session *discordgo.Session, staff StaffResolver) *Module {
 	store := NewStore(db)
 	service := NewService(registry, store, audit)
 	channels := channels{session: session, guilds: guilds}
-	return &Module{
+	m := &Module{
 		service:       service,
 		store:         store,
-		discord:       NewDiscordAdapter(service, channels),
+		adapter:       NewDiscordAdapter(service, channels),
 		channels:      channels,
 		guilds:        guilds,
 		staff:         staff,
 		repairPending: make(map[string]struct{}),
 	}
+	registry.SetEnablementCheck(modules.Tickets, m.checkEnablement)
+	return m
 }
 
 // MountHTTP mounts the ticket routes.
 func (m *Module) MountHTTP(mux modules.Mux) {
-	RegisterRoutes(mux, m.service, m.discord, modules.RequestActor)
+	RegisterRoutes(mux, m.service, m.adapter, modules.RequestActor)
 }
 
-// RegisterGateway subscribes tickets to the gateway events that can change
-// who may see a ticket, or delete one.
+// RegisterGateway subscribes tickets to the gateway events it needs: ticket
+// messages for the journal, member and role changes that can change who may
+// stay in a thread, and deleted channels.
 func (m *Module) RegisterGateway(session *discordgo.Session) {
+	session.AddHandler(m.onMessageCreate)
 	session.AddHandler(m.onGuildCreate)
 	session.AddHandler(m.onMemberUpdate)
 	session.AddHandler(m.onRoleUpdate)
@@ -67,20 +76,43 @@ func (m *Module) RegisterGateway(session *discordgo.Session) {
 	session.AddHandler(m.onChannelDelete)
 }
 
-// RegisterComponents installs the ticket buttons and the reply modal on
-// router.
-func (m *Module) RegisterComponents(router *discord.Router) {
-	router.HandleComponent(componentNamespace, "open", m.openComponent)
-	router.HandleComponent(componentNamespace, "queue", m.queueComponent)
-	router.HandleComponent(componentNamespace, "view", m.viewComponent)
-	router.HandleComponent(componentNamespace, "reply", m.replyComponent)
-	router.HandleComponent(componentNamespace, "close", m.closeComponent)
-	router.HandleComponent(componentNamespace, "repair", m.repairComponent)
-	router.HandleModal(componentNamespace, "reply-submit", m.submitReplyModal)
+// Intents returns the gateway intents tickets need when any guild has them
+// on: guild messages with their content for the journal, and members for
+// thread membership repair.
+func (m *Module) Intents(ctx context.Context) (discordgo.Intent, error) {
+	enabled, err := m.service.registry.AnyEnabled(ctx, modules.Tickets)
+	if err != nil || !enabled {
+		return 0, err
+	}
+	return discordgo.IntentGuilds |
+		discordgo.IntentGuildMembers |
+		discordgo.IntentGuildMessages |
+		discordgo.IntentMessageContent, nil
 }
 
-// SweepTranscripts deletes transcripts past their retention. Ticket
-// timelines are kept.
+// RegisterComponents installs /setup tickets and the ticket buttons and
+// modal on router. The actions are baked into posted messages, so they must
+// never be renamed.
+func (m *Module) RegisterComponents(router *discord.Router) {
+	router.HandleSetup("tickets", m.Setup)
+	for action, handler := range map[string]discord.Handler{
+		"open":         m.openComponent,
+		"queue":        m.queueComponent,
+		"view":         m.viewComponent,
+		"close":        m.closeComponent,
+		"repair":       m.repairComponent,
+		"queuefix":     m.queueFixComponent,
+		"queueadopt":   m.queueAdoptComponent,
+		"queueretry":   m.queueRetryComponent,
+		"queueretryok": m.queueRetryConfirmed,
+	} {
+		router.HandleComponent(componentNamespace, action, handler)
+	}
+	router.HandleModal(componentNamespace, "queueadopt", m.queueAdoptSubmit)
+}
+
+// SweepTranscripts deletes transcripts and journaled message text past
+// their retention. Ticket timelines are kept.
 func (m *Module) SweepTranscripts(ctx context.Context) error {
 	_, err := m.service.PurgeExpiredTranscripts(ctx)
 	return err

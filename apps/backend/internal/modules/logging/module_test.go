@@ -28,7 +28,7 @@ func TestPoolDeliversEventsAndBulkDeletes(t *testing.T) {
 	}
 	client.mu.Lock()
 	defer client.mu.Unlock()
-	if len(client.payloads) != 2 || !strings.Contains(strings.Join(client.payloads, ""), `"message_count":"2"`) {
+	if len(client.payloads) != 2 || !strings.Contains(strings.Join(client.payloads, ""), "2 messages were deleted.") {
 		t.Fatalf("payloads = %q, want a join and a two-message bulk delete", client.payloads)
 	}
 }

@@ -20,8 +20,8 @@ var tables = []string{
 	"case_notifications", "case_events",
 	"appeals", "appeal_events", "guild_appeal_settings", "appeal_notifications",
 	"audit_log_entries", "v4_import_batches", "v4_import_sources",
-	"module_configurations", "tickets", "ticket_events", "ticket_transcripts", "ticket_member_states",
-	"honeypot_triggers",
+	"module_configurations", "tickets", "ticket_events", "ticket_transcripts", "ticket_member_states", "ticket_message_journal",
+	"honeypot_triggers", "honeypot_message_cleanups", "honeypot_warning_refreshes",
 }
 
 func TestMigrateCreatesSchemaOnce(t *testing.T) {

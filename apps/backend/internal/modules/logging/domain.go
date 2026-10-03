@@ -1,12 +1,14 @@
 // Package logging is the optional general-logging module. It posts guild
 // events (message edits and deletions, joins and leaves, bans, guild and
-// channel changes) to staff-only channels the guild picks. It keeps no
-// archive: recent messages are cached in memory only so an edit or delete
-// can show what changed.
+// channel changes) to staff-only channels the guild picks, as readable
+// Quack messages. It keeps no archive: recent messages are cached in memory
+// only so an edit or delete can show what changed.
 package logging
 
 import (
+	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 )
 
@@ -26,6 +28,12 @@ const (
 	GuildChange       EventType = "guild_change"
 	ChannelChange     EventType = "channel_change"
 )
+
+// eventTypes lists every event the module can log.
+var eventTypes = []EventType{
+	MessageEdit, MessageDelete, MessageBulkDelete, MemberJoin, MemberLeave,
+	DiscordBan, DiscordUnban, GuildChange, ChannelChange,
+}
 
 var (
 	// ErrDisabled reports a guild with general logging off.
@@ -57,10 +65,32 @@ func Defaults() Settings {
 	}
 }
 
-// AttachmentMetadata describes an attachment without its content.
+// RouteAllTo points every event at channelID and turns on the message
+// details /setup logging promises. Cache and retry bounds are kept.
+func (s Settings) RouteAllTo(channelID string) Settings {
+	s.Channels = make(map[EventType]string, len(eventTypes))
+	for _, t := range eventTypes {
+		s.Channels[t] = channelID
+	}
+	s.IncludeMessageContent = true
+	s.IncludeAttachmentMetadata = true
+	s.IncludeEmbedMetadata = true
+	return s
+}
+
+// AttachmentMetadata describes an attachment without its content. URL is
+// Discord's own download link, which expires; the module never archives
+// the file.
 type AttachmentMetadata struct {
-	Filename, ContentType string
-	Size                  int64
+	DiscordID, Filename, ContentType, URL string
+	Size                                  int64
+}
+
+// sameFile reports whether a and b are the same file, ignoring the signed
+// URL, which Discord rotates without the member changing anything.
+func sameFile(a, b AttachmentMetadata) bool {
+	a.URL, b.URL = "", ""
+	return a == b
 }
 
 // Event is one Discord event to log. It is delivered and then forgotten.
@@ -70,9 +100,22 @@ type Event struct {
 	Before, After                                                   string
 	Attachments                                                     []AttachmentMetadata
 	EmbedTypes                                                      []string
-	Metadata                                                        map[string]string
+	// Metadata carries event details: a channel's operation and name, a
+	// guild's name, a ban's target_id and reason, or a bulk deletion's
+	// message_count and cached_count.
+	Metadata map[string]string
 	// MessageIDs are the deleted messages of a MessageBulkDelete.
 	MessageIDs []string
+
+	// SnapshotComplete marks an edit captured by Service.PrepareMessageEdit,
+	// whose before side must not be refilled from a newer cached copy.
+	// BeforeKnown says whether that before side was known at all.
+	SnapshotComplete, BeforeKnown bool
+	// BeforeAttachments are an edited message's files before the edit.
+	BeforeAttachments []AttachmentMetadata
+	// BulkMessages are the cached messages of a MessageBulkDelete, each
+	// with its own author and files.
+	BulkMessages []CachedMessage
 }
 
 // validateSettings checks settings; enabled logging also needs at least
@@ -95,13 +138,18 @@ func validateSettings(settings Settings, enabled bool) error {
 	return nil
 }
 
-// validEventType reports whether t is an event the module can log.
-func validEventType(t EventType) bool {
-	switch t {
-	case MessageEdit, MessageDelete, MessageBulkDelete,
-		MemberJoin, MemberLeave, DiscordBan, DiscordUnban,
-		GuildChange, ChannelChange:
-		return true
+// decodeEnabledSettings decodes stored settings JSON over the defaults and
+// checks it could be switched on.
+func decodeEnabledSettings(configJSON string) (Settings, error) {
+	settings := Defaults()
+	if err := json.Unmarshal([]byte(configJSON), &settings); err != nil {
+		return Settings{}, errors.New("saved logging settings are unreadable; run /setup logging again")
 	}
-	return false
+	if err := validateSettings(settings, true); err != nil {
+		return Settings{}, err
+	}
+	return settings, nil
 }
+
+// validEventType reports whether t is an event the module can log.
+func validEventType(t EventType) bool { return slices.Contains(eventTypes, t) }

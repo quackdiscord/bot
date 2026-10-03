@@ -2,6 +2,7 @@ package tickets
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"slices"
 	"time"
@@ -11,6 +12,31 @@ import (
 
 // repairPage is how many tickets one thread-repair query loads.
 const repairPage = 100
+
+// onMessageCreate journals messages posted in open ticket threads. Threads
+// are recognized from memory, so other traffic costs nothing. A message
+// without text has nothing to preserve, and journaling it would hide the
+// text of a session missing the message content intent.
+func (m *Module) onMessageCreate(_ *discordgo.Session, event *discordgo.MessageCreate) {
+	if event.Message == nil || event.GuildID == "" || event.Author == nil || event.Content == "" {
+		return
+	}
+	guildID, ok := m.service.KnownMessageThread(event.ChannelID)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	err := m.service.RecordMessage(ctx, guildID, event.ChannelID, transcriptMessage(event.Message))
+	switch {
+	case errors.Is(err, ErrJournalCutoff):
+		slog.WarnContext(ctx, "Ticket message arrived after its transcript was captured",
+			"thread_id", event.ChannelID, "message_id", event.ID)
+	case err != nil:
+		slog.WarnContext(ctx, "Ticket message not journaled yet; closing will retry",
+			"guild_id", guildID, "thread_id", event.ChannelID, "message_id", event.ID, "error", err)
+	}
+}
 
 // onGuildCreate repairs thread membership whenever a guild becomes
 // available, including after a reconnect that may have missed demotions.
@@ -43,12 +69,13 @@ func (m *Module) onRoleDelete(_ *discordgo.Session, event *discordgo.GuildRoleDe
 }
 
 // onChannelDelete turns tickets off if the entry channel was deleted, and
-// records a deleted ticket channel on its ticket's timeline.
+// records a deleted ticket thread on its ticket's timeline.
 func (m *Module) onChannelDelete(_ *discordgo.Session, event *discordgo.ChannelDelete) {
 	if event.Channel == nil {
 		return
 	}
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	guildID, err := m.guilds.InternalID(ctx, event.GuildID)
 	if err != nil {
 		return
@@ -57,7 +84,7 @@ func (m *Module) onChannelDelete(_ *discordgo.Session, event *discordgo.ChannelD
 		slog.WarnContext(ctx, "Ticket entry channel repair failed", "guild_id", guildID, "error", err)
 	}
 	ticketID, err := m.store.ticketIDByChannel(ctx, guildID, event.ID)
-	if err != nil || ticketID == "" {
+	if err != nil {
 		return
 	}
 	if err := m.service.RecordChannelMissing(ctx, guildID, ticketID, event.ID); err != nil {
@@ -92,9 +119,9 @@ func (m *Module) repairThreads(discordGuildID string) {
 	m.repairMu.Unlock()
 }
 
-// repairGuildThreads syncs the members of every private ticket thread in a
-// guild with its current staff roles. A minute bounds the whole pass;
-// failures are logged and left for the next event.
+// repairGuildThreads removes former staff from every open ticket thread in
+// a guild, whether or not tickets are still switched on. A minute bounds
+// the whole pass; failures are logged and left for the next event.
 func (m *Module) repairGuildThreads(discordGuildID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
@@ -102,23 +129,17 @@ func (m *Module) repairGuildThreads(discordGuildID string) {
 	if err != nil {
 		return
 	}
-	settings, _, err := m.service.loadSettings(ctx, guildID)
-	if err != nil {
-		slog.WarnContext(ctx, "Ticket permission repair settings unavailable", "guild_id", guildID)
-		return
-	}
 	after := ""
 	for {
-		page, err := m.store.threadsAfter(ctx, guildID, after, repairPage)
+		page, err := m.store.openThreadsAfter(ctx, guildID, after, repairPage)
 		if err != nil {
-			slog.ErrorContext(ctx, "Ticket permission repair lookup failed", "guild_id", guildID)
+			slog.ErrorContext(ctx, "Ticket permission repair lookup failed", "guild_id", guildID, "error", err)
 			return
 		}
 		for _, ticket := range page {
-			channel, err := m.channels.session.Channel(ticket.ThreadDiscordChannelID, rest(ctx)...)
-			if err == nil && channel.GuildID == discordGuildID && channel.Type == discordgo.ChannelTypeGuildPrivateThread {
-				err = m.channels.syncThreadMembers(ctx, discordGuildID, channel.ID,
-					ticket.OwnerDiscordUserID, settings.StaffRoleDiscordIDs)
+			thread, err := m.channels.session.Channel(ticket.ThreadDiscordChannelID, rest(ctx)...)
+			if err == nil && thread.GuildID == discordGuildID && thread.Type == discordgo.ChannelTypeGuildPrivateThread {
+				err = m.channels.syncThreadMembers(ctx, discordGuildID, thread.ID, ticket.OwnerDiscordUserID)
 			}
 			if err != nil {
 				slog.WarnContext(ctx, "Ticket permission repair incomplete", "guild_id", guildID, "ticket_id", ticket.ID)

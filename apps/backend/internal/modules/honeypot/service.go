@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/quackdiscord/bot/internal/modules"
@@ -102,9 +101,12 @@ func (s *Service) Repair(ctx context.Context, actor modules.Actor) (Settings, St
 }
 
 // HandleMessage opens a case for a message in the trap channel, unless the
-// author is exempt or the message was already handled. The trigger is
-// claimed before anything acts on it, so each message opens at most one
-// case. A template that has become unusable turns the honeypot off instead.
+// author is exempt, the message was already handled, or it joined the
+// member's incident already under way (ErrDuplicate). The incident is
+// claimed, and the message queued for cleanup, before anything acts on it,
+// so each incident opens at most one case. A template that has become
+// unusable turns the honeypot off; a storage failure only fails the
+// incident.
 func (s *Service) HandleMessage(ctx context.Context, message Message) (ApplyResult, error) {
 	message = normalizeMessage(message)
 	settings, enabled, err := s.loadSettings(ctx, message.GuildID)
@@ -118,7 +120,7 @@ func (s *Service) HandleMessage(ctx context.Context, message Message) (ApplyResu
 		message.MessageDiscordID == "" || message.AuthorDiscordUserID == "" {
 		return ApplyResult{}, ErrNotTrigger
 	}
-	if isExempt(message, settings) {
+	if isExempt(message) {
 		_, claimed, err := s.store.Claim(ctx, message, settings.TemplateID, OutcomeExempt)
 		switch {
 		case err != nil:
@@ -129,18 +131,25 @@ func (s *Service) HandleMessage(ctx context.Context, message Message) (ApplyResu
 			return ApplyResult{}, ErrExempt
 		}
 	}
-	trigger, claimed, err := s.store.Claim(ctx, message, settings.TemplateID, OutcomePending)
+	trigger, claimed, err := s.store.ClaimIncident(ctx, message, settings.TemplateID)
 	if err != nil {
 		return ApplyResult{}, err
 	}
 	if !claimed {
 		return ApplyResult{}, ErrDuplicate
 	}
+	// Give up before the lease expires and recovery takes over. A cancelled
+	// completion leaves the incident pending for recovery, which looks for
+	// a saved case first.
+	ctx, cancel := context.WithTimeout(ctx, attemptTimeout)
+	defer cancel()
 	s.auditTrigger(ctx, message.GuildID, "honeypot.trigger.detected", "honeypot_trigger", trigger.ID, nil)
 
 	if err := s.templates.ValidateHoneypotTemplate(ctx, message.GuildID, settings.TemplateID); err != nil {
-		_ = s.store.Complete(ctx, trigger.ID, OutcomeFailed, "", "template_unavailable")
-		_ = s.disable(ctx, message.GuildID, settings, reasonTemplateUnavailable)
+		_ = s.store.completeIncident(ctx, trigger, OutcomeFailed, "", "template_unavailable")
+		if errors.Is(err, ErrTemplateUnavailable) {
+			_ = s.disable(ctx, message.GuildID, settings, reasonTemplateUnavailable)
+		}
 		s.auditTrigger(ctx, message.GuildID, "honeypot.trigger.failed", "honeypot_trigger", trigger.ID, err)
 		return ApplyResult{}, fmt.Errorf("%w: %v", ErrTemplateUnavailable, err)
 	}
@@ -151,18 +160,18 @@ func (s *Service) HandleMessage(ctx context.Context, message Message) (ApplyResu
 		ContextChannelDiscordID: message.ChannelDiscordID,
 		ContextMessageDiscordID: message.MessageDiscordID,
 		ContextURL:              message.MessageURL,
-		IdempotencyKey:          "honeypot:" + message.GuildID + ":" + message.MessageDiscordID,
+		IdempotencyKey:          idempotencyKey(message.GuildID, message.MessageDiscordID),
 		Source:                  SourceHoneypot,
 		ActorType:               ActorTypeSystem,
 	})
 	if err == nil && strings.TrimSpace(result.CaseID) == "" {
-		return ApplyResult{}, s.failTrigger(ctx, message.GuildID, trigger.ID, "invalid_case_result",
-			errors.New("normal case path returned no case id"))
+		err = errors.New("normal case path returned no case id")
+		return ApplyResult{}, s.failTrigger(ctx, message.GuildID, trigger, "invalid_case_result", err)
 	}
 	if err != nil {
-		return ApplyResult{}, s.failTrigger(ctx, message.GuildID, trigger.ID, "case_application_failed", err)
+		return ApplyResult{}, s.failTrigger(ctx, message.GuildID, trigger, "case_application_failed", err)
 	}
-	if err := s.store.Complete(ctx, trigger.ID, OutcomeCreated, result.CaseID, ""); err != nil {
+	if err := s.store.completeIncident(ctx, trigger, OutcomeCreated, result.CaseID, ""); err != nil {
 		return ApplyResult{}, err
 	}
 	s.auditTrigger(ctx, message.GuildID, "honeypot.case.created", "case", result.CaseID, nil)
@@ -187,6 +196,12 @@ func (s *Service) HandleTemplateUnavailable(ctx context.Context, guildID, templa
 	return s.disable(ctx, guildID, settings, reasonTemplateUnavailable)
 }
 
+// idempotencyKey is the case idempotency key for a trap message. Recovery
+// rebuilds it to find a case the first attempt may have saved.
+func idempotencyKey(guildID, messageID string) string {
+	return "honeypot:" + guildID + ":" + messageID
+}
+
 // disable turns the honeypot off for reason, keeping its settings.
 func (s *Service) disable(ctx context.Context, guildID string, settings Settings, reason string) error {
 	settings.DisabledReason = reason
@@ -203,11 +218,11 @@ func (s *Service) disable(ctx context.Context, guildID string, settings Settings
 	return nil
 }
 
-// failTrigger records that a claimed trigger opened no case, and returns
-// cause.
-func (s *Service) failTrigger(ctx context.Context, guildID, triggerID, code string, cause error) error {
-	_ = s.store.Complete(ctx, triggerID, OutcomeFailed, "", code)
-	s.auditTrigger(ctx, guildID, "honeypot.trigger.failed", "honeypot_trigger", triggerID, cause)
+// failTrigger records that a claimed incident opened no case, and returns
+// cause. The failed incident does not absorb the member's next message.
+func (s *Service) failTrigger(ctx context.Context, guildID string, trigger *Trigger, code string, cause error) error {
+	_ = s.store.completeIncident(ctx, trigger, OutcomeFailed, "", code)
+	s.auditTrigger(ctx, guildID, "honeypot.trigger.failed", "honeypot_trigger", trigger.ID, cause)
 	return cause
 }
 
@@ -277,36 +292,4 @@ func reason(cause error) string {
 		return ""
 	}
 	return cause.Error()
-}
-
-// normalizeSettings trims the IDs a manager typed.
-func normalizeSettings(settings Settings) Settings {
-	settings.ChannelDiscordID = strings.TrimSpace(settings.ChannelDiscordID)
-	settings.TemplateID = strings.TrimSpace(settings.TemplateID)
-	settings.DisabledReason = strings.TrimSpace(settings.DisabledReason)
-	for i := range settings.ExemptRoleDiscordIDs {
-		settings.ExemptRoleDiscordIDs[i] = strings.TrimSpace(settings.ExemptRoleDiscordIDs[i])
-	}
-	return settings
-}
-
-// normalizeMessage trims a message's IDs before they are compared with the
-// settings.
-func normalizeMessage(message Message) Message {
-	message.GuildID = strings.TrimSpace(message.GuildID)
-	message.ChannelDiscordID = strings.TrimSpace(message.ChannelDiscordID)
-	message.MessageDiscordID = strings.TrimSpace(message.MessageDiscordID)
-	message.AuthorDiscordUserID = strings.TrimSpace(message.AuthorDiscordUserID)
-	return message
-}
-
-// isExempt reports whether the author is one the trap never fires on: a
-// bot, Quack, a webhook, staff, or a member with an exempt role.
-func isExempt(message Message, settings Settings) bool {
-	if message.IsBot || message.IsQuack || message.IsWebhook || message.AuthorCanModerate {
-		return true
-	}
-	return slices.ContainsFunc(message.AuthorRoleDiscordIDs, func(roleID string) bool {
-		return slices.Contains(settings.ExemptRoleDiscordIDs, roleID)
-	})
 }

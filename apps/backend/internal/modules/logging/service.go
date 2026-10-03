@@ -2,18 +2,17 @@ package logging
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"regexp"
 	"slices"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/internal/discord"
 	"github.com/quackdiscord/bot/internal/modules"
 )
 
@@ -22,9 +21,12 @@ import (
 // channel.
 var secretPattern = regexp.MustCompile(`(?i)(bot\s+[A-Za-z0-9._-]{20,}|https://(?:discord(?:app)?\.com/api/)?webhooks/[^\s]+|(?:token|secret|authorization)\s*[:=]\s*[^\s]+)`)
 
-// DeliveryClient posts log messages. Payloads are already redacted.
+// maxBulkMessages is the most messages Discord deletes in one bulk delete.
+const maxBulkMessages = 100
+
+// DeliveryClient posts log messages. Messages are already redacted.
 type DeliveryClient interface {
-	SendStaffLog(ctx context.Context, guildID, channelID, payload string) error
+	SendStaffLog(ctx context.Context, guildID, channelID string, message discord.Message) error
 	ValidateStaffOnlyChannel(ctx context.Context, guildID, channelID string) error
 }
 
@@ -37,7 +39,7 @@ type Status struct {
 	CachedMessages int        `json:"cached_messages"`
 }
 
-// Service formats, redacts, and delivers events with bounded retries, and
+// Service renders, redacts, and delivers events with bounded retries, and
 // manages each guild's settings.
 type Service struct {
 	registry *modules.Registry
@@ -135,38 +137,67 @@ func (s *Service) Status(guildID string) Status {
 
 // CacheMessage caches a message for a guild with logging on.
 func (s *Service) CacheMessage(ctx context.Context, message CachedMessage) error {
-	settings, enabled, err := s.loadSettings(ctx, message.GuildID)
-	if err != nil {
+	if _, err := s.enabledSettings(ctx, message.GuildID); err != nil {
 		return err
 	}
-	if !enabled {
-		return ErrDisabled
-	}
-	s.cache.SetGuildLimit(message.GuildID, settings.CacheEntriesPerGuild)
 	s.cache.Put(message)
 	return nil
+}
+
+// PrepareMessageEdit caches current and returns the edit event to queue,
+// with the message as it was before frozen into it, so a queued edit never
+// reads a newer cached copy. before is Discord's own copy, when it sent
+// one; otherwise the cache's is used. It returns nil when nothing a member
+// would notice changed, such as Discord refreshing a file's signed URL.
+func (s *Service) PrepareMessageEdit(ctx context.Context, current CachedMessage, before *CachedMessage) (*Event, error) {
+	if _, err := s.enabledSettings(ctx, current.GuildID); err != nil {
+		return nil, err
+	}
+	previous, known := s.cache.Replace(current)
+	if before != nil {
+		previous, known = *before, true
+	}
+	if known && previous.Content == current.Content &&
+		slices.EqualFunc(previous.Attachments, current.Attachments, sameFile) {
+		return nil, nil
+	}
+	actor := current.AuthorDiscordUserID
+	if actor == "" {
+		actor = previous.AuthorDiscordUserID
+	}
+	return &Event{
+		GuildID:            current.GuildID,
+		ChannelDiscordID:   current.ChannelDiscordID,
+		MessageDiscordID:   current.MessageDiscordID,
+		ActorDiscordUserID: actor,
+		Type:               MessageEdit,
+		Before:             previous.Content,
+		After:              current.Content,
+		Attachments:        current.Attachments,
+		EmbedTypes:         current.EmbedTypes,
+		SnapshotComplete:   true,
+		BeforeKnown:        known,
+		BeforeAttachments:  previous.Attachments,
+	}, nil
 }
 
 // Handle delivers one event to its routed channel, filling in cached
 // content, and retries up to the guild's limit. A delivered deletion drops
 // the message from the cache; a failed one keeps it for a gateway replay.
 func (s *Service) Handle(ctx context.Context, event Event) error {
-	settings, enabled, err := s.loadSettings(ctx, event.GuildID)
+	settings, err := s.enabledSettings(ctx, event.GuildID)
 	if err != nil {
 		return err
-	}
-	if !enabled {
-		return ErrDisabled
 	}
 	channelID := settings.Channels[event.Type]
 	if channelID == "" {
 		return ErrNoDestination
 	}
 	s.enrichFromCache(&event)
-	payload := formatEvent(event, settings)
+	message := logMessage(present(event, settings))
 	var last error
 	for attempt := 1; attempt <= settings.MaxDeliveryAttempts; attempt++ {
-		last = s.client.SendStaffLog(ctx, event.GuildID, channelID, payload)
+		last = s.client.SendStaffLog(ctx, event.GuildID, channelID, message)
 		if last == nil {
 			if event.Type == MessageDelete {
 				s.cache.Delete(event.GuildID, event.MessageDiscordID)
@@ -187,23 +218,26 @@ func (s *Service) Handle(ctx context.Context, event Event) error {
 	return fmt.Errorf("deliver general log after %d attempts: %w", settings.MaxDeliveryAttempts, last)
 }
 
-// HandleBulkDelete logs a bulk deletion with whatever content was cached,
-// then drops those messages from the cache.
+// HandleBulkDelete logs a bulk deletion with each cached message, then
+// drops those messages from the cache.
 func (s *Service) HandleBulkDelete(ctx context.Context, guildID, channelID string, messageIDs []string) error {
-	var contents []string
+	if len(messageIDs) > maxBulkMessages {
+		return fmt.Errorf("bulk delete of %d messages exceeds Discord's %d", len(messageIDs), maxBulkMessages)
+	}
+	var cached []CachedMessage
 	for _, id := range messageIDs {
-		if cached, ok := s.cache.Get(guildID, id); ok {
-			contents = append(contents, cached.Content)
+		if message, ok := s.cache.Get(guildID, id); ok {
+			cached = append(cached, message)
 		}
 	}
 	err := s.Handle(ctx, Event{
 		GuildID:          guildID,
 		ChannelDiscordID: channelID,
 		Type:             MessageBulkDelete,
-		Before:           strings.Join(contents, "\n---\n"),
+		BulkMessages:     cached,
 		Metadata: map[string]string{
 			"message_count": strconv.Itoa(len(messageIDs)),
-			"cached_count":  strconv.Itoa(len(contents)),
+			"cached_count":  strconv.Itoa(len(cached)),
 		},
 	})
 	if err != nil {
@@ -213,6 +247,20 @@ func (s *Service) HandleBulkDelete(ctx context.Context, guildID, channelID strin
 		s.cache.Delete(guildID, id)
 	}
 	return nil
+}
+
+// enabledSettings returns the settings of a guild with logging on, applying
+// its cache limit, or ErrDisabled.
+func (s *Service) enabledSettings(ctx context.Context, guildID string) (Settings, error) {
+	settings, enabled, err := s.loadSettings(ctx, guildID)
+	if err != nil {
+		return Settings{}, err
+	}
+	if !enabled {
+		return Settings{}, ErrDisabled
+	}
+	s.cache.SetGuildLimit(guildID, settings.CacheEntriesPerGuild)
+	return settings, nil
 }
 
 // loadSettings returns the guild's settings, defaults if it has none, and
@@ -229,14 +277,17 @@ func (s *Service) loadSettings(ctx context.Context, guildID string) (Settings, b
 }
 
 // enrichFromCache fills in what an edit or delete event lacks from the
-// cached copy of its message.
+// cached copy of its message. A prepared edit already has its snapshot.
 func (s *Service) enrichFromCache(event *Event) {
-	if event.Type != MessageEdit && event.Type != MessageDelete {
+	if event.SnapshotComplete || (event.Type != MessageEdit && event.Type != MessageDelete) {
 		return
 	}
 	cached, ok := s.cache.Get(event.GuildID, event.MessageDiscordID)
 	if !ok {
 		return
+	}
+	if event.ActorDiscordUserID == "" {
+		event.ActorDiscordUserID = cached.AuthorDiscordUserID
 	}
 	if event.Before == "" {
 		event.Before = cached.Content
@@ -287,34 +338,46 @@ func (s *Service) audit(ctx context.Context, actor modules.Actor, action, result
 	})
 }
 
-// formatEvent renders event as the JSON posted to the log channel,
-// including only the message details the guild opted into, with secrets
+// present reduces event to what the guild opted to show, with secrets
 // redacted.
-func formatEvent(event Event, settings Settings) string {
+func present(event Event, settings Settings) entry {
 	redact := func(value string) string { return secretPattern.ReplaceAllString(value, "[REDACTED]") }
-	payload := map[string]any{
-		"event":      event.Type,
-		"channel_id": event.ChannelDiscordID,
-		"message_id": event.MessageDiscordID,
-		"actor_id":   event.ActorDiscordUserID,
+	e := entry{
+		Type:      event.Type,
+		ChannelID: event.ChannelDiscordID,
+		MessageID: event.MessageDiscordID,
+		ActorID:   event.ActorDiscordUserID,
+		Metadata:  make(map[string]string, len(event.Metadata)),
 	}
 	if settings.IncludeMessageContent {
-		payload["before"] = redact(event.Before)
-		payload["after"] = redact(event.After)
+		e.Before, e.After = redact(event.Before), redact(event.After)
+		if event.SnapshotComplete {
+			e.BeforeKnown = &event.BeforeKnown
+		}
 	}
 	if settings.IncludeAttachmentMetadata {
-		payload["attachments"] = event.Attachments
+		e.Attachments, e.BeforeAttachments = event.Attachments, event.BeforeAttachments
 	}
 	if settings.IncludeEmbedMetadata {
-		payload["embed_types"] = event.EmbedTypes
+		e.EmbedTypes = event.EmbedTypes
 	}
-	metadata := make(map[string]string, len(event.Metadata))
+	for _, cached := range event.BulkMessages {
+		m := entryMessage{MessageID: cached.MessageDiscordID, ActorID: cached.AuthorDiscordUserID}
+		if settings.IncludeMessageContent {
+			m.Content = redact(cached.Content)
+		}
+		if settings.IncludeAttachmentMetadata {
+			m.Attachments = cached.Attachments
+		}
+		if settings.IncludeEmbedMetadata {
+			m.EmbedTypes = cached.EmbedTypes
+		}
+		e.Messages = append(e.Messages, m)
+	}
 	for key, value := range event.Metadata {
-		metadata[key] = redact(value)
+		e.Metadata[key] = redact(value)
 	}
-	payload["metadata"] = metadata
-	encoded, _ := json.Marshal(payload)
-	return string(encoded)
+	return e
 }
 
 // destinations returns the distinct channels routes send to, sorted.

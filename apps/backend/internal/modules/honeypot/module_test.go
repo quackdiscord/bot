@@ -3,7 +3,11 @@ package honeypot_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
@@ -14,19 +18,75 @@ import (
 	"github.com/quackdiscord/bot/internal/testutil"
 )
 
-// moduleFixture is a honeypot module over a real store, with no Discord.
+// moduleFixture is a honeypot module over a real store, with Discord
+// behind session, if any.
 type moduleFixture struct {
-	store    *store.Store
-	registry *modules.Registry
-	module   *honeypot.Module
+	store     *store.Store
+	registry  *modules.Registry
+	templates *templateServiceFake
+	module    *honeypot.Module
 }
 
 func newModule(t *testing.T) moduleFixture {
 	t.Helper()
+	return newDiscordModule(t, nil)
+}
+
+func newDiscordModule(t *testing.T, session *discordgo.Session) moduleFixture {
+	t.Helper()
 	st := testutil.NewSQLiteStore(t)
 	registry := modules.NewRegistry(st.DB())
-	module := honeypot.New(st.DB(), registry, nil, modules.NewGuilds(st), nil, st, nil)
-	return moduleFixture{store: st, registry: registry, module: module}
+	templates := &templateServiceFake{actions: []quack.ActionType{quack.ActionBanUser}}
+	module := honeypot.New(st.DB(), registry, nil, modules.NewGuilds(st), session, st, nil, templates)
+	return moduleFixture{store: st, registry: registry, templates: templates, module: module}
+}
+
+// templateServiceFake stands in for the core template service.
+type templateServiceFake struct {
+	actions   []quack.ActionType
+	template  *quack.TemplateResponse
+	ensureErr error
+	ensured   int
+}
+
+func (f *templateServiceFake) UnattendedTemplateActions(context.Context, string, string) ([]quack.ActionType, error) {
+	return f.actions, nil
+}
+
+func (f *templateServiceFake) EnsureHoneypotTemplate(context.Context, *quack.GuildStaffContext) (*quack.TemplateResponse, error) {
+	f.ensured++
+	return f.template, f.ensureErr
+}
+
+// roundTripper serves a fake Discord API.
+type roundTripper func(*http.Request) (*http.Response, error)
+
+func (f roundTripper) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// discordSession returns a session, logged in as "quack", whose REST calls
+// go to serve. serve returns a status and a body: a string as is, anything
+// else as JSON. A negative status fails the request without a response.
+func discordSession(serve func(*http.Request) (int, any)) *discordgo.Session {
+	session, _ := discordgo.New("Bot test")
+	session.State.User = &discordgo.User{ID: "quack", Bot: true}
+	session.Client = &http.Client{Transport: roundTripper(func(r *http.Request) (*http.Response, error) {
+		status, body := serve(r)
+		if status < 0 {
+			return nil, errors.New("response lost")
+		}
+		raw, ok := body.(string)
+		if !ok {
+			encoded, _ := json.Marshal(body)
+			raw = string(encoded)
+		}
+		return &http.Response{
+			StatusCode: status,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(raw)),
+			Request:    r,
+		}, nil
+	})}
+	return session
 }
 
 // set stores an enabled honeypot configuration directly.
@@ -118,7 +178,9 @@ func TestPoolDrainsOnStop(t *testing.T) {
 	pool := honeypot.NewPool(fixture.service)
 	pool.Start(context.Background())
 	for index := range 100 {
-		if !pool.Submit(message(fmt.Sprintf("queued-%d", index))) {
+		event := message(fmt.Sprintf("queued-%d", index))
+		event.AuthorDiscordUserID = fmt.Sprintf("member-%d", index)
+		if !pool.Submit(event) {
 			t.Fatal("message was dropped")
 		}
 	}

@@ -28,6 +28,14 @@ func TestGuildSettingsServiceAuthorizationAuditAndNotice(t *testing.T) {
 	auditChannel := "100000000000000001"
 	intro, footer := "Welcome to this guild", "Review case details in Quack"
 	tickets, logging, honeypot := true, true, false
+	if _, err := service.Update(ctx, manager, quack.GuildSettingsInput{TicketsEnabled: &tickets}); !errors.Is(err, quack.ErrGuildSettingsValidation) {
+		t.Fatalf("switched on a module that was never set up: %v", err)
+	}
+	for _, id := range []modules.ID{modules.Tickets, modules.GeneralLogging} {
+		if _, err := registry.SetConfiguration(ctx, modules.Configuration{GuildID: bootstrap.Guild.ID, ModuleID: id}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	updated, err := service.Update(ctx, manager, quack.GuildSettingsInput{
 		AuditMirrorChannelDiscordID: &auditChannel,
 		NotificationIntroduction:    &intro, NotificationFooter: &footer,

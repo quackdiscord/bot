@@ -99,13 +99,14 @@ type Router struct {
 	commands   map[string]Handler
 	components map[string]Handler
 	modals     map[string]Handler
+	setups     map[string]SetupHandler
 }
 
 // NewRouter returns a router for bot's interactions with Quack's commands
-// (/case, /template, /appeals, /help, and the dev-only /ui-preview), their
-// components, and the appeal form and queue controls already installed.
-// Modules add their own components with HandleComponent and HandleModal
-// before the gateway opens.
+// (/case, /setup, /template, /appeals, /help, and the dev-only /ui-preview),
+// their components, and the appeal form and queue controls already installed.
+// Modules add their own components with HandleComponent and HandleModal, and
+// their /setup subcommands with HandleSetup, before the gateway opens.
 func NewRouter(bot *Bot, services *quack.Services, deduper Deduper) *Router {
 	r := newRouter(bot.Session, deduper)
 	newCases(services, bot, bot.DashboardURL).register(r)
@@ -113,6 +114,7 @@ func NewRouter(bot *Bot, services *quack.Services, deduper Deduper) *Router {
 	templates{services: services}.register(r)
 	r.commands[helpCommandName] = help
 	r.commands[uiPreviewCommandName] = uiPreview(bot)
+	r.commands[setupCommandName] = (&setup{session: bot.Session, services: services, modules: r.setups}).command
 	bot.Session.AddHandler(r.handle)
 	return r
 }
@@ -125,6 +127,7 @@ func newRouter(client interactionClient, deduper Deduper) *Router {
 		commands:   map[string]Handler{},
 		components: map[string]Handler{},
 		modals:     map[string]Handler{},
+		setups:     map[string]SetupHandler{},
 	}
 }
 

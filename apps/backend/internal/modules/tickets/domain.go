@@ -1,8 +1,10 @@
-// Package tickets is the optional support-ticket module. A member presses
-// the Open ticket button (see EntryComponents) and gets a private thread, or
-// text channel, shared with staff. Closing a ticket saves its transcript for
-// a bounded retention period; the ticket's timeline is kept. Tickets are
-// separate from cases and appeals.
+// Package tickets is the optional support-ticket module. /setup tickets posts
+// an entry panel with an Open ticket button; pressing it opens a private
+// thread under the entry channel and posts the ticket to a staff queue
+// channel. Closing locks the thread, saves a transcript merged from the
+// message journal and the surviving history, attaches it to the queue post,
+// DMs the member a copy, and deletes the thread. Tickets are separate from
+// cases and appeals.
 package tickets
 
 import (
@@ -15,20 +17,20 @@ import (
 type Status string
 
 const (
-	// StatusOpen accepts member and staff replies.
+	// StatusOpen is a ticket whose thread is still live.
 	StatusOpen Status = "open"
-	// StatusResolved is a ticket staff closed as done. Staff may reopen it
-	// within the guild's reopen window.
+	// StatusResolved is a closed ticket. Closed tickets cannot be reopened.
 	StatusResolved Status = "resolved"
-	// StatusCancelled is a ticket its owner or staff withdrew.
+	// StatusCancelled is a ticket withdrawn under the old lifecycle. New
+	// closes always resolve.
 	StatusCancelled Status = "cancelled"
 )
 
 // EventType is the kind of a ticket timeline entry.
 type EventType string
 
-// Timeline entries. The first five follow the ticket's lifecycle; the last
-// two record repairs Quack made to the ticket's Discord channel.
+// Timeline entries. EventReplied and EventReopened only appear on tickets
+// from before the current lifecycle.
 const (
 	EventOpened              EventType = "opened"
 	EventReplied             EventType = "replied"
@@ -37,6 +39,9 @@ const (
 	EventReopened            EventType = "reopened"
 	EventChannelMissing      EventType = "channel_missing"
 	EventPermissionsRepaired EventType = "permissions_repaired"
+	// EventQueueReconciled records an administrator's decision about a
+	// queue post whose delivery Quack could not confirm.
+	EventQueueReconciled EventType = "queue_reconciled"
 )
 
 var (
@@ -46,43 +51,28 @@ var (
 	ErrPermissionDenied = errors.New("ticket permission denied")
 	// ErrNotFound reports a ticket that does not exist in the guild.
 	ErrNotFound = errors.New("ticket not found")
-	// ErrDuplicateOpen reports that the member already has an open ticket.
+	// ErrDuplicateOpen reports that the member already holds a ticket, open
+	// or still closing.
 	ErrDuplicateOpen = errors.New("member already has an open ticket")
-	// ErrRateLimited reports that the member hit the daily open limit.
-	ErrRateLimited = errors.New("ticket open rate limit exceeded")
 	// ErrInvalidTransition reports an operation the ticket's status does not
 	// allow.
 	ErrInvalidTransition = errors.New("invalid ticket transition")
-	// ErrChannelMissing reports that a ticket's Discord channel was deleted.
-	// Closing such a ticket still succeeds, without a transcript.
-	ErrChannelMissing = errors.New("ticket channel no longer exists")
-	// ErrDiscord wraps a Discord failure while closing a ticket, so HTTP
-	// callers can tell it apart from a bad request.
-	ErrDiscord = errors.New("ticket Discord request failed")
 )
 
 // Settings are a guild's ticket settings, stored as the module's config
-// JSON.
+// JSON. The entry panel fields are bookkeeping for the posted panel, so
+// setup can edit it in place or retire it when the entry channel moves.
 type Settings struct {
-	EntryChannelDiscordID string   `json:"entry_channel_discord_id"`
-	StaffRoleDiscordIDs   []string `json:"staff_role_discord_ids"`
-	// UsePrivateThreads opens tickets as private threads under the entry
-	// channel. When off, each ticket is a private text channel in the entry
-	// channel's category.
-	UsePrivateThreads       bool `json:"use_private_threads"`
-	TranscriptRetentionDays int  `json:"transcript_retention_days"`
-	DailyOpenLimit          int  `json:"daily_open_limit"`
-	ReopenWindowHours       int  `json:"reopen_window_hours"`
+	EntryPanelMessageID     string `json:"entry_panel_message_id,omitempty"`
+	EntryPanelChannelID     string `json:"entry_panel_channel_id,omitempty"`
+	QueueChannelDiscordID   string `json:"queue_channel_discord_id"`
+	EntryChannelDiscordID   string `json:"entry_channel_discord_id"`
+	TranscriptRetentionDays int    `json:"transcript_retention_days"`
 }
 
 // Defaults returns the settings a guild starts with.
 func Defaults() Settings {
-	return Settings{
-		UsePrivateThreads:       true,
-		TranscriptRetentionDays: 90,
-		DailyOpenLimit:          3,
-		ReopenWindowHours:       168,
-	}
+	return Settings{TranscriptRetentionDays: 90}
 }
 
 // Ticket is one support ticket.
@@ -94,8 +84,20 @@ type Ticket struct {
 	Status                  Status     `json:"status"`
 	ResolvedByDiscordUserID string     `json:"resolved_by_discord_user_id,omitempty"`
 	ResolvedAt              *time.Time `json:"resolved_at,omitempty"`
-	CreatedAt               time.Time  `json:"created_at"`
-	UpdatedAt               time.Time  `json:"updated_at"`
+	// LogChannelDiscordID and LogMessageDiscordID locate the staff queue
+	// post. A channel without a message is a send whose outcome is unknown.
+	LogChannelDiscordID string `json:"log_channel_discord_id,omitempty"`
+	LogMessageDiscordID string `json:"log_message_discord_id,omitempty"`
+	// QueueDeliveryAttemptID fences one queue send so a retry or a stale
+	// recovery decision cannot post twice.
+	QueueDeliveryAttemptID string `json:"queue_delivery_attempt_id,omitempty"`
+	// TranscriptURL links the queue post carrying the transcript. Its
+	// presence is what allows the thread to be deleted.
+	TranscriptURL string `json:"transcript_url,omitempty"`
+	// CloseNoticeDelivered reports a confirmed close DM to the member.
+	CloseNoticeDelivered bool      `json:"-"`
+	CreatedAt            time.Time `json:"created_at"`
+	UpdatedAt            time.Time `json:"updated_at"`
 }
 
 // Event is an entry on a ticket's append-only timeline.
@@ -126,36 +128,39 @@ type ModuleStatus struct {
 	OpenTickets     int64 `json:"open_tickets"`
 }
 
-// validateSettings checks settings; enabled tickets also need an entry
-// channel and a staff role.
+// QueueReceipt identifies a delivered staff queue post.
+type QueueReceipt struct {
+	MessageID string
+	URL       string
+}
+
+// TranscriptAttachment describes a file on a ticket message. Only the
+// description is kept; the original URL may expire.
+type TranscriptAttachment struct {
+	Name string
+	Size int
+	URL  string
+}
+
+// TranscriptMessage is one ticket message, as journaled when it arrived or
+// as it survives in the thread at close.
+type TranscriptMessage struct {
+	MessageID, AuthorID, AuthorName, Body string
+	SentAt                                time.Time
+	Attachments                           []TranscriptAttachment
+}
+
+// validateSettings checks settings; enabled tickets also need an entry and
+// a queue channel.
 func validateSettings(settings Settings, enabled bool) error {
 	if enabled && strings.TrimSpace(settings.EntryChannelDiscordID) == "" {
 		return errors.New("entry channel is required when tickets are enabled")
 	}
-	if enabled && len(settings.StaffRoleDiscordIDs) == 0 {
-		return errors.New("at least one staff role is required when tickets are enabled")
-	}
-	for _, roleID := range settings.StaffRoleDiscordIDs {
-		if strings.TrimSpace(roleID) == "" {
-			return errors.New("staff role ids cannot be empty")
-		}
+	if enabled && strings.TrimSpace(settings.QueueChannelDiscordID) == "" {
+		return errors.New("staff queue channel is required when tickets are enabled")
 	}
 	if settings.TranscriptRetentionDays < 1 || settings.TranscriptRetentionDays > 365 {
 		return errors.New("transcript retention must be 1 to 365 days")
-	}
-	if settings.DailyOpenLimit < 1 || settings.DailyOpenLimit > 20 {
-		return errors.New("daily open limit must be 1 to 20")
-	}
-	if settings.ReopenWindowHours < 1 || settings.ReopenWindowHours > 720 {
-		return errors.New("reopen window must be 1 to 720 hours")
-	}
-	return nil
-}
-
-// validateReply bounds a reply to the length the reply modal allows.
-func validateReply(body string) error {
-	if strings.TrimSpace(body) == "" || len(body) > 4000 {
-		return errors.New("ticket reply must contain 1 to 4000 characters")
 	}
 	return nil
 }

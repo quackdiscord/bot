@@ -29,7 +29,7 @@ var errNotInGuild = errors.New("case commands must be used in a server")
 // can modify them without affecting anyone else's copy.
 func commands() []*discordgo.ApplicationCommand {
 	return []*discordgo.ApplicationCommand{
-		caseCommand(), messageCaseCommand(), userCaseCommand(),
+		caseCommand(), messageCaseCommand(), userCaseCommand(), setupCommand(),
 		templateCommand(), appealsCommand(), helpCommand(),
 	}
 }

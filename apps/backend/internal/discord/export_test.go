@@ -79,6 +79,12 @@ func (c Cases) ReverseButton(ctx context.Context, i *discordgo.InteractionCreate
 	return c.c.reverseButton(ctx, i)
 }
 
+// NewSetup returns the /setup command handler with modules' setup routes and
+// no Discord session, so tests must pass every channel explicitly.
+func NewSetup(services *quack.Services, modules map[string]SetupHandler) Handler {
+	return (&setup{services: services, modules: modules}).command
+}
+
 // Lifecycle exposes the guild lifecycle gateway handlers.
 type Lifecycle struct{ *lifecycle }
 

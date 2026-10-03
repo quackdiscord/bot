@@ -23,10 +23,11 @@ const (
 const defaultCacheLimit = 1000
 
 // Module is general logging wired to Discord and the API. The app mounts its
-// routes, registers its gateway handlers, requests its Intents, and runs it
-// between Start and Stop.
+// routes, registers its gateway handlers and /setup route, requests its
+// Intents, and runs it between Start and Stop.
 type Module struct {
 	service  *Service
+	client   delivery
 	registry *modules.Registry
 	guilds   *modules.Guilds
 	pool     *modules.Pool[Event]
@@ -34,10 +35,14 @@ type Module struct {
 
 // New returns the logging module. Settings live in registry and changes are
 // audited to audit; bot delivers to channels that pass its staff-only check.
+// It installs logging's enablement check on registry, so the core settings
+// API cannot switch logging on with a setup that would not deliver.
 func New(registry *modules.Registry, audit modules.Auditor, guilds *modules.Guilds, bot *discord.Bot) *Module {
 	client := delivery{bot: bot, guilds: guilds}
 	service := NewService(registry, audit, client, NewMessageCache(defaultCacheLimit))
-	return &Module{service: service, registry: registry, guilds: guilds, pool: NewPool(service)}
+	m := &Module{service: service, client: client, registry: registry, guilds: guilds, pool: NewPool(service)}
+	registry.SetEnablementCheck(modules.GeneralLogging, m.checkEnablement)
+	return m
 }
 
 // NewPool returns the bounded queue that delivers events through service.
@@ -54,6 +59,8 @@ func NewPool(service *Service) *modules.Pool[Event] {
 			// Most events in most guilds land here; it is not a failure.
 			slog.DebugContext(ctx, "General logging skipped event",
 				"guild_id", event.GuildID, "event", event.Type, "reason", err)
+		case ctx.Err() != nil && errors.Is(err, ctx.Err()):
+			// Shutdown cut the delivery short; that is not a Discord failure.
 		default:
 			// Only the error's type is logged: its text may quote message
 			// content.
@@ -77,8 +84,7 @@ func (m *Module) RegisterGateway(session *discordgo.Session) {
 	session.AddHandler(m.onMessageDeleteBulk)
 	session.AddHandler(m.onMemberAdd)
 	session.AddHandler(m.onMemberRemove)
-	session.AddHandler(m.onBanAdd)
-	session.AddHandler(m.onBanRemove)
+	session.AddHandler(m.onAuditLogEntry)
 	session.AddHandler(m.onGuildUpdate)
 	session.AddHandler(m.onChannelCreate)
 	session.AddHandler(m.onChannelUpdate)
@@ -86,7 +92,8 @@ func (m *Module) RegisterGateway(session *discordgo.Session) {
 }
 
 // Intents returns the gateway intents logging needs once any guild has it
-// on: members, moderation, messages, and message content.
+// on: members, moderation (for audit log entries), messages, and message
+// content.
 func (m *Module) Intents(ctx context.Context) (discordgo.Intent, error) {
 	enabled, err := m.registry.AnyEnabled(ctx, modules.GeneralLogging)
 	if err != nil || !enabled {

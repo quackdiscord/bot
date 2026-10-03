@@ -103,6 +103,18 @@ func TestGuildSettingsRoutes(t *testing.T) {
 		"general_logging_enabled": false,
 		"honeypot_enabled": true
 	}`
+	// A module that was never set up cannot be switched on.
+	expectStatus(t, send(t, server, http.MethodPatch, "/guilds/guild-1/settings", patch, sessionID), http.StatusBadRequest)
+	guild, err := store.GetGuildByDiscordID(context.Background(), "guild-1")
+	if err != nil || guild == nil {
+		t.Fatalf("load guild: %+v %v", guild, err)
+	}
+	registry := modules.NewRegistry(store.DB())
+	for _, id := range []modules.ID{modules.Tickets, modules.GeneralLogging, modules.Honeypots} {
+		if _, err := registry.SetConfiguration(context.Background(), modules.Configuration{GuildID: guild.ID, ModuleID: id}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	expectStatus(t, send(t, server, http.MethodPatch, "/guilds/guild-1/settings", patch, sessionID), http.StatusOK)
 	expectStatus(t, send(t, server, http.MethodPatch, "/guilds/guild-1/settings", `{"unknown_setting":true}`, sessionID), http.StatusBadRequest)
 
@@ -128,10 +140,6 @@ func TestGuildSettingsRoutes(t *testing.T) {
 		t.Fatalf("notice still required after acknowledgement: %s", ack.Body.String())
 	}
 
-	guild, err := store.GetGuildByDiscordID(context.Background(), "guild-1")
-	if err != nil || guild == nil {
-		t.Fatalf("load guild: %+v %v", guild, err)
-	}
 	audits, err := store.ListAuditLogEntries(context.Background(), guild.ID)
 	if err != nil {
 		t.Fatalf("list audits: %v", err)

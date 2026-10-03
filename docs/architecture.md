@@ -15,7 +15,7 @@ All packages live under `apps/backend/internal` unless noted.
 | `config` | Loads settings from code defaults, an optional TOML file, and `QUACK_*` env vars, and validates them. |
 | `quack` | The moderation domain: templates, escalation, cases, actions, notifications, appeals, audit, statistics, and the ports it needs. |
 | `store` | GORM/MySQL and Redis implementation of the `quack` storage ports, the schema, and migrations. |
-| `discord` | Discord adapter: REST client behind the `quack` Discord ports, interaction router, message and response model, `/case`, `/template`, `/appeals`, `/help`, the appeal form and queue, views, command sync and command mentions, guild lifecycle. |
+| `discord` | Discord adapter: REST client behind the `quack` Discord ports, interaction router, message and response model, `/case`, `/setup`, `/template`, `/appeals`, `/help`, the appeal form and queue, views, command sync and command mentions, guild lifecycle. |
 | `discordtext` | Transport-free prose helpers for Discord copy: `{{quack:key}}` icon placeholders and the generated per-application emoji catalog, Markdown escaping, quoting, and the conversation layout. |
 | `api` | The dashboard's `net/http` API: middleware, sessions, OAuth, and handlers over `quack.Services`. |
 | `worker` | The in-process action queue, the database poller behind it, and periodic background loops. |
@@ -40,7 +40,7 @@ cmd/quack ──> app ──> api, discord, worker, store, modules/*, config
   through small interfaces in `quack/ports.go` and `quack/discord.go`.
 - `store` also imports `modules`, `modules/tickets`, and `modules/honeypot` to
   migrate their tables, and implements the `v4import.Repository` interface.
-- `modules/tickets` and `modules/logging` import `discord` for the router and
+- The three modules import `discord` for the router, `/setup`, and the
   bot. Module HTTP routes are mounted through the `modules.Mux` interface,
   which `api.ModuleMux` satisfies, so modules do not import `api`.
 - Only `app` and `cmd/quack` see the whole graph.
@@ -59,9 +59,11 @@ belong there, not in handlers.
    intent.
 3. Wire everything together: the worker, the module registry,
    `quack.Services`, the three modules, the background loops (appeal
-   notifications every 5s, audit mirror every 5s, ticket transcript sweep every
-   hour, case receipt refresh every 2s), gateway intents for enabled modules, guild lifecycle handlers, module
-   gateway handlers, the interaction router, and the HTTP server.
+   notifications every 5s, audit mirror every 5s, case receipt refresh every
+   2s, ticket transcript and journal sweep every hour, honeypot upkeep and
+   honeypot warnings every second), gateway intents for enabled modules,
+   guild lifecycle handlers, module gateway handlers, the interaction router
+   with each module's components and `/setup` subcommand, and the HTTP server.
 4. Sync slash commands (`discord.SyncCommands`). Command definitions are
    fingerprinted in Redis so unchanged commands are not rewritten. Sync also
    records each command's ID so copy like `/case view` renders as a clickable
@@ -77,9 +79,10 @@ MySQL). One `api.shutdown_timeout`, started when shutdown begins, bounds the
 whole sequence. The worker stops polling and drains cases already queued.
 
 Gateway intents are decided once at startup. Logging adds members, moderation,
-messages, and message content; honeypot adds guild messages. Each is added only
-if at least one guild has that module on, so a module switched on later gets
-its events after the next restart.
+messages, and message content; honeypot adds guild messages; tickets add
+members, guild messages, and message content for the message journal. Each is
+added only if at least one guild has that module on, so a module switched on
+later gets its events after the next restart.
 
 ## How `/case add` flows
 
@@ -482,7 +485,23 @@ routes, and plug into the core in the same ways:
   `module_configurations`, one row per guild and module with an `enabled` flag
   and opaque JSON settings. It also implements `quack.ModuleToggles`, so the
   core settings API's `tickets_enabled`, `general_logging_enabled`, and
-  `honeypot_enabled` fields read and write the same rows.
+  `honeypot_enabled` fields read and write the same rows. Before the settings
+  service switches a module on, it asks the registry
+  (`quack.ModuleEnablementChecker`): a module never set up is refused with
+  "run /setup first", and otherwise the module's `EnablementCheck` re-runs
+  its `/setup` checks against live Discord (channels exist and are usable,
+  Quack has the permissions it needs) without writing anything.
+- **Setup.** `/setup` (`discord/setup.go`) needs Manage Server, checked live,
+  and answers publicly through `AsyncPublic`. The `appeals` and `audit`
+  subcommands are core settings: the appeal queue channel, rejoin invite, and
+  whether decisions need a reason, and the audit mirror channel. `tickets`,
+  `honeypot`, and `logging` go to the handler each module installs with
+  `Router.HandleSetup`; with only the `enabled` option they switch the module
+  through the settings service instead, which keeps its saved setup. When no
+  channel is given, `discord.SetupChannel` reuses the configured one or
+  creates a channel with permissions, a topic, and, for staff channels, a
+  short introduction. It replaces a configured channel only when Discord
+  says it is gone, so a transient error never creates duplicates.
 - **HTTP.** Each module's `MountHTTP` adds routes under
   `/guilds/{discordGuildID}/modules/` through `api.ModuleMux`. These routes get
   the endpoint policy, session, live guild context, and a per-actor limit, and
@@ -496,24 +515,43 @@ routes, and plug into the core in the same ways:
 
 What each module does:
 
-- **Tickets** (`modules/tickets`). A member presses "Open ticket" in an entry
-  channel and gets a private thread or channel with staff. Staff work tickets
-  from Discord buttons (view, reply, close, repair permissions) and the
-  dashboard (queue, resolve, cancel, reopen). Closing saves a transcript,
-  and an hourly loop deletes transcripts past retention. Tables: `tickets`,
-  `ticket_events`, `ticket_transcripts`, `ticket_member_states`. Routes live
-  under `/modules/tickets/...`.
+- **Tickets** (`modules/tickets`). `/setup tickets` saves an entry channel
+  and a staff queue channel and posts the "Need a hand?" entry panel with an
+  Open ticket button, editing it in place (or moving it) on every re-setup.
+  Opening creates a private thread under the entry channel with a welcome and
+  a Close button, and a queue post with staff controls. A message journal
+  (`ticket_message_journal`) records each message's original text from the
+  gateway; closing refuses while the journal is incomplete, then locks the
+  thread, merges the journal with the surviving history into a transcript,
+  edits the queue post to closed with the transcript as a `.txt`, DMs the
+  member a copy, and deletes the thread. Staff can repair a queue post that
+  failed or went missing (retry, adopt an existing message, or confirm it was
+  never sent). Closed tickets cannot be reopened. An hourly loop deletes
+  transcripts and journaled text past retention. Tables: `tickets`,
+  `ticket_events`, `ticket_transcripts`, `ticket_member_states`,
+  `ticket_message_journal`. Routes live under `/modules/tickets/...`.
 - **General logging** (`modules/logging`). Posts message edits and deletes,
   joins and leaves, bans, and guild and channel changes to the staff-only
-  channels a guild picks. Recent messages are cached in memory only, to show
+  channels a guild picks, as readable Quack messages (for example "A message
+  from @x was edited." with Before and After). `/setup logging` routes every
+  event to one channel and needs View Audit Log, which attributes bans by
+  other moderators. Recent messages are cached in memory only, to show
   what changed. No tables of its own. Routes live under
   `/modules/general-logging/...`.
 - **Honeypot** (`modules/honeypot`). When someone posts in the trap channel,
   it opens a case with the configured template through
-  `CaseService.CreateSystemHoneypot`. Bots, webhooks, staff, and exempt roles
-  are ignored, and `honeypot_triggers` makes each message fire at most once.
-  The API notifies it when a template is updated or archived so it can recheck
-  its configuration. Routes live under `/modules/honeypot/...`.
+  `CaseService.CreateSystemHoneypot`, then deletes the bait message through a
+  durable cleanup queue (`honeypot_message_cleanups`). Staff, Quack, and
+  webhooks are ignored (other bots are not), a burst from one member is one
+  incident, and `honeypot_triggers` makes each message
+  fire at most once; the upkeep loop finishes incidents a restart
+  interrupted without ever punishing twice. `/setup honeypot` creates the
+  template with `TemplateService.EnsureHoneypotTemplate` when there is none
+  and posts a warning worded from the template's punishment with a live
+  "N incidents caught." counter; `honeypot_warning_refreshes` schedules its
+  edits and reposts it if it is deleted. The API notifies the module when a
+  template is updated or archived so it can recheck its configuration.
+  Routes live under `/modules/honeypot/...`.
 
 ## Storage
 
@@ -532,10 +570,6 @@ What each module does:
 
 These are verified against the code as of this writing:
 
-- **Nothing posts the ticket entry buttons.** `tickets.EntryComponents` builds
-  the "Open ticket" and "Staff queue" row, and the router handles those
-  buttons, but no code path sends that message to a channel, and there is no
-  HTTP route to open a ticket.
 - **The Discord appeal form asks one question.** Guilds with a custom
   appeal form whose questions do not include `reason` must take appeals
   through the dashboard.

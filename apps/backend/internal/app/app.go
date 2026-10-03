@@ -32,6 +32,7 @@ const (
 	appealBatch         = 50
 	auditMirrorInterval = 5 * time.Second
 	transcriptInterval  = time.Hour
+	honeypotInterval    = time.Second
 )
 
 // Run starts Quack and blocks until ctx is canceled or a component fails,
@@ -145,7 +146,7 @@ func build(ctx context.Context, cfg config.Config, st *store.Store, rdb *redis.C
 		worker:   w,
 		tickets:  tickets.New(st.DB(), registry, audit, guilds, bot.Session, services.Guilds),
 		logging:  logging.New(registry, audit, guilds, bot),
-		honeypot: honeypot.New(st.DB(), registry, audit, guilds, bot.Session, st, services.Cases),
+		honeypot: honeypot.New(st.DB(), registry, audit, guilds, bot.Session, st, services.Cases, services.Templates),
 	}
 
 	appeals := quack.NewAppealNotificationDispatcher(st, discord.NewAppealNotifier(bot, st))
@@ -156,8 +157,10 @@ func build(ctx context.Context, cfg config.Config, st *store.Store, rdb *redis.C
 	w.Every("ticket transcripts", transcriptInterval, q.tickets.SweepTranscripts)
 	w.Every("case publications", discord.PublicationRefreshInterval,
 		discord.NewPublicationRefresher(bot, services.Publications).RefreshDue)
+	w.Every("honeypot upkeep", honeypotInterval, q.honeypot.Sweep)
+	w.Every("honeypot warnings", honeypotInterval, q.honeypot.RefreshWarnings)
 
-	intents, err := gatewayIntents(ctx, q.logging, q.honeypot)
+	intents, err := gatewayIntents(ctx, q.logging, q.honeypot, q.tickets)
 	if err != nil {
 		return nil, err
 	}
@@ -169,6 +172,8 @@ func build(ctx context.Context, cfg config.Config, st *store.Store, rdb *redis.C
 	q.honeypot.RegisterGateway(bot.Session)
 	router := discord.NewRouter(bot, services, discord.NewRedisDeduper(rdb))
 	q.tickets.RegisterComponents(router)
+	q.logging.RegisterSetup(router)
+	q.honeypot.RegisterSetup(router)
 
 	server, err := api.New(cfg, api.Deps{
 		Services: services,

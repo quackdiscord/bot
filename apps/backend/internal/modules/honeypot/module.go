@@ -2,8 +2,10 @@ package honeypot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/modules"
@@ -17,42 +19,98 @@ const (
 	queueWorkers  = 2
 )
 
+// Batch sizes for one Sweep: incidents to recover, then bait messages to
+// delete.
+const (
+	sweepRecoveries = 2
+	sweepCleanups   = 8
+)
+
 // Module is the honeypot wired to Discord and the API. The app mounts its
-// routes, registers its gateway handlers, requests its Intents, tells it
-// about template changes, and runs it between Start and Stop.
+// routes and /setup, registers its gateway handlers, requests its Intents,
+// tells it about template changes, runs Sweep and RefreshWarnings as
+// background loops, and runs its message pool between Start and Stop.
 type Module struct {
-	service   *Service
-	registry  *modules.Registry
-	guilds    *modules.Guilds
-	templates templateValidator
-	pool      *modules.Pool[Message]
+	service       *Service
+	registry      *modules.Registry
+	guilds        *modules.Guilds
+	session       *discordgo.Session
+	templates     TemplateService
+	templateCheck templateValidator
+	channelCheck  channelValidator
+	warnings      *warnings
+	locks         *guildLocks
+	pool          *modules.Pool[Message]
+
+	// cleanupCtx bounds the bait-message deletes that follow each pooled
+	// message. Stop cancels it first, so a slow Discord delete never holds
+	// up the drain; the receipt stays due for Sweep.
+	mu            sync.Mutex
+	cleanupCtx    context.Context
+	cancelCleanup context.CancelFunc
 }
 
-// New returns the honeypot module. Triggers are stored in db, settings in
-// registry, events audited to audit; session checks the trap channel,
-// templateStore is the template source, and cases opens the resulting cases.
-func New(db *gorm.DB, registry *modules.Registry, audit modules.Auditor, guilds *modules.Guilds, session *discordgo.Session, templateStore TemplateStore, cases CaseCreator) *Module {
-	templates := templateValidator{store: templateStore}
-	channels := channelValidator{session: session, guilds: guilds}
-	service := NewService(registry, NewStore(db), audit, channels, templates, caseApplier{cases: cases})
-	return &Module{
-		service:   service,
-		registry:  registry,
-		guilds:    guilds,
-		templates: templates,
-		pool:      NewPool(service),
+// New returns the honeypot module and registers its enablement check with
+// registry. Triggers are stored in db, settings in registry, events audited
+// to audit; session reaches Discord, core reads templates and saved cases,
+// cases opens the resulting cases, and templates creates the setup template
+// and names its punishments in the warning.
+func New(db *gorm.DB, registry *modules.Registry, audit modules.Auditor, guilds *modules.Guilds, session *discordgo.Session, core CoreStore, cases CaseCreator, templates TemplateService) *Module {
+	templateCheck := templateValidator{store: core}
+	channelCheck := channelValidator{session: session, guilds: guilds}
+	applier := caseApplier{cases: cases, store: core, session: session}
+	service := NewService(registry, NewStore(db), audit, channelCheck, templateCheck, applier)
+	locks := &guildLocks{}
+	cleanupCtx, cancel := context.WithCancel(context.Background())
+	m := &Module{
+		service:       service,
+		registry:      registry,
+		guilds:        guilds,
+		session:       session,
+		templates:     templates,
+		templateCheck: templateCheck,
+		channelCheck:  channelCheck,
+		warnings:      &warnings{session: session, service: service, policy: templates, guilds: guilds, locks: locks},
+		locks:         locks,
+		cleanupCtx:    cleanupCtx,
+		cancelCleanup: cancel,
 	}
+	m.pool = modules.NewPool("honeypot", queueCapacity, queueWorkers, m.handle)
+	registry.SetEnablementCheck(modules.Honeypots, m.checkEnablement)
+	return m
 }
 
 // NewPool returns the bounded queue that runs trap messages through
-// service.
+// service, without the cleanup that follows each one in a Module.
 func NewPool(service *Service) *modules.Pool[Message] {
 	return modules.NewPool("honeypot", queueCapacity, queueWorkers, func(ctx context.Context, message Message) {
-		if _, err := service.HandleMessage(ctx, message); err != nil {
-			slog.ErrorContext(ctx, "Honeypot event failed",
-				"guild_id", message.GuildID, "error_type", fmt.Sprintf("%T", err))
-		}
+		handleMessage(ctx, service, message)
 	})
+}
+
+// handle runs one trap message, then deletes whatever bait is already due,
+// so the message usually disappears right away rather than on the next
+// Sweep.
+func (m *Module) handle(ctx context.Context, message Message) {
+	handleMessage(ctx, m.service, message)
+	m.mu.Lock()
+	cleanupCtx := m.cleanupCtx
+	m.mu.Unlock()
+	if err := m.service.ProcessCleanups(cleanupCtx, 1); err != nil && cleanupCtx.Err() == nil {
+		slog.WarnContext(ctx, "Honeypot message cleanup will retry", "guild_id", message.GuildID, "error_type", fmt.Sprintf("%T", err))
+	}
+}
+
+// handleMessage runs one trap message, logging only unexpected failures.
+// Message content is never logged.
+func handleMessage(ctx context.Context, service *Service, message Message) {
+	_, err := service.HandleMessage(ctx, message)
+	if err == nil || errors.Is(err, ErrDuplicate) || errors.Is(err, ErrExempt) ||
+		errors.Is(err, ErrNotTrigger) || errors.Is(err, ErrDisabled) {
+		return
+	}
+	slog.ErrorContext(ctx, "Honeypot event failed",
+		"guild_id", message.GuildID, "error_type", fmt.Sprintf("%T", err))
 }
 
 // MountHTTP mounts the honeypot routes.
@@ -60,10 +118,12 @@ func (m *Module) MountHTTP(mux modules.Mux) {
 	RegisterRoutes(mux, m.service, modules.RequestActor)
 }
 
-// RegisterGateway subscribes the honeypot to new messages and to deletions
-// of its trap channel or guild.
+// RegisterGateway subscribes the honeypot to new messages, deletions of its
+// warning, and deletions of its trap channel or guild.
 func (m *Module) RegisterGateway(session *discordgo.Session) {
 	session.AddHandler(m.onMessageCreate)
+	session.AddHandler(m.onMessageDelete)
+	session.AddHandler(m.onMessageDeleteBulk)
 	session.AddHandler(m.onChannelDelete)
 	session.AddHandler(m.onGuildDelete)
 }
@@ -79,16 +139,47 @@ func (m *Module) Intents(ctx context.Context) (discordgo.Intent, error) {
 }
 
 // Start starts the trap message workers.
-func (m *Module) Start(ctx context.Context) { m.pool.Start(ctx) }
+func (m *Module) Start(ctx context.Context) {
+	m.mu.Lock()
+	m.cancelCleanup()
+	m.cleanupCtx, m.cancelCleanup = context.WithCancel(context.WithoutCancel(ctx))
+	m.mu.Unlock()
+	m.pool.Start(ctx)
+}
 
-// Stop drains queued trap messages, giving up when ctx is done.
-func (m *Module) Stop(ctx context.Context) error { return m.pool.Stop(ctx) }
+// Stop cancels in-flight bait deletes, then drains queued trap messages,
+// giving up when ctx is done. Interrupted deletes stay due for Sweep after
+// a restart.
+func (m *Module) Stop(ctx context.Context) error {
+	m.mu.Lock()
+	m.cancelCleanup()
+	m.mu.Unlock()
+	return m.pool.Stop(ctx)
+}
+
+// Sweep is the honeypot's upkeep loop; run it every second. It finishes
+// incidents a crash or restart interrupted, without ever punishing twice,
+// and deletes bait messages whose incident has a saved case. Its first run
+// at startup is the restart recovery.
+func (m *Module) Sweep(ctx context.Context) error {
+	_, recoverErr := m.service.RecoverPending(ctx, sweepRecoveries)
+	return errors.Join(recoverErr, m.service.ProcessCleanups(ctx, sweepCleanups))
+}
+
+// RefreshWarnings keeps warning posts current; run it every second. Its
+// first run queues every enabled guild's warning, so counts and wording
+// catch up after a restart; then each run edits the warnings that are due,
+// reposting any that were deleted. Failed deliveries back off and are
+// logged rather than returned.
+func (m *Module) RefreshWarnings(ctx context.Context) error {
+	return m.warnings.run(ctx)
+}
 
 // HandleTemplateChange turns the honeypot off if a template edit or archive
-// left its template unusable unattended. It implements
-// api.TemplateChangeHandler.
+// left its template unusable unattended. A storage failure changes nothing.
+// It implements api.TemplateChangeHandler.
 func (m *Module) HandleTemplateChange(ctx context.Context, guildID, templateID string) {
-	if m.templates.ValidateHoneypotTemplate(ctx, guildID, templateID) != nil {
+	if errors.Is(m.templateCheck.ValidateHoneypotTemplate(ctx, guildID, templateID), ErrTemplateUnavailable) {
 		_ = m.service.HandleTemplateUnavailable(ctx, guildID, templateID)
 	}
 }
