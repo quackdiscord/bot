@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -9,18 +8,6 @@ import (
 
 	"github.com/quackdiscord/bot/internal/quack"
 )
-
-// GuildStaff returns the live staff context that the guild middleware
-// resolved for this request, or nil outside a guild route. Module handlers
-// use it to derive their actor.
-func GuildStaff(ctx context.Context) *quack.GuildStaffContext {
-	staff, _ := ctx.Value(guildStaffKey).(*quack.GuildStaffContext)
-	return staff
-}
-
-func withGuildStaff(ctx context.Context, staff *quack.GuildStaffContext) context.Context {
-	return context.WithValue(ctx, guildStaffKey, staff)
-}
 
 // guild resolves the caller's live Discord permissions in the
 // {discordGuildID} guild and requires action. An empty action only requires
@@ -51,7 +38,7 @@ func (s *Server) guild(action quack.PermissionAction) middleware {
 				writeError(w, r, http.StatusForbidden, codeAuthorization, "access denied")
 				return
 			}
-			next.ServeHTTP(w, r.WithContext(withGuildStaff(ctx, staff)))
+			next.ServeHTTP(w, r.WithContext(quack.ContextWithStaff(ctx, staff)))
 		})
 	}
 }
@@ -74,7 +61,7 @@ func allow(check func(*http.Request) bool, denied func(http.ResponseWriter, *htt
 // can reports whether the guild staff can perform action.
 func can(action quack.PermissionAction) func(*http.Request) bool {
 	return func(r *http.Request) bool {
-		staff := GuildStaff(r.Context())
+		staff := quack.StaffFromContext(r.Context())
 		return staff != nil && staff.Can(action)
 	}
 }
@@ -83,7 +70,7 @@ func can(action quack.PermissionAction) func(*http.Request) bool {
 // /guilds/{discordGuildID}/modules. Each route gets the same protection as
 // core guild routes: the endpoint rate limit, a session, live guild
 // membership, and a per-actor module rate limit. Handlers find the caller
-// with GuildStaff.
+// with quack.StaffFromContext.
 type ModuleMux struct {
 	s *Server
 }

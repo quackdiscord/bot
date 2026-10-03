@@ -27,8 +27,8 @@ type guildRecord struct {
 
 func (guildRecord) TableName() string { return "guilds" }
 
-// guildSettingsRecord keeps the module toggles until module_configurations
-// becomes their only home.
+// guildSettingsRecord is a guild's core settings. The optional modules'
+// switches are not here: they live in module_configurations.
 type guildSettingsRecord struct {
 	ID                                string    `gorm:"type:char(26);primaryKey"`
 	CreatedAt                         time.Time `gorm:"not null"`
@@ -38,9 +38,6 @@ type guildSettingsRecord struct {
 	ManagedEvidenceChannelDiscordID   string    `gorm:"size:32;not null;default:''"`
 	NotificationIntroduction          string    `gorm:"type:text;not null"`
 	NotificationFooter                string    `gorm:"type:text;not null"`
-	TicketsEnabled                    bool      `gorm:"not null;default:false"`
-	GeneralLoggingEnabled             bool      `gorm:"not null;default:false"`
-	HoneypotEnabled                   bool      `gorm:"not null;default:false"`
 	StarterPolicyTemplateID           string    `gorm:"type:char(26);not null;default:''"`
 	StarterPolicyNoticePending        bool      `gorm:"not null"`
 	StarterPolicyNoticeAcknowledgedAt *time.Time

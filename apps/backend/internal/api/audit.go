@@ -10,7 +10,7 @@ import (
 // strings; the audit service validates them.
 func (s *Server) listAuditLog(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	result, err := s.services.Audits.List(r.Context(), GuildStaff(r.Context()), quack.AuditListInput{
+	result, err := s.services.Audits.List(r.Context(), quack.StaffFromContext(r.Context()), quack.AuditListInput{
 		Limit:               q.Get("limit"),
 		Offset:              q.Get("offset"),
 		ActorDiscordUserID:  q.Get("actor_discord_user_id"),
@@ -36,7 +36,7 @@ func (s *Server) listAuditLog(w http.ResponseWriter, r *http.Request) {
 // getStatistics returns moderation counts for the guild over [from, to).
 func (s *Server) getStatistics(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	result, err := s.services.Statistics.Get(r.Context(), GuildStaff(r.Context()),
+	result, err := s.services.Statistics.Get(r.Context(), quack.StaffFromContext(r.Context()),
 		quack.StatisticsInput{From: q.Get("from"), To: q.Get("to")})
 	if err != nil {
 		writeStatisticsError(w, r, err)

@@ -61,10 +61,10 @@ type memberStateRecord struct {
 
 func (memberStateRecord) TableName() string { return "ticket_member_states" }
 
-// Store persists tickets, their immutable timelines, and transcripts.
+// Store persists tickets, their append-only timelines, and transcripts.
 type Store struct{ db *gorm.DB }
 
-// NewStore constructs ticket persistence from an adapter-owned database handle.
+// NewStore returns a Store over db.
 func NewStore(db *gorm.DB) *Store { return &Store{db: db} }
 
 // Models returns the ticket tables' records. The store migrates them with the
@@ -262,6 +262,34 @@ func (s *Store) transcript(ctx context.Context, guildID, ticketID string, now ti
 func (s *Store) purgeExpiredTranscripts(ctx context.Context, now time.Time) (int64, error) {
 	result := s.db.WithContext(ctx).Where("expires_at <= ?", now).Delete(&transcriptRecord{})
 	return result.RowsAffected, result.Error
+}
+
+// ticketIDByChannel returns the ID of the guild's ticket in channelID, or ""
+// if the channel is not a ticket.
+func (s *Store) ticketIDByChannel(ctx context.Context, guildID, channelID string) (string, error) {
+	var record ticketRecord
+	err := s.db.WithContext(ctx).Select("id").
+		Where("guild_id = ? AND thread_discord_channel_id = ?", guildID, channelID).
+		Limit(1).Find(&record).Error
+	return record.ID, err
+}
+
+// threadsAfter pages through a guild's tickets in ID order, for the thread
+// membership repair.
+func (s *Store) threadsAfter(ctx context.Context, guildID, afterID string, limit int) ([]Ticket, error) {
+	var records []ticketRecord
+	err := s.db.WithContext(ctx).
+		Select("id, thread_discord_channel_id, owner_discord_user_id").
+		Where("guild_id = ? AND id > ?", guildID, afterID).
+		Order("id ASC").Limit(limit).Find(&records).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Ticket, len(records))
+	for i := range records {
+		out[i] = ticketFromRecord(records[i])
+	}
+	return out, nil
 }
 
 func ticketFromRecord(r ticketRecord) Ticket {

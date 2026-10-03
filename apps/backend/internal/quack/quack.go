@@ -61,6 +61,9 @@ type Deps struct {
 	Evidence  EvidenceClient
 	Channels  StaffChannelValidator
 	Scheduler Scheduler
+	// Modules holds the optional modules' on/off switches. Without it the
+	// settings API reports every module off and cannot switch one on.
+	Modules ModuleToggles
 	// DashboardBaseURL is the dashboard origin linked from appealable case
 	// notifications. Without it, notifications carry no appeal button.
 	DashboardBaseURL string
@@ -98,7 +101,7 @@ func New(deps Deps) *Services {
 
 	return &Services{
 		Guilds:     guilds,
-		Settings:   NewGuildSettingsService(deps.Store, deps.Channels),
+		Settings:   NewGuildSettingsService(deps.Store, deps.Channels, deps.Modules),
 		Templates:  NewTemplateService(deps.Store),
 		Cases:      NewCaseService(deps.Store, caseAuthorizer, caseEvidence, deps.Scheduler),
 		Actions:    NewActionService(deps.Store, deps.Enforcer, deps.Messenger, guilds, deps.Scheduler, deps.DashboardBaseURL),

@@ -7,7 +7,7 @@ import (
 )
 
 func (s *Server) listTemplates(w http.ResponseWriter, r *http.Request) {
-	templates, err := s.services.Templates.List(r.Context(), GuildStaff(r.Context()))
+	templates, err := s.services.Templates.List(r.Context(), quack.StaffFromContext(r.Context()))
 	if err != nil {
 		writeError(w, r, http.StatusInternalServerError, codeInternal, "failed to list templates")
 		return
@@ -21,7 +21,7 @@ func (s *Server) createTemplate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, codeValidation, "invalid template payload")
 		return
 	}
-	template, err := s.services.Templates.Create(r.Context(), GuildStaff(r.Context()), input)
+	template, err := s.services.Templates.Create(r.Context(), quack.StaffFromContext(r.Context()), input)
 	if err != nil {
 		writeTemplateError(w, r, err)
 		return
@@ -30,7 +30,7 @@ func (s *Server) createTemplate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getTemplate(w http.ResponseWriter, r *http.Request) {
-	template, err := s.services.Templates.Get(r.Context(), GuildStaff(r.Context()), r.PathValue("templateID"))
+	template, err := s.services.Templates.Get(r.Context(), quack.StaffFromContext(r.Context()), r.PathValue("templateID"))
 	if err != nil {
 		writeTemplateError(w, r, err)
 		return
@@ -44,7 +44,7 @@ func (s *Server) updateTemplate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, codeValidation, "invalid template payload")
 		return
 	}
-	staff := GuildStaff(r.Context())
+	staff := quack.StaffFromContext(r.Context())
 	template, err := s.services.Templates.Update(r.Context(), staff, r.PathValue("templateID"), input)
 	if err != nil {
 		writeTemplateError(w, r, err)
@@ -56,7 +56,7 @@ func (s *Server) updateTemplate(w http.ResponseWriter, r *http.Request) {
 
 // archiveTemplate soft-deletes a template; restoreTemplate brings it back.
 func (s *Server) archiveTemplate(w http.ResponseWriter, r *http.Request) {
-	staff := GuildStaff(r.Context())
+	staff := quack.StaffFromContext(r.Context())
 	template, err := s.services.Templates.Archive(r.Context(), staff, r.PathValue("templateID"))
 	if err != nil {
 		writeTemplateError(w, r, err)
@@ -67,7 +67,7 @@ func (s *Server) archiveTemplate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) restoreTemplate(w http.ResponseWriter, r *http.Request) {
-	template, err := s.services.Templates.Restore(r.Context(), GuildStaff(r.Context()), r.PathValue("templateID"))
+	template, err := s.services.Templates.Restore(r.Context(), quack.StaffFromContext(r.Context()), r.PathValue("templateID"))
 	if err != nil {
 		writeTemplateError(w, r, err)
 		return
@@ -78,7 +78,7 @@ func (s *Server) restoreTemplate(w http.ResponseWriter, r *http.Request) {
 // exportTemplate returns the template's policy without guild-specific IDs,
 // for importing into another guild.
 func (s *Server) exportTemplate(w http.ResponseWriter, r *http.Request) {
-	policy, err := s.services.Templates.Export(r.Context(), GuildStaff(r.Context()), r.PathValue("templateID"))
+	policy, err := s.services.Templates.Export(r.Context(), quack.StaffFromContext(r.Context()), r.PathValue("templateID"))
 	if err != nil {
 		writeTemplateError(w, r, err)
 		return
@@ -92,7 +92,7 @@ func (s *Server) importTemplate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, codeValidation, "invalid import payload")
 		return
 	}
-	template, err := s.services.Templates.Import(r.Context(), GuildStaff(r.Context()), input)
+	template, err := s.services.Templates.Import(r.Context(), quack.StaffFromContext(r.Context()), input)
 	if err != nil {
 		writeTemplateError(w, r, err)
 		return

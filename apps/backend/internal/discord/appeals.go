@@ -56,24 +56,50 @@ func appealReversal(services *quack.Services) Handler {
 	}
 }
 
-// AppealStaffChannels finds where a guild's appeal notifications go.
-type AppealStaffChannels interface {
-	// AppealStaffChannel returns the staff-only channel for the guild with
-	// internal ID guildID.
-	AppealStaffChannel(ctx context.Context, guildID string) (string, error)
+// AppealSettingsStore is the storage the AppealNotifier reads to find a
+// guild's staff channel.
+type AppealSettingsStore interface {
+	GetGuildSettings(ctx context.Context, guildID string) (*quack.GuildSettings, error)
+	GetGuildByID(ctx context.Context, guildID string) (*quack.Guild, error)
 }
 
 // AppealNotifier delivers the appeal outbox through Discord. It implements
 // quack.AppealNotifier. Messages never name the staff member involved.
 type AppealNotifier struct {
 	bot      *Bot
-	channels AppealStaffChannels
+	channels appealChannels
 }
 
-// NewAppealNotifier returns an AppealNotifier that sends through bot and
-// finds staff destinations with channels.
-func NewAppealNotifier(bot *Bot, channels AppealStaffChannels) *AppealNotifier {
-	return &AppealNotifier{bot: bot, channels: channels}
+// NewAppealNotifier returns an AppealNotifier that sends through bot. Staff
+// notifications go to the guild's audit mirror channel, found in store.
+func NewAppealNotifier(bot *Bot, store AppealSettingsStore) *AppealNotifier {
+	return &AppealNotifier{bot: bot, channels: appealChannels{store: store, validator: bot}}
+}
+
+// appealChannels finds a guild's appeal staff channel: the audit mirror
+// channel, re-checked as staff-only before every send.
+type appealChannels struct {
+	store     AppealSettingsStore
+	validator interface {
+		ValidateStaffChannel(ctx context.Context, guildID, channelID string) error
+	}
+}
+
+// staffChannel returns the guild's appeal staff channel, or "" if it has
+// none configured.
+func (c appealChannels) staffChannel(ctx context.Context, guildID string) (string, error) {
+	settings, err := c.store.GetGuildSettings(ctx, guildID)
+	if err != nil || settings == nil {
+		return "", err
+	}
+	guild, err := c.store.GetGuildByID(ctx, guildID)
+	if err != nil || guild == nil {
+		return "", errors.New("appeal guild is unavailable")
+	}
+	if err := c.validator.ValidateStaffChannel(ctx, guild.DiscordGuildID, settings.AuditMirrorChannelDiscordID); err != nil {
+		return "", err
+	}
+	return settings.AuditMirrorChannelDiscordID, nil
 }
 
 // SendAppealMemberNotification sends a status update to the member by DM.
@@ -95,7 +121,7 @@ func (n *AppealNotifier) SendAppealMemberNotification(ctx context.Context, disco
 // SendAppealStaffNotification posts a queue update to the guild's staff
 // channel.
 func (n *AppealNotifier) SendAppealStaffNotification(ctx context.Context, guildID, body string) (string, error) {
-	channelID, err := n.channels.AppealStaffChannel(ctx, guildID)
+	channelID, err := n.channels.staffChannel(ctx, guildID)
 	if err != nil {
 		return "", err
 	}

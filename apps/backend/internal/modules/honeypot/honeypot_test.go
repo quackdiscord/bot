@@ -80,12 +80,7 @@ type fixture struct {
 func setup(t *testing.T) *fixture {
 	t.Helper()
 	db := testutil.NewSQLiteDB(t)
-	registry, err := modules.NewRegistry(modules.NewSQLSettingsStore(db), honeypot.Descriptor(),
-		modules.Descriptor{ID: modules.Tickets, DisplayName: "Tickets"},
-		modules.Descriptor{ID: modules.GeneralLogging, DisplayName: "General logging"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	registry := modules.NewRegistry(db)
 	validator := &validatorFake{}
 	applier := &applierFake{}
 	audit := &auditRecorder{}
@@ -93,9 +88,9 @@ func setup(t *testing.T) *fixture {
 	return &fixture{db: db, registry: registry, service: service, validator: validator, applier: applier, audit: audit}
 }
 
-func enable(t *testing.T, fixture *fixture, guildID string) honeypot.Actor {
+func enable(t *testing.T, fixture *fixture, guildID string) modules.Actor {
 	t.Helper()
-	actor := honeypot.Actor{GuildID: guildID, DiscordUserID: "admin", CanManage: true}
+	actor := modules.Actor{GuildID: guildID, DiscordUserID: "admin", CanManage: true}
 	settings := honeypot.Settings{ChannelDiscordID: "trap", TemplateID: "01J500000000000000TEMPLATE", ExemptRoleDiscordIDs: []string{"trusted"}}
 	if _, status, err := fixture.service.UpdateSettings(context.Background(), actor, true, settings); err != nil || !status.Enabled {
 		t.Fatalf("enable: status=%+v err=%v", status, err)
@@ -270,25 +265,24 @@ func TestGuildAndModuleConfigurationIsolation(t *testing.T) {
 	}
 }
 
-func TestRuntimeIntentsQueueAndIndependentShutdown(t *testing.T) {
+func TestPoolDrainsOnStop(t *testing.T) {
 	fixture := setup(t)
 	enable(t, fixture, "guild-a")
-	if got := honeypot.RequiredIntents(false); got != (honeypot.IntentRequirements{}) {
-		t.Fatalf("disabled intents=%+v", got)
-	}
-	if got := honeypot.RequiredIntents(true); !got.Guilds || !got.GuildMessages || got.MessageContent {
-		t.Fatalf("enabled intents=%+v", got)
-	}
-	runtime := honeypot.NewRuntime(context.Background(), honeypot.NewDiscordAdapter(fixture.service), 128, 4)
+	pool := honeypot.NewPool(fixture.service)
+	pool.Start(context.Background())
 	for index := range 100 {
-		if err := runtime.Submit(message(fmt.Sprintf("queued-%d", index))); err != nil {
-			t.Fatal(err)
+		if !pool.Submit(message(fmt.Sprintf("queued-%d", index))) {
+			t.Fatal("message was dropped")
 		}
 	}
-	runtime.Close()
-	runtime.Close()
-	if err := runtime.Submit(message("after-close")); err == nil {
-		t.Fatal("submit after close succeeded")
+	if err := pool.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if pool.Submit(message("after-stop")) {
+		t.Fatal("submit after stop succeeded")
 	}
 	if fixture.applier.count() != 100 {
 		t.Fatalf("drain applied %d cases", fixture.applier.count())
@@ -297,14 +291,14 @@ func TestRuntimeIntentsQueueAndIndependentShutdown(t *testing.T) {
 
 func TestManagerPermissions(t *testing.T) {
 	fixture := setup(t)
-	if _, _, err := fixture.service.Settings(context.Background(), honeypot.Actor{GuildID: "guild-a"}); !errors.Is(err, honeypot.ErrPermissionDenied) {
+	if _, _, err := fixture.service.Settings(context.Background(), modules.Actor{GuildID: "guild-a"}); !errors.Is(err, honeypot.ErrPermissionDenied) {
 		t.Fatalf("read permission error=%v", err)
 	}
-	if _, _, err := fixture.service.UpdateSettings(context.Background(), honeypot.Actor{GuildID: "guild-a"}, true, honeypot.Settings{}); !errors.Is(err, honeypot.ErrPermissionDenied) {
+	if _, _, err := fixture.service.UpdateSettings(context.Background(), modules.Actor{GuildID: "guild-a"}, true, honeypot.Settings{}); !errors.Is(err, honeypot.ErrPermissionDenied) {
 		t.Fatalf("write permission error=%v", err)
 	}
 	fixture.validator.channelErr = errors.New("cannot observe channel")
-	actor := honeypot.Actor{GuildID: "guild-a", DiscordUserID: "admin", CanManage: true}
+	actor := modules.Actor{GuildID: "guild-a", DiscordUserID: "admin", CanManage: true}
 	_, _, err := fixture.service.UpdateSettings(context.Background(), actor, true, honeypot.Settings{ChannelDiscordID: "trap", TemplateID: "template"})
 	if !errors.Is(err, honeypot.ErrChannelUnavailable) {
 		t.Fatalf("channel permission error=%v", err)

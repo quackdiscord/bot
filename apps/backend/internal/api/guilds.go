@@ -18,7 +18,7 @@ func (s *Server) listGuilds(w http.ResponseWriter, r *http.Request) {
 
 // guildMe describes the guild and the caller's live staff permissions in it.
 func (s *Server) guildMe(w http.ResponseWriter, r *http.Request) {
-	staff := GuildStaff(r.Context())
+	staff := quack.StaffFromContext(r.Context())
 	writeJSON(w, http.StatusOK, map[string]any{
 		"guild": map[string]any{
 			"id":                    staff.Guild.ID,
@@ -42,7 +42,7 @@ func (s *Server) guildMe(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
-	settings, err := s.services.Settings.Get(r.Context(), GuildStaff(r.Context()))
+	settings, err := s.services.Settings.Get(r.Context(), quack.StaffFromContext(r.Context()))
 	if err != nil {
 		writeSettingsError(w, r, err)
 		return
@@ -53,7 +53,7 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 // updateSettings applies a partial settings update. An undecodable payload
 // is still audited, as a failed update.
 func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
-	staff := GuildStaff(r.Context())
+	staff := quack.StaffFromContext(r.Context())
 	var input quack.GuildSettingsInput
 	if err := decodeJSON(r, &input); err != nil {
 		writeSettingsError(w, r, s.services.Settings.RejectUpdatePayload(r.Context(), staff, err))
@@ -70,7 +70,7 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
 // acknowledgeStarterPolicyNotice dismisses the one-time starter template
 // notice.
 func (s *Server) acknowledgeStarterPolicyNotice(w http.ResponseWriter, r *http.Request) {
-	settings, err := s.services.Settings.AcknowledgeStarterPolicyNotice(r.Context(), GuildStaff(r.Context()))
+	settings, err := s.services.Settings.AcknowledgeStarterPolicyNotice(r.Context(), quack.StaffFromContext(r.Context()))
 	if err != nil {
 		writeSettingsError(w, r, err)
 		return

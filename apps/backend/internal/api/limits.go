@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/quackdiscord/bot/internal/config"
+	"github.com/quackdiscord/bot/internal/quack"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -230,7 +231,7 @@ func memberSubject(r *http.Request) string {
 
 // guildActorSubject keys appeal-staff and module routes by guild and actor.
 func guildActorSubject(r *http.Request) string {
-	staff := GuildStaff(r.Context())
+	staff := quack.StaffFromContext(r.Context())
 	return staff.Guild.ID + ":" + staff.ActorDiscordUserID
 }
 

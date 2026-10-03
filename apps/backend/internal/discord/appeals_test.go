@@ -2,6 +2,7 @@ package discord
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
@@ -36,5 +37,33 @@ func TestAppealReversalRejectsInvalidControls(t *testing.T) {
 	valid.Member = member
 	if result := handler(context.Background(), valid); result.Task == nil || result.Response.Data.Flags&discordgo.MessageFlagsEphemeral == 0 {
 		t.Fatalf("valid control was not deferred privately: %+v", result)
+	}
+}
+
+type appealSettingsStore struct{}
+
+func (appealSettingsStore) GetGuildSettings(context.Context, string) (*quack.GuildSettings, error) {
+	return &quack.GuildSettings{AuditMirrorChannelDiscordID: "channel"}, nil
+}
+
+func (appealSettingsStore) GetGuildByID(context.Context, string) (*quack.Guild, error) {
+	return &quack.Guild{DiscordGuildID: "discord-guild"}, nil
+}
+
+type rejectingStaffChannel struct{ guildID, channelID string }
+
+func (v *rejectingStaffChannel) ValidateStaffChannel(_ context.Context, guildID, channelID string) error {
+	v.guildID, v.channelID = guildID, channelID
+	return errors.New("destination is public")
+}
+
+func TestAppealStaffChannelIsRevalidated(t *testing.T) {
+	validator := &rejectingStaffChannel{}
+	channels := appealChannels{store: appealSettingsStore{}, validator: validator}
+	if channel, err := channels.staffChannel(context.Background(), "internal-guild"); err == nil || channel != "" {
+		t.Fatalf("public appeal destination accepted: %q, %v", channel, err)
+	}
+	if validator.guildID != "discord-guild" || validator.channelID != "channel" {
+		t.Fatalf("validated the wrong destination: %+v", validator)
 	}
 }

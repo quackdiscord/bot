@@ -92,7 +92,6 @@ func TestGuildLeaveAndRejoinKeepsSettings(t *testing.T) {
 	settings.AuditMirrorChannelDiscordID = "audit-channel"
 	settings.ManagedEvidenceChannelDiscordID = "evidence-channel"
 	settings.NotificationIntroduction = "Welcome"
-	settings.TicketsEnabled = true
 	if _, err := s.UpdateGuildSettings(ctx, quack.UpdateGuildSettingsParams{Settings: settings}); err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +119,7 @@ func TestGuildLeaveAndRejoinKeepsSettings(t *testing.T) {
 	if rejoined.Settings.AuditMirrorChannelDiscordID != "audit-channel" || rejoined.Settings.ManagedEvidenceChannelDiscordID != "" {
 		t.Fatalf("rejoin channel repair: %+v", rejoined.Settings)
 	}
-	if rejoined.Settings.NotificationIntroduction != "Welcome" || !rejoined.Settings.TicketsEnabled {
+	if rejoined.Settings.NotificationIntroduction != "Welcome" {
 		t.Fatalf("rejoin lost settings: %+v", rejoined.Settings)
 	}
 	audits, err := s.ListAuditLogEntries(ctx, bootstrap.Guild.ID)

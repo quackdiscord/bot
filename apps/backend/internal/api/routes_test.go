@@ -10,7 +10,12 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/config"
+	"github.com/quackdiscord/bot/internal/modules"
+	honeypotmodule "github.com/quackdiscord/bot/internal/modules/honeypot"
+	logmodule "github.com/quackdiscord/bot/internal/modules/logging"
+	ticketmodule "github.com/quackdiscord/bot/internal/modules/tickets"
 	"github.com/quackdiscord/bot/internal/quack"
+	storage "github.com/quackdiscord/bot/internal/store"
 )
 
 func TestGuildAndMemberRoutesRequireAuthentication(t *testing.T) {
@@ -205,6 +210,10 @@ func TestGuildSettingsRoutes(t *testing.T) {
 	if s := body.Settings; s.AuditMirrorChannelDiscordID != "" || !s.TicketsEnabled || !s.HoneypotEnabled || !s.StarterPolicyReviewRequired {
 		t.Fatalf("settings = %+v", s)
 	}
+	assertModulesSeeToggles(t, store, "guild-1", true, false, true)
+	off := `{"tickets_enabled": false, "honeypot_enabled": false, "general_logging_enabled": true}`
+	expectStatus(t, send(t, server, http.MethodPatch, "/guilds/guild-1/settings", off, sessionID), http.StatusOK)
+	assertModulesSeeToggles(t, store, "guild-1", false, true, false)
 
 	ack := send(t, server, http.MethodPost, "/guilds/guild-1/settings/starter-policy-notice/acknowledge", "", sessionID)
 	expectStatus(t, ack, http.StatusOK)
@@ -381,5 +390,30 @@ func assertEnvelope(t *testing.T, response *httptest.ResponseRecorder, status in
 	}
 	if e := body.Error; e.Code != code || e.Message == "" || e.RequestID == "" || e.CorrelationID == "" {
 		t.Fatalf("envelope = %+v, want code %q", e, code)
+	}
+}
+
+// assertModulesSeeToggles checks the settings API's module switches through
+// each module's own service, which reads module_configurations.
+func assertModulesSeeToggles(t *testing.T, store *storage.Store, discordGuildID string, tickets, logging, honeypot bool) {
+	t.Helper()
+	ctx := context.Background()
+	guild, err := store.GetGuildByDiscordID(ctx, discordGuildID)
+	if err != nil || guild == nil {
+		t.Fatalf("load guild: %+v %v", guild, err)
+	}
+	registry := modules.NewRegistry(store.DB())
+	actor := modules.Actor{GuildID: guild.ID, DiscordUserID: "admin", CanManage: true}
+	ticketStatus, err := ticketmodule.NewService(registry, ticketmodule.NewStore(store.DB()), nil).Status(ctx, actor)
+	if err != nil || ticketStatus.Enabled != tickets {
+		t.Errorf("tickets module sees enabled=%v (err %v), want %v", ticketStatus.Enabled, err, tickets)
+	}
+	_, loggingEnabled, _, err := logmodule.NewService(registry, nil, nil, nil).Settings(ctx, actor)
+	if err != nil || loggingEnabled != logging {
+		t.Errorf("logging module sees enabled=%v (err %v), want %v", loggingEnabled, err, logging)
+	}
+	_, trapStatus, err := honeypotmodule.NewService(registry, honeypotmodule.NewStore(store.DB()), nil, nil, nil, nil).Settings(ctx, actor)
+	if err != nil || trapStatus.Enabled != honeypot {
+		t.Errorf("honeypot module sees enabled=%v (err %v), want %v", trapStatus.Enabled, err, honeypot)
 	}
 }

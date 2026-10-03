@@ -143,7 +143,7 @@ func (m fakeModule) MountHTTP(mux *ModuleMux) {
 		if m.calls != nil {
 			m.calls.Add(1)
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"saved": true, "actor": GuildStaff(r.Context()).ActorDiscordUserID})
+		writeJSON(w, http.StatusOK, map[string]any{"saved": true, "actor": quack.StaffFromContext(r.Context()).ActorDiscordUserID})
 	}))
 	mux.HandleWrite("POST /example/fail", allowed, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "token=must-not-persist"})
@@ -163,7 +163,7 @@ func TestModuleWrites(t *testing.T) {
 		Services: quack.New(quack.Deps{Store: store, Guilds: staffGuilds(uint64(discordgo.PermissionManageGuild))}),
 		Store:    store,
 		Redis:    store.Redis(),
-		Modules:  module,
+		Modules:  module.MountHTTP,
 	})
 	sessionID := saveSession(t, store, testSession("user-1"))
 	expectStatus(t, send(t, server, http.MethodPut, "/guilds/guild-1/modules/example/settings", `{}`, sessionID,

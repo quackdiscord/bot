@@ -22,12 +22,28 @@ const maxNotificationBrandingLength = 2000
 type GuildSettingsService struct {
 	store    SettingsStore
 	channels StaffChannelValidator
+	modules  ModuleToggles
+}
+
+// ModuleStates says which optional modules a guild has switched on.
+type ModuleStates struct {
+	Tickets, GeneralLogging, Honeypot bool
+}
+
+// ModuleToggles reads and writes the optional modules' on/off switches. The
+// switches live with each module's configuration, which is what the modules
+// themselves read, so the settings API must go through this port rather
+// than store a copy.
+type ModuleToggles interface {
+	ModuleStates(ctx context.Context, guildID string) (ModuleStates, error)
+	SetModuleStates(ctx context.Context, guildID string, states ModuleStates) error
 }
 
 // NewGuildSettingsService returns a GuildSettingsService. Without channels,
-// setting an audit channel fails validation.
-func NewGuildSettingsService(store SettingsStore, channels StaffChannelValidator) *GuildSettingsService {
-	return &GuildSettingsService{store: store, channels: channels}
+// setting an audit channel fails validation. Without modules, every module
+// reads as off and switching one on fails validation.
+func NewGuildSettingsService(store SettingsStore, channels StaffChannelValidator, modules ModuleToggles) *GuildSettingsService {
+	return &GuildSettingsService{store: store, channels: channels, modules: modules}
 }
 
 // GuildSettingsInput is a partial settings update. Nil fields are left
@@ -39,9 +55,10 @@ type GuildSettingsInput struct {
 	ManagedEvidenceChannelDiscordID *string `json:"managed_evidence_channel_discord_id"`
 	NotificationIntroduction        *string `json:"notification_introduction"`
 	NotificationFooter              *string `json:"notification_footer"`
-	TicketsEnabled                  *bool   `json:"tickets_enabled"`
-	GeneralLoggingEnabled           *bool   `json:"general_logging_enabled"`
-	HoneypotEnabled                 *bool   `json:"honeypot_enabled"`
+	// The module switches are stored with the modules, not in guild_settings.
+	TicketsEnabled        *bool `json:"tickets_enabled"`
+	GeneralLoggingEnabled *bool `json:"general_logging_enabled"`
+	HoneypotEnabled       *bool `json:"honeypot_enabled"`
 }
 
 // GuildSettingsResponse is a guild's settings as the dashboard sees them.
@@ -80,10 +97,15 @@ func (s *GuildSettingsService) Get(ctx context.Context, guildContext *GuildStaff
 		_ = s.audit(ctx, guildContext, action, AuditResultFailure, "not_found")
 		return nil, ErrGuildSettingsNotFound
 	}
+	states, err := s.moduleStates(ctx, guildContext.Guild.ID)
+	if err != nil {
+		_ = s.audit(ctx, guildContext, action, AuditResultFailure, "query_failed")
+		return nil, err
+	}
 	if err := s.audit(ctx, guildContext, action, AuditResultSuccess, ""); err != nil {
 		return nil, err
 	}
-	response := guildSettingsResponse(*settings)
+	response := guildSettingsResponse(*settings, states)
 	return &response, nil
 }
 
@@ -112,6 +134,17 @@ func (s *GuildSettingsService) Update(ctx context.Context, guildContext *GuildSt
 		_ = s.audit(ctx, guildContext, action, AuditResultFailure, err.Error())
 		return nil, err
 	}
+	states, err := s.moduleStates(ctx, guildContext.Guild.ID)
+	if err != nil {
+		_ = s.audit(ctx, guildContext, action, AuditResultFailure, err.Error())
+		return nil, err
+	}
+	wantStates := applyModuleInput(states, input)
+	if wantStates != states && s.modules == nil {
+		err := settingsValidationError("optional modules are unavailable")
+		_ = s.audit(ctx, guildContext, action, AuditResultFailure, err.Error())
+		return nil, err
+	}
 	if input.AuditMirrorChannelDiscordID != nil && settings.AuditMirrorChannelDiscordID != "" {
 		if s.channels == nil {
 			return nil, settingsValidationError("channel validation unavailable")
@@ -128,8 +161,23 @@ func (s *GuildSettingsService) Update(ctx context.Context, guildContext *GuildSt
 		_ = s.audit(ctx, guildContext, action, AuditResultFailure, err.Error())
 		return nil, err
 	}
-	response := guildSettingsResponse(*updated)
+	if wantStates != states {
+		if err := s.modules.SetModuleStates(ctx, guildContext.Guild.ID, wantStates); err != nil {
+			_ = s.audit(ctx, guildContext, action, AuditResultFailure, err.Error())
+			return nil, err
+		}
+	}
+	response := guildSettingsResponse(*updated, wantStates)
 	return &response, nil
+}
+
+// moduleStates returns the guild's module switches, all off when no modules
+// are wired.
+func (s *GuildSettingsService) moduleStates(ctx context.Context, guildID string) (ModuleStates, error) {
+	if s.modules == nil {
+		return ModuleStates{}, nil
+	}
+	return s.modules.ModuleStates(ctx, guildID)
 }
 
 // RejectUpdatePayload audits a settings update the adapter could not decode
@@ -178,6 +226,10 @@ func (s *GuildSettingsService) AcknowledgeStarterPolicyNotice(ctx context.Contex
 		settings.StarterPolicyNoticePending = false
 		settings.StarterPolicyNoticeAcknowledgedAt = &now
 	}
+	states, err := s.moduleStates(ctx, guildContext.Guild.ID)
+	if err != nil {
+		return nil, err
+	}
 	updated, err := s.store.UpdateGuildSettings(ctx, UpdateGuildSettingsParams{
 		Settings: *settings,
 		Audit:    s.auditEntry(ctx, guildContext, action, AuditResultSuccess, ""),
@@ -186,7 +238,7 @@ func (s *GuildSettingsService) AcknowledgeStarterPolicyNotice(ctx context.Contex
 		_ = s.audit(ctx, guildContext, action, AuditResultFailure, err.Error())
 		return nil, err
 	}
-	response := guildSettingsResponse(*updated)
+	response := guildSettingsResponse(*updated, states)
 	return &response, nil
 }
 
@@ -215,16 +267,21 @@ func applyGuildSettingsInput(settings *GuildSettings, input GuildSettingsInput) 
 		}
 		settings.NotificationFooter = value
 	}
+	return nil
+}
+
+// applyModuleInput returns states with the input's module switches applied.
+func applyModuleInput(states ModuleStates, input GuildSettingsInput) ModuleStates {
 	if input.TicketsEnabled != nil {
-		settings.TicketsEnabled = *input.TicketsEnabled
+		states.Tickets = *input.TicketsEnabled
 	}
 	if input.GeneralLoggingEnabled != nil {
-		settings.GeneralLoggingEnabled = *input.GeneralLoggingEnabled
+		states.GeneralLogging = *input.GeneralLoggingEnabled
 	}
 	if input.HoneypotEnabled != nil {
-		settings.HoneypotEnabled = *input.HoneypotEnabled
+		states.Honeypot = *input.HoneypotEnabled
 	}
-	return nil
+	return states
 }
 
 // normalizeChannelID accepts "" (clear) or a canonical decimal snowflake.
@@ -271,7 +328,7 @@ func (s *GuildSettingsService) auditEntry(ctx context.Context, guildContext *Gui
 	}
 }
 
-func guildSettingsResponse(settings GuildSettings) GuildSettingsResponse {
+func guildSettingsResponse(settings GuildSettings, modules ModuleStates) GuildSettingsResponse {
 	return GuildSettingsResponse{
 		ID:                                settings.ID,
 		GuildID:                           settings.GuildID,
@@ -279,9 +336,9 @@ func guildSettingsResponse(settings GuildSettings) GuildSettingsResponse {
 		ManagedEvidenceChannelDiscordID:   settings.ManagedEvidenceChannelDiscordID,
 		NotificationIntroduction:          settings.NotificationIntroduction,
 		NotificationFooter:                settings.NotificationFooter,
-		TicketsEnabled:                    settings.TicketsEnabled,
-		GeneralLoggingEnabled:             settings.GeneralLoggingEnabled,
-		HoneypotEnabled:                   settings.HoneypotEnabled,
+		TicketsEnabled:                    modules.Tickets,
+		GeneralLoggingEnabled:             modules.GeneralLogging,
+		HoneypotEnabled:                   modules.Honeypot,
 		StarterPolicyTemplateID:           settings.StarterPolicyTemplateID,
 		StarterPolicyReviewRequired:       settings.StarterPolicyNoticePending,
 		StarterPolicyNoticeAcknowledgedAt: settings.StarterPolicyNoticeAcknowledgedAt,

@@ -47,7 +47,7 @@ func (s *Server) listFailedActions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, codeValidation, "invalid pagination")
 		return
 	}
-	result, err := s.services.Actions.ListFailures(r.Context(), GuildStaff(r.Context()), limit, offset)
+	result, err := s.services.Actions.ListFailures(r.Context(), quack.StaffFromContext(r.Context()), limit, offset)
 	if err != nil {
 		writeCaseError(w, r, err)
 		return
@@ -57,7 +57,7 @@ func (s *Server) listFailedActions(w http.ResponseWriter, r *http.Request) {
 
 // retryFailedAction requeues the same action after a live permission check.
 func (s *Server) retryFailedAction(w http.ResponseWriter, r *http.Request) {
-	result, err := s.services.Actions.Retry(r.Context(), GuildStaff(r.Context()), r.PathValue("executionID"))
+	result, err := s.services.Actions.Retry(r.Context(), quack.StaffFromContext(r.Context()), r.PathValue("executionID"))
 	if err != nil {
 		writeCaseError(w, r, err)
 		return
@@ -67,7 +67,7 @@ func (s *Server) retryFailedAction(w http.ResponseWriter, r *http.Request) {
 
 // dismissFailedAction removes a failure from the queue; its history stays.
 func (s *Server) dismissFailedAction(w http.ResponseWriter, r *http.Request) {
-	result, err := s.services.Actions.Dismiss(r.Context(), GuildStaff(r.Context()), r.PathValue("executionID"))
+	result, err := s.services.Actions.Dismiss(r.Context(), quack.StaffFromContext(r.Context()), r.PathValue("executionID"))
 	if err != nil {
 		writeCaseError(w, r, err)
 		return
@@ -83,7 +83,7 @@ func (s *Server) reverseCaseAction(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, codeValidation, "confirmed reversal payload is required")
 		return
 	}
-	result, err := s.services.Actions.ReverseForAppeal(r.Context(), GuildStaff(r.Context()), r.PathValue("caseRef"),
+	result, err := s.services.Actions.ReverseForAppeal(r.Context(), quack.StaffFromContext(r.Context()), r.PathValue("caseRef"),
 		input.OriginalExecutionID, input.ActionType, input.AppealID)
 	if err != nil {
 		writeCaseError(w, r, err)

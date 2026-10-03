@@ -1,40 +1,44 @@
-// Package honeypot implements Quack's optional automated trap-channel module.
+// Package honeypot is the optional trap-channel module. Admins pick a
+// channel no real member should post in and a template; when someone posts
+// there, Quack opens a case against them with that template, through the
+// normal case path, attributed to Quack itself. Bots, webhooks, staff, and
+// exempt roles are ignored, and each message triggers at most once.
 package honeypot
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
-
-	"github.com/quackdiscord/bot/internal/modules"
 )
 
 var (
-	// ErrDisabled reports a guild whose honeypot module is not active.
+	// ErrDisabled reports a guild with the honeypot off.
 	ErrDisabled = errors.New("honeypot module is disabled")
-	// ErrPermissionDenied reports a settings or status operation without Manage Guild.
+	// ErrPermissionDenied reports a caller without Manage Guild.
 	ErrPermissionDenied = errors.New("honeypot permission denied")
-	// ErrDuplicate reports a gateway replay that has already been claimed.
+	// ErrDuplicate reports a message that was already handled.
 	ErrDuplicate = errors.New("honeypot message already handled")
-	// ErrExempt reports a message deliberately excluded by the safety policy.
+	// ErrExempt reports a message whose author is exempt.
 	ErrExempt = errors.New("honeypot author is exempt")
-	// ErrNotTrigger reports an event outside the configured trap channel or without a human-authored message.
+	// ErrNotTrigger reports a message outside the trap channel.
 	ErrNotTrigger = errors.New("message does not qualify for honeypot processing")
-	// ErrChannelUnavailable reports a deleted or inaccessible trap channel.
+	// ErrChannelUnavailable reports a trap channel that is gone or that
+	// Quack cannot see.
 	ErrChannelUnavailable = errors.New("honeypot channel is unavailable")
-	// ErrTemplateUnavailable reports an archived, missing, or automation-incompatible template.
+	// ErrTemplateUnavailable reports a template that is archived, missing, or
+	// cannot run unattended.
 	ErrTemplateUnavailable = errors.New("honeypot template is unavailable")
 )
 
 const (
-	// SourceHoneypot is the canonical case source required from the QP-A adapter.
+	// SourceHoneypot is the source of every honeypot case.
 	SourceHoneypot = "honeypot"
-	// ActorTypeSystem represents automation without inventing a staff identity.
+	// ActorTypeSystem marks a case opened by Quack, with no staff actor.
 	ActorTypeSystem = "system"
 )
 
-// Settings is one guild's complete honeypot configuration.
+// Settings are a guild's honeypot settings, stored as the module's config
+// JSON.
 type Settings struct {
 	ChannelDiscordID     string   `json:"channel_discord_id"`
 	TemplateID           string   `json:"template_id"`
@@ -42,13 +46,7 @@ type Settings struct {
 	DisabledReason       string   `json:"disabled_reason,omitempty"`
 }
 
-// Actor identifies a current guild manager for configuration and status operations.
-type Actor struct {
-	GuildID, DiscordUserID string
-	CanManage              bool
-}
-
-// Message is the minimum Discord event projection needed by the trap policy.
+// Message is what the trap policy needs to know about a message.
 type Message struct {
 	GuildID, ChannelDiscordID, MessageDiscordID, AuthorDiscordUserID string
 	MessageURL                                                       string
@@ -56,35 +54,34 @@ type Message struct {
 	IsBot, IsQuack, IsWebhook, AuthorCanModerate                     bool
 }
 
-// ApplyRequest asks the injected QP-A boundary to execute its normal case transaction.
-// The adapter must preserve every field and must not write directly to case storage.
+// ApplyRequest asks for a case to be opened through the normal case path.
 type ApplyRequest struct {
 	GuildID, TemplateID, TargetDiscordUserID                     string
 	ContextChannelDiscordID, ContextMessageDiscordID, ContextURL string
 	IdempotencyKey, Source, ActorType, ActorDiscordUserID        string
 }
 
-// ApplyResult identifies the case created and queued by the normal moderation path.
+// ApplyResult is the case that was opened.
 type ApplyResult struct {
 	CaseID string
 }
 
-// CaseApplier is the narrow QP-A application interface used by honeypot automation.
+// CaseApplier opens honeypot cases.
 type CaseApplier interface {
 	ApplyHoneypotCase(context.Context, ApplyRequest) (ApplyResult, error)
 }
 
-// TemplateValidator verifies that a template is active and compatible with unattended use.
+// TemplateValidator checks that a template can run unattended.
 type TemplateValidator interface {
 	ValidateHoneypotTemplate(context.Context, string, string) error
 }
 
-// ChannelValidator verifies that Quack can observe the channel and run the configured action path.
+// ChannelValidator checks that Quack can see a trap channel.
 type ChannelValidator interface {
 	ValidateHoneypotChannel(context.Context, string, string) error
 }
 
-// Outcome is the durable terminal state of one qualifying Discord message.
+// Outcome is what came of a trigger.
 type Outcome string
 
 const (
@@ -94,7 +91,7 @@ const (
 	OutcomeExempt  Outcome = "exempt"
 )
 
-// Statistics is derived from isolated honeypot trigger records.
+// Statistics are a guild's trigger counts by outcome.
 type Statistics struct {
 	Total   uint64 `json:"total"`
 	Pending uint64 `json:"pending"`
@@ -103,7 +100,7 @@ type Statistics struct {
 	Exempt  uint64 `json:"exempt"`
 }
 
-// Status is the manager-visible configuration health and derived outcome summary.
+// Status is a guild's honeypot state as managers see it.
 type Status struct {
 	Enabled          bool       `json:"enabled"`
 	Configured       bool       `json:"configured"`
@@ -113,19 +110,8 @@ type Status struct {
 	Statistics       Statistics `json:"statistics"`
 }
 
-// Descriptor exposes honeypot configuration validation to the shared registry.
-func Descriptor() modules.Descriptor {
-	return modules.Descriptor{ID: modules.Honeypots, DisplayName: "Honeypots", Validate: validateSettingsJSON}
-}
-
-func validateSettingsJSON(raw string) error {
-	var settings Settings
-	if err := json.Unmarshal([]byte(raw), &settings); err != nil {
-		return err
-	}
-	return validateSettings(settings, false)
-}
-
+// validateSettings checks settings; an enabled honeypot also needs a
+// channel and a template.
 func validateSettings(settings Settings, enabled bool) error {
 	settings.ChannelDiscordID = strings.TrimSpace(settings.ChannelDiscordID)
 	settings.TemplateID = strings.TrimSpace(settings.TemplateID)

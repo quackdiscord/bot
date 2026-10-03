@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 
 	"github.com/quackdiscord/bot/internal/modules"
 )
 
-// Service owns honeypot configuration, trigger safety, and the QP-A application boundary.
+// Service applies the trap policy to messages and manages each guild's
+// honeypot settings.
 type Service struct {
 	registry  *modules.Registry
 	store     *Store
@@ -21,13 +21,13 @@ type Service struct {
 	applier   CaseApplier
 }
 
-// NewService constructs the module with explicit isolated dependencies.
+// NewService returns a Service. A nil auditor only logs operations.
 func NewService(registry *modules.Registry, store *Store, auditor modules.Auditor, channels ChannelValidator, templates TemplateValidator, applier CaseApplier) *Service {
 	return &Service{registry: registry, store: store, auditor: auditor, channels: channels, templates: templates, applier: applier}
 }
 
-// Settings returns one guild's settings and health to a current manager.
-func (s *Service) Settings(ctx context.Context, actor Actor) (Settings, Status, error) {
+// Settings returns the guild's settings and status. It needs Manage Guild.
+func (s *Service) Settings(ctx context.Context, actor modules.Actor) (Settings, Status, error) {
 	if !actor.CanManage {
 		s.audit(ctx, actor.GuildID, actor.DiscordUserID, "honeypot.settings.read", "honeypot_settings", "denied", ErrPermissionDenied, "")
 		return Settings{}, Status{}, ErrPermissionDenied
@@ -43,8 +43,9 @@ func (s *Service) Settings(ctx context.Context, actor Actor) (Settings, Status, 
 	return settings, status, nil
 }
 
-// UpdateSettings validates the live channel and template before replacing only the honeypot envelope.
-func (s *Service) UpdateSettings(ctx context.Context, actor Actor, enabled bool, settings Settings) (Settings, Status, error) {
+// UpdateSettings saves the guild's settings. Turning the honeypot on checks
+// the channel and template live first. It needs Manage Guild.
+func (s *Service) UpdateSettings(ctx context.Context, actor modules.Actor, enabled bool, settings Settings) (Settings, Status, error) {
 	if !actor.CanManage {
 		s.audit(ctx, actor.GuildID, actor.DiscordUserID, "honeypot.settings.update", "honeypot_settings", "denied", ErrPermissionDenied, "")
 		return Settings{}, Status{}, ErrPermissionDenied
@@ -75,11 +76,10 @@ func (s *Service) UpdateSettings(ctx context.Context, actor Actor, enabled bool,
 	return settings, status, err
 }
 
-// HandleMessage applies the fixed trap policy and invokes the normal moderation path exactly once.
+// HandleMessage opens a case for a message in the trap channel, unless the
+// author is exempt or the message was already handled. A template that has
+// become unusable turns the honeypot off instead.
 func (s *Service) HandleMessage(ctx context.Context, message Message) (ApplyResult, error) {
-	if s == nil || s.registry == nil || s.store == nil || s.applier == nil {
-		return ApplyResult{}, errors.New("honeypot service is not configured")
-	}
 	message = normalizeMessage(message)
 	settings, enabled, err := s.loadSettings(ctx, message.GuildID)
 	if err != nil {
@@ -145,7 +145,8 @@ func (s *Service) HandleMessage(ctx context.Context, message Message) (ApplyResu
 	return result, nil
 }
 
-// HandleDeletedChannel disables a matching trap while retaining its repair context.
+// HandleDeletedChannel turns the honeypot off if channelID was its trap,
+// keeping the settings so Repair can turn it back on.
 func (s *Service) HandleDeletedChannel(ctx context.Context, guildID, channelID string) error {
 	settings, enabled, err := s.loadSettings(ctx, strings.TrimSpace(guildID))
 	if err != nil || !enabled || settings.ChannelDiscordID != strings.TrimSpace(channelID) {
@@ -154,7 +155,8 @@ func (s *Service) HandleDeletedChannel(ctx context.Context, guildID, channelID s
 	return s.disableForDrift(ctx, guildID, settings, "configured honeypot channel was deleted")
 }
 
-// HandleTemplateUnavailable disables automation when archive or compatibility drift is observed.
+// HandleTemplateUnavailable turns the honeypot off if it uses templateID,
+// keeping the settings so Repair can turn it back on.
 func (s *Service) HandleTemplateUnavailable(ctx context.Context, guildID, templateID string) error {
 	settings, enabled, err := s.loadSettings(ctx, strings.TrimSpace(guildID))
 	if err != nil || !enabled || settings.TemplateID != strings.TrimSpace(templateID) {
@@ -163,8 +165,9 @@ func (s *Service) HandleTemplateUnavailable(ctx context.Context, guildID, templa
 	return s.disableForDrift(ctx, guildID, settings, "selected template is archived, missing, or incompatible")
 }
 
-// Repair revalidates retained references and safely re-enables the module.
-func (s *Service) Repair(ctx context.Context, actor Actor) (Settings, Status, error) {
+// Repair turns the honeypot back on with its kept settings, checking them
+// live first.
+func (s *Service) Repair(ctx context.Context, actor modules.Actor) (Settings, Status, error) {
 	if !actor.CanManage {
 		return Settings{}, Status{}, ErrPermissionDenied
 	}
@@ -185,9 +188,6 @@ func (s *Service) disableForDrift(ctx context.Context, guildID string, settings 
 }
 
 func (s *Service) loadSettings(ctx context.Context, guildID string) (Settings, bool, error) {
-	if s == nil || s.registry == nil {
-		return Settings{}, false, errors.New("honeypot registry is not configured")
-	}
 	configuration, err := s.registry.Configuration(ctx, strings.TrimSpace(guildID), modules.Honeypots)
 	if err != nil {
 		return Settings{}, false, err
@@ -219,23 +219,18 @@ func (s *Service) status(ctx context.Context, guildID string, settings Settings,
 	return Status{Enabled: enabled, Configured: settings.ChannelDiscordID != "" && settings.TemplateID != "", ChannelDiscordID: settings.ChannelDiscordID, TemplateID: settings.TemplateID, DisabledReason: settings.DisabledReason, Statistics: statistics}, nil
 }
 
+// audit logs and records a honeypot operation. Automated events have no
+// actor.
 func (s *Service) audit(ctx context.Context, guildID, actorID, action, resourceType, result string, cause error, resourceID string) {
-	level := slog.LevelInfo
-	if result != "success" {
-		level = slog.LevelWarn
-	}
-	slog.Log(ctx, level, "Module operation completed", "module", "honeypot", "guild_id", guildID, "action", action, "result", result)
-
-	if s.auditor == nil {
-		return
-	}
 	failure := ""
 	if cause != nil {
 		failure = cause.Error()
 	}
-	if auditErr := s.auditor.RecordModuleAudit(ctx, modules.AuditEvent{GuildID: guildID, ActorDiscordUserID: actorID, Action: action, ResourceType: resourceType, ResourceID: resourceID, Result: result, FailureReason: failure, MetadataJSON: "{}"}); auditErr != nil {
-		slog.ErrorContext(ctx, "Module audit could not be recorded", "module", "honeypot", "guild_id", guildID, "action", action)
-	}
+	modules.Audit(ctx, s.auditor, "honeypot", modules.AuditEvent{
+		GuildID: guildID, ActorDiscordUserID: actorID,
+		Action: action, ResourceType: resourceType, ResourceID: resourceID,
+		Result: result, FailureReason: failure,
+	})
 }
 
 func normalizeSettings(settings Settings) Settings {

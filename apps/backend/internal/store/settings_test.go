@@ -22,8 +22,6 @@ func TestGuildSettingsUpdateAndChannelRepair(t *testing.T) {
 	settings := bootstrap.Settings
 	settings.AuditMirrorChannelDiscordID = "shared-channel"
 	settings.ManagedEvidenceChannelDiscordID = "shared-channel"
-	settings.GeneralLoggingEnabled = true
-	settings.HoneypotEnabled = true
 	settings.StarterPolicyTemplateID = "ignored"
 	updated, err := s.UpdateGuildSettings(ctx, quack.UpdateGuildSettingsParams{Settings: settings, Audit: &quack.AuditLogEntry{
 		GuildID: guildID, Source: quack.AuditSourceAPI, Action: "guild_settings.update", ResourceType: "guild_settings", Result: quack.AuditResultSuccess,
@@ -31,8 +29,8 @@ func TestGuildSettingsUpdateAndChannelRepair(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !updated.GeneralLoggingEnabled || !updated.HoneypotEnabled || updated.TicketsEnabled {
-		t.Fatalf("module toggles = %+v", updated)
+	if updated.AuditMirrorChannelDiscordID != "shared-channel" {
+		t.Fatalf("update = %+v", updated)
 	}
 	if updated.StarterPolicyTemplateID != bootstrap.Settings.StarterPolicyTemplateID {
 		t.Fatalf("update rebound the starter template to %q", updated.StarterPolicyTemplateID)

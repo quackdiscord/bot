@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quackdiscord/bot/internal/modules"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -23,7 +24,7 @@ func TestOpeningReservationFencesExpiredWorkers(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := NewStore(db)
-	actor := Actor{GuildID: "guild", DiscordUserID: "member"}
+	actor := modules.Actor{GuildID: "guild", DiscordUserID: "member"}
 	now := time.Now().UTC()
 	first, err := s.reserveOpening(context.Background(), actor, 3, now)
 	if err != nil {

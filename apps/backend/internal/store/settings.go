@@ -29,9 +29,6 @@ func (s *Store) UpdateGuildSettings(ctx context.Context, params quack.UpdateGuil
 		r.ManagedEvidenceChannelDiscordID = in.ManagedEvidenceChannelDiscordID
 		r.NotificationIntroduction = in.NotificationIntroduction
 		r.NotificationFooter = in.NotificationFooter
-		r.TicketsEnabled = in.TicketsEnabled
-		r.GeneralLoggingEnabled = in.GeneralLoggingEnabled
-		r.HoneypotEnabled = in.HoneypotEnabled
 		r.StarterPolicyNoticePending = in.StarterPolicyNoticePending
 		r.StarterPolicyNoticeAcknowledgedAt = in.StarterPolicyNoticeAcknowledgedAt
 		return true
@@ -135,9 +132,6 @@ func (r guildSettingsRecord) model() quack.GuildSettings {
 		ManagedEvidenceChannelDiscordID:   r.ManagedEvidenceChannelDiscordID,
 		NotificationIntroduction:          r.NotificationIntroduction,
 		NotificationFooter:                r.NotificationFooter,
-		TicketsEnabled:                    r.TicketsEnabled,
-		GeneralLoggingEnabled:             r.GeneralLoggingEnabled,
-		HoneypotEnabled:                   r.HoneypotEnabled,
 		StarterPolicyTemplateID:           r.StarterPolicyTemplateID,
 		StarterPolicyNoticePending:        r.StarterPolicyNoticePending,
 		StarterPolicyNoticeAcknowledgedAt: r.StarterPolicyNoticeAcknowledgedAt,

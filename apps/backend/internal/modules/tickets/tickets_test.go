@@ -7,10 +7,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discord"
 	"github.com/quackdiscord/bot/internal/modules"
 	"github.com/quackdiscord/bot/internal/modules/tickets"
+	"github.com/quackdiscord/bot/internal/quack"
 	"github.com/quackdiscord/bot/internal/testutil"
 	"gorm.io/gorm"
 )
@@ -30,16 +30,13 @@ func (a *auditRecorder) RecordModuleAudit(_ context.Context, event modules.Audit
 func setup(t *testing.T) (*gorm.DB, *tickets.Service, *auditRecorder) {
 	t.Helper()
 	db := testutil.NewSQLiteDB(t)
-	registry, err := modules.NewRegistry(modules.NewSQLSettingsStore(db), tickets.Descriptor())
-	if err != nil {
-		t.Fatal(err)
-	}
+	registry := modules.NewRegistry(db)
 	audit := &auditRecorder{}
 	service := tickets.NewService(registry, tickets.NewStore(db), audit)
 	settings := tickets.Defaults()
 	settings.EntryChannelDiscordID = "entry"
 	settings.StaffRoleDiscordIDs = []string{"staff-role"}
-	if _, err := service.UpdateSettings(context.Background(), tickets.Actor{GuildID: "guild-a", DiscordUserID: "admin", CanManage: true}, true, settings); err != nil {
+	if _, err := service.UpdateSettings(context.Background(), modules.Actor{GuildID: "guild-a", DiscordUserID: "admin", CanManage: true}, true, settings); err != nil {
 		t.Fatal(err)
 	}
 	return db, service, audit
@@ -48,8 +45,8 @@ func setup(t *testing.T) (*gorm.DB, *tickets.Service, *auditRecorder) {
 func TestLifecyclePrivacyDuplicateRateAndIsolation(t *testing.T) {
 	_, service, audit := setup(t)
 	ctx := context.Background()
-	member := tickets.Actor{GuildID: "guild-a", DiscordUserID: "member"}
-	staff := tickets.Actor{GuildID: "guild-a", DiscordUserID: "staff", CanModerate: true}
+	member := modules.Actor{GuildID: "guild-a", DiscordUserID: "member"}
+	staff := modules.Actor{GuildID: "guild-a", DiscordUserID: "staff", CanModerate: true}
 	ticket, err := service.Open(ctx, member, "thread-1")
 	if err != nil {
 		t.Fatal(err)
@@ -57,10 +54,10 @@ func TestLifecyclePrivacyDuplicateRateAndIsolation(t *testing.T) {
 	if _, err := service.Open(ctx, member, "thread-2"); !errors.Is(err, tickets.ErrDuplicateOpen) {
 		t.Fatalf("duplicate error=%v", err)
 	}
-	if _, _, err := service.Detail(ctx, tickets.Actor{GuildID: "guild-a", DiscordUserID: "other"}, ticket.ID); !errors.Is(err, tickets.ErrPermissionDenied) {
+	if _, _, err := service.Detail(ctx, modules.Actor{GuildID: "guild-a", DiscordUserID: "other"}, ticket.ID); !errors.Is(err, tickets.ErrPermissionDenied) {
 		t.Fatalf("privacy error=%v", err)
 	}
-	if _, _, err := service.Detail(ctx, tickets.Actor{GuildID: "guild-b", DiscordUserID: "staff", CanModerate: true}, ticket.ID); !errors.Is(err, tickets.ErrNotFound) {
+	if _, _, err := service.Detail(ctx, modules.Actor{GuildID: "guild-b", DiscordUserID: "staff", CanModerate: true}, ticket.ID); !errors.Is(err, tickets.ErrNotFound) {
 		t.Fatalf("guild isolation error=%v", err)
 	}
 	if err := service.Reply(ctx, member, ticket.ID, "private reply"); err != nil {
@@ -131,7 +128,7 @@ func TestDiscordOpeningLimitsPrecedeProvisioning(t *testing.T) {
 	_, service, _ := setup(t)
 	client := &discordFake{}
 	adapter := tickets.NewDiscordAdapter(service, client)
-	actor := tickets.Actor{GuildID: "guild-a", DiscordUserID: "member"}
+	actor := modules.Actor{GuildID: "guild-a", DiscordUserID: "member"}
 	if _, err := adapter.Open(context.Background(), actor); err != nil {
 		t.Fatal(err)
 	}
@@ -181,12 +178,12 @@ func TestDiscordAdapterPrivateFlowAndRepair(t *testing.T) {
 	_, service, _ := setup(t)
 	client := &discordFake{}
 	adapter := tickets.NewDiscordAdapter(service, client)
-	member := tickets.Actor{GuildID: "guild-a", DiscordUserID: "member"}
+	member := modules.Actor{GuildID: "guild-a", DiscordUserID: "member"}
 	ticket, err := adapter.Open(context.Background(), member)
 	if err != nil {
 		t.Fatal(err)
 	}
-	staff := tickets.Actor{GuildID: "guild-a", DiscordUserID: "staff", CanModerate: true, CanManage: true}
+	staff := modules.Actor{GuildID: "guild-a", DiscordUserID: "staff", CanModerate: true, CanManage: true}
 	if err := adapter.Reply(context.Background(), staff, ticket.ID, "staff reply"); err != nil {
 		t.Fatal(err)
 	}
@@ -226,35 +223,22 @@ func TestEnabledTicketsRequireStaffRole(t *testing.T) {
 	_, service, _ := setup(t)
 	settings := tickets.Defaults()
 	settings.EntryChannelDiscordID = "entry"
-	_, err := service.UpdateSettings(context.Background(), tickets.Actor{GuildID: "guild-a", DiscordUserID: "admin", CanManage: true}, true, settings)
+	_, err := service.UpdateSettings(context.Background(), modules.Actor{GuildID: "guild-a", DiscordUserID: "admin", CanManage: true}, true, settings)
 	if err == nil {
 		t.Fatal("enabled tickets accepted no staff role")
 	}
 }
 
-// routeRecorder records the routes a registrar installs.
-type routeRecorder map[string]bool
-
-func (r routeRecorder) HandleComponent(namespace, action string, _ discord.Handler) {
-	r[namespace+":"+action] = true
-}
-
-func TestComponentRegistrarAndControls(t *testing.T) {
-	routes := routeRecorder{}
-	handler := func(context.Context, *discordgo.InteractionCreate) discord.Result {
-		return discord.Immediate(discord.Error("ok"))
-	}
-	if err := tickets.RegisterComponents(routes, tickets.ComponentHandlers{Open: handler, Queue: handler, View: handler}); err == nil || len(routes) != 0 {
-		t.Fatalf("incomplete handlers were registered: %v", routes)
-	}
-	if err := tickets.RegisterComponents(routes, tickets.ComponentHandlers{Open: handler, Queue: handler, View: handler, Reply: handler, Close: handler}); err != nil {
+func TestComponentsInstallBesideCoreRoutes(t *testing.T) {
+	db := testutil.NewSQLiteDB(t)
+	bot, err := discord.New("Bot test")
+	if err != nil {
 		t.Fatal(err)
 	}
-	for _, action := range []string{"open", "queue", "view", "reply", "close"} {
-		if !routes["ticket:"+action] {
-			t.Fatalf("action %s not routed", action)
-		}
-	}
+	services := quack.New(quack.Deps{})
+	router := discord.NewRouter(bot, services, nil)
+	// The router panics on a duplicate or empty route.
+	tickets.New(db, modules.NewRegistry(db), nil, nil, bot.Session, services.Guilds).RegisterComponents(router)
 	if len(tickets.EntryComponents()) != 1 || len(tickets.TicketComponents("ticket-id")) != 1 {
 		t.Fatal("missing ticket controls")
 	}
@@ -265,7 +249,7 @@ func TestPrivateThreadSettingDefaultsAndRoundTrips(t *testing.T) {
 		t.Fatal("new ticket settings should default to private threads")
 	}
 	_, service, _ := setup(t)
-	actor := tickets.Actor{GuildID: "guild-a", DiscordUserID: "admin", CanManage: true}
+	actor := modules.Actor{GuildID: "guild-a", DiscordUserID: "admin", CanManage: true}
 	for _, useThreads := range []bool{true, false} {
 		settings := tickets.Defaults()
 		settings.EntryChannelDiscordID = "entry"

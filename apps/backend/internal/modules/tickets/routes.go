@@ -8,18 +8,15 @@ import (
 	"github.com/quackdiscord/bot/internal/modules"
 )
 
-// ActorResolver returns the caller's current ticket authority.
-type ActorResolver func(*http.Request) (Actor, error)
-
 // RegisterRoutes mounts the ticket settings, status, queue, detail,
 // transcript, and lifecycle routes. Settings writes need Manage Guild;
 // resolving and reopening need moderation rights; a ticket's owner may
 // cancel it too.
-func RegisterRoutes(mux modules.Mux, service *Service, resolve ActorResolver) {
+func RegisterRoutes(mux modules.Mux, service *Service, resolve modules.ActorResolver) {
 	h := routes{service: service, resolve: resolve}
 	mux.Handle("GET /tickets/settings", h.with(h.settings))
 	mux.Handle("GET /tickets/status", h.with(h.status))
-	mux.HandleWrite("PUT /tickets/settings", h.allow(canManage), h.with(h.updateSettings))
+	mux.HandleWrite("PUT /tickets/settings", h.allow(modules.CanManage), h.with(h.updateSettings))
 	mux.Handle("GET /tickets/queue", h.with(h.queue))
 	mux.Handle("GET /tickets/{ticketID}", h.with(h.detail))
 	mux.Handle("GET /tickets/{ticketID}/transcript", h.with(h.transcript))
@@ -28,31 +25,20 @@ func RegisterRoutes(mux modules.Mux, service *Service, resolve ActorResolver) {
 	mux.HandleWrite("POST /tickets/{ticketID}/reopen", h.allow(canModerate), h.with(h.reopen))
 }
 
+// routes are the ticket HTTP handlers.
 type routes struct {
 	service *Service
-	resolve ActorResolver
+	resolve modules.ActorResolver
 }
 
-func canManage(actor Actor) bool   { return actor.CanManage }
-func canModerate(actor Actor) bool { return actor.CanModerate }
+func canModerate(actor modules.Actor) bool { return actor.CanModerate }
 
-// with resolves the actor before calling h.
-func (rt routes) with(h func(http.ResponseWriter, *http.Request, Actor)) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		actor, err := rt.resolve(r)
-		if err != nil {
-			modules.WriteError(w, http.StatusUnauthorized)
-			return
-		}
-		h(w, r, actor)
-	})
+func (rt routes) with(h func(http.ResponseWriter, *http.Request, modules.Actor)) http.Handler {
+	return modules.WithActor(rt.resolve, h)
 }
 
-func (rt routes) allow(check func(Actor) bool) func(*http.Request) bool {
-	return func(r *http.Request) bool {
-		actor, err := rt.resolve(r)
-		return err == nil && check(actor)
-	}
+func (rt routes) allow(check func(modules.Actor) bool) func(*http.Request) bool {
+	return modules.Allow(rt.resolve, check)
 }
 
 // allowCancel lets moderators and the ticket's owner cancel it.
@@ -65,7 +51,7 @@ func (rt routes) allowCancel(r *http.Request) bool {
 	return err == nil && ticket != nil && (actor.CanModerate || ticket.OwnerDiscordUserID == actor.DiscordUserID)
 }
 
-func (rt routes) settings(w http.ResponseWriter, r *http.Request, actor Actor) {
+func (rt routes) settings(w http.ResponseWriter, r *http.Request, actor modules.Actor) {
 	settings, enabled, err := rt.service.Settings(r.Context(), actor)
 	if err != nil {
 		writeError(w, err)
@@ -74,7 +60,7 @@ func (rt routes) settings(w http.ResponseWriter, r *http.Request, actor Actor) {
 	modules.WriteJSON(w, http.StatusOK, map[string]any{"enabled": enabled, "settings": settings})
 }
 
-func (rt routes) status(w http.ResponseWriter, r *http.Request, actor Actor) {
+func (rt routes) status(w http.ResponseWriter, r *http.Request, actor modules.Actor) {
 	status, err := rt.service.Status(r.Context(), actor)
 	if err != nil {
 		writeError(w, err)
@@ -83,7 +69,7 @@ func (rt routes) status(w http.ResponseWriter, r *http.Request, actor Actor) {
 	modules.WriteJSON(w, http.StatusOK, map[string]any{"status": status})
 }
 
-func (rt routes) updateSettings(w http.ResponseWriter, r *http.Request, actor Actor) {
+func (rt routes) updateSettings(w http.ResponseWriter, r *http.Request, actor modules.Actor) {
 	var input struct {
 		Enabled  bool     `json:"enabled"`
 		Settings Settings `json:"settings"`
@@ -100,7 +86,7 @@ func (rt routes) updateSettings(w http.ResponseWriter, r *http.Request, actor Ac
 	modules.WriteJSON(w, http.StatusOK, map[string]any{"enabled": input.Enabled, "settings": settings})
 }
 
-func (rt routes) queue(w http.ResponseWriter, r *http.Request, actor Actor) {
+func (rt routes) queue(w http.ResponseWriter, r *http.Request, actor modules.Actor) {
 	query := r.URL.Query()
 	limit, _ := strconv.Atoi(query.Get("limit"))
 	items, err := rt.service.Queue(r.Context(), actor, Status(query.Get("status")), limit)
@@ -111,7 +97,7 @@ func (rt routes) queue(w http.ResponseWriter, r *http.Request, actor Actor) {
 	modules.WriteJSON(w, http.StatusOK, map[string]any{"tickets": items})
 }
 
-func (rt routes) detail(w http.ResponseWriter, r *http.Request, actor Actor) {
+func (rt routes) detail(w http.ResponseWriter, r *http.Request, actor modules.Actor) {
 	ticket, events, err := rt.service.Detail(r.Context(), actor, r.PathValue("ticketID"))
 	if err != nil {
 		writeError(w, err)
@@ -120,7 +106,7 @@ func (rt routes) detail(w http.ResponseWriter, r *http.Request, actor Actor) {
 	modules.WriteJSON(w, http.StatusOK, map[string]any{"ticket": ticket, "events": events})
 }
 
-func (rt routes) transcript(w http.ResponseWriter, r *http.Request, actor Actor) {
+func (rt routes) transcript(w http.ResponseWriter, r *http.Request, actor modules.Actor) {
 	transcript, err := rt.service.Transcript(r.Context(), actor, r.PathValue("ticketID"))
 	if err != nil {
 		writeError(w, err)
@@ -129,7 +115,7 @@ func (rt routes) transcript(w http.ResponseWriter, r *http.Request, actor Actor)
 	modules.WriteJSON(w, http.StatusOK, map[string]any{"transcript": transcript})
 }
 
-func (rt routes) resolveTicket(w http.ResponseWriter, r *http.Request, actor Actor) {
+func (rt routes) resolveTicket(w http.ResponseWriter, r *http.Request, actor modules.Actor) {
 	var input struct {
 		Transcript string `json:"transcript"`
 	}
@@ -145,7 +131,7 @@ func (rt routes) resolveTicket(w http.ResponseWriter, r *http.Request, actor Act
 	modules.WriteJSON(w, http.StatusOK, map[string]any{"ticket": ticket})
 }
 
-func (rt routes) cancel(w http.ResponseWriter, r *http.Request, actor Actor) {
+func (rt routes) cancel(w http.ResponseWriter, r *http.Request, actor modules.Actor) {
 	ticket, err := rt.service.Cancel(r.Context(), actor, r.PathValue("ticketID"))
 	if err != nil {
 		writeError(w, err)
@@ -154,7 +140,7 @@ func (rt routes) cancel(w http.ResponseWriter, r *http.Request, actor Actor) {
 	modules.WriteJSON(w, http.StatusOK, map[string]any{"ticket": ticket})
 }
 
-func (rt routes) reopen(w http.ResponseWriter, r *http.Request, actor Actor) {
+func (rt routes) reopen(w http.ResponseWriter, r *http.Request, actor modules.Actor) {
 	ticket, err := rt.service.Reopen(r.Context(), actor, r.PathValue("ticketID"))
 	if err != nil {
 		writeError(w, err)
@@ -163,6 +149,7 @@ func (rt routes) reopen(w http.ResponseWriter, r *http.Request, actor Actor) {
 	modules.WriteJSON(w, http.StatusOK, map[string]any{"ticket": ticket})
 }
 
+// writeError maps a service error to its status code.
 func writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrPermissionDenied):

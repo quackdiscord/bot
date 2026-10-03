@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/quackdiscord/bot/internal/modules"
 	"github.com/quackdiscord/bot/internal/modules/tickets"
 )
 
@@ -32,19 +33,19 @@ func TestRoutes(t *testing.T) {
 	_, service, _ := setup(t)
 	for _, test := range []struct {
 		name         string
-		actor        tickets.Actor
+		actor        modules.Actor
 		method, path string
 		want         int
 	}{
-		{"status", tickets.Actor{CanModerate: true}, http.MethodGet, "/tickets/status", http.StatusOK},
-		{"settings write needs Manage Guild", tickets.Actor{CanModerate: true}, http.MethodPut, "/tickets/settings", http.StatusForbidden},
-		{"resolve needs moderation", tickets.Actor{CanManage: true}, http.MethodPost, "/tickets/missing/resolve", http.StatusForbidden},
-		{"cancel needs an existing ticket", tickets.Actor{CanModerate: true}, http.MethodPost, "/tickets/missing/cancel", http.StatusForbidden},
-		{"missing ticket", tickets.Actor{CanModerate: true}, http.MethodGet, "/tickets/missing", http.StatusNotFound},
+		{"status", modules.Actor{CanModerate: true}, http.MethodGet, "/tickets/status", http.StatusOK},
+		{"settings write needs Manage Guild", modules.Actor{CanModerate: true}, http.MethodPut, "/tickets/settings", http.StatusForbidden},
+		{"resolve needs moderation", modules.Actor{CanManage: true}, http.MethodPost, "/tickets/missing/resolve", http.StatusForbidden},
+		{"cancel needs an existing ticket", modules.Actor{CanModerate: true}, http.MethodPost, "/tickets/missing/cancel", http.StatusForbidden},
+		{"missing ticket", modules.Actor{CanModerate: true}, http.MethodGet, "/tickets/missing", http.StatusNotFound},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			mux := testMux{http.NewServeMux()}
-			tickets.RegisterRoutes(mux, service, func(r *http.Request) (tickets.Actor, error) {
+			tickets.RegisterRoutes(mux, service, func(r *http.Request) (modules.Actor, error) {
 				actor := test.actor
 				actor.GuildID, actor.DiscordUserID = r.PathValue("guildID"), "staff"
 				return actor, nil

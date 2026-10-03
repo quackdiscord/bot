@@ -4,7 +4,6 @@ import (
 	"context"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/quack"
@@ -26,7 +25,7 @@ func (f *fakeAuditMirrorSender) SendAuditMirror(ctx context.Context, message qua
 	return f.err
 }
 
-func TestAuditMirrorWorkerIsNonBlockingRedactedAndRepairable(t *testing.T) {
+func TestAuditMirrorIsNonBlockingRedactedAndRepairable(t *testing.T) {
 	ctx := context.Background()
 	repository := newMigratedStore(t)
 	moderator := templateGuildContext(t, repository, "mirror-guild", "moderator", uint64(discordgo.PermissionModerateMembers))
@@ -42,7 +41,7 @@ func TestAuditMirrorWorkerIsNonBlockingRedactedAndRepairable(t *testing.T) {
 		t.Fatal(err)
 	}
 	sender := &fakeAuditMirrorSender{}
-	worker := quack.NewAuditMirrorWorker(repository, sender, time.Millisecond)
+	worker := quack.NewAuditMirror(repository, sender)
 	if err := worker.PollOnce(ctx); err != nil {
 		t.Fatal(err)
 	}

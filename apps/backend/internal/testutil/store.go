@@ -1,3 +1,5 @@
+// Package testutil builds the migrated SQLite and in-process Redis stores
+// that tests in several packages share.
 package testutil
 
 import (

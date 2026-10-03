@@ -19,7 +19,7 @@ type appealReversalRequest struct {
 }
 
 func (s *Server) getAppealSettings(w http.ResponseWriter, r *http.Request) {
-	staff := GuildStaff(r.Context())
+	staff := quack.StaffFromContext(r.Context())
 	if !staff.Can(quack.PermissionActionGuildSettingsRead) {
 		writeAppealError(w, r, quack.ErrAppealPermissionDenied)
 		return
@@ -40,7 +40,7 @@ func (s *Server) updateAppealSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, codeValidation, "invalid appeal settings payload")
 		return
 	}
-	result, err := s.services.Appeals.UpdateSettings(r.Context(), GuildStaff(r.Context()), input.Questions)
+	result, err := s.services.Appeals.UpdateSettings(r.Context(), quack.StaffFromContext(r.Context()), input.Questions)
 	if err != nil {
 		writeAppealError(w, r, err)
 		return
@@ -55,7 +55,7 @@ func (s *Server) listStaffAppeals(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	status := quack.AppealStatus(strings.TrimSpace(r.URL.Query().Get("status")))
-	result, err := s.services.Appeals.ListStaff(r.Context(), GuildStaff(r.Context()), status, limit, offset)
+	result, err := s.services.Appeals.ListStaff(r.Context(), quack.StaffFromContext(r.Context()), status, limit, offset)
 	if err != nil {
 		writeAppealError(w, r, err)
 		return
@@ -64,7 +64,7 @@ func (s *Server) listStaffAppeals(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getStaffAppeal(w http.ResponseWriter, r *http.Request) {
-	result, err := s.services.Appeals.GetStaff(r.Context(), GuildStaff(r.Context()), r.PathValue("appealID"))
+	result, err := s.services.Appeals.GetStaff(r.Context(), quack.StaffFromContext(r.Context()), r.PathValue("appealID"))
 	if err != nil {
 		writeAppealError(w, r, err)
 		return
@@ -91,7 +91,7 @@ func (s *Server) transitionAppeal(transition string) http.HandlerFunc {
 			writeError(w, r, http.StatusBadRequest, codeValidation, "invalid appeal decision payload")
 			return
 		}
-		result, err := apply(r.Context(), GuildStaff(r.Context()), r.PathValue("appealID"), input.Reason)
+		result, err := apply(r.Context(), quack.StaffFromContext(r.Context()), r.PathValue("appealID"), input.Reason)
 		if err != nil {
 			writeAppealError(w, r, err)
 			return
@@ -108,7 +108,7 @@ func (s *Server) reverseAcceptedAppeal(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, codeValidation, "confirmed reversal payload is required")
 		return
 	}
-	staff := GuildStaff(r.Context())
+	staff := quack.StaffFromContext(r.Context())
 	appeal, err := s.services.Appeals.GetStaff(r.Context(), staff, r.PathValue("appealID"))
 	if err != nil {
 		writeAppealError(w, r, err)

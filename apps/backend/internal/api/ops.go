@@ -181,12 +181,12 @@ func (s *Server) globalOpsStatus(w http.ResponseWriter, r *http.Request) {
 // ops key; anyone else goes through the normal session and guild
 // middleware and must be a guild administrator.
 func (s *Server) guildOpsStatus() http.HandlerFunc {
-	adminOnly := allow(func(r *http.Request) bool { return GuildStaff(r.Context()).IsAdmin },
+	adminOnly := allow(func(r *http.Request) bool { return quack.StaffFromContext(r.Context()).IsAdmin },
 		func(w http.ResponseWriter, r *http.Request) {
 			writeError(w, r, http.StatusForbidden, codeAuthorization, "guild administrator access required")
 		})
 	forStaff := chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		s.writeGuildOps(w, r, GuildStaff(r.Context()).Guild.ID)
+		s.writeGuildOps(w, r, quack.StaffFromContext(r.Context()).Guild.ID)
 	}), s.requireAuth, s.guild(""), adminOnly)
 
 	return func(w http.ResponseWriter, r *http.Request) {

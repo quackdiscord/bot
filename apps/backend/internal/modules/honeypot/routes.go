@@ -7,28 +7,15 @@ import (
 	"github.com/quackdiscord/bot/internal/modules"
 )
 
-// ActorResolver returns the caller's current Manage Guild authority.
-type ActorResolver func(*http.Request) (Actor, error)
-
 // RegisterRoutes mounts the honeypot settings, status, and repair routes.
 // Writes need Manage Guild.
-func RegisterRoutes(mux modules.Mux, service *Service, resolve ActorResolver) {
-	with := func(h func(http.ResponseWriter, *http.Request, Actor)) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			actor, err := resolve(r)
-			if err != nil {
-				modules.WriteError(w, http.StatusUnauthorized)
-				return
-			}
-			h(w, r, actor)
-		})
+func RegisterRoutes(mux modules.Mux, service *Service, resolve modules.ActorResolver) {
+	with := func(h func(http.ResponseWriter, *http.Request, modules.Actor)) http.Handler {
+		return modules.WithActor(resolve, h)
 	}
-	canManage := func(r *http.Request) bool {
-		actor, err := resolve(r)
-		return err == nil && actor.CanManage
-	}
+	canManage := modules.Allow(resolve, modules.CanManage)
 
-	mux.Handle("GET /honeypot/settings", with(func(w http.ResponseWriter, r *http.Request, actor Actor) {
+	mux.Handle("GET /honeypot/settings", with(func(w http.ResponseWriter, r *http.Request, actor modules.Actor) {
 		settings, status, err := service.Settings(r.Context(), actor)
 		if err != nil {
 			writeError(w, err)
@@ -36,7 +23,7 @@ func RegisterRoutes(mux modules.Mux, service *Service, resolve ActorResolver) {
 		}
 		modules.WriteJSON(w, http.StatusOK, map[string]any{"settings": settings, "status": status})
 	}))
-	mux.Handle("GET /honeypot/status", with(func(w http.ResponseWriter, r *http.Request, actor Actor) {
+	mux.Handle("GET /honeypot/status", with(func(w http.ResponseWriter, r *http.Request, actor modules.Actor) {
 		_, status, err := service.Settings(r.Context(), actor)
 		if err != nil {
 			writeError(w, err)
@@ -44,7 +31,7 @@ func RegisterRoutes(mux modules.Mux, service *Service, resolve ActorResolver) {
 		}
 		modules.WriteJSON(w, http.StatusOK, map[string]any{"status": status})
 	}))
-	mux.HandleWrite("PUT /honeypot/settings", canManage, with(func(w http.ResponseWriter, r *http.Request, actor Actor) {
+	mux.HandleWrite("PUT /honeypot/settings", canManage, with(func(w http.ResponseWriter, r *http.Request, actor modules.Actor) {
 		var input struct {
 			Enabled  bool     `json:"enabled"`
 			Settings Settings `json:"settings"`
@@ -60,7 +47,7 @@ func RegisterRoutes(mux modules.Mux, service *Service, resolve ActorResolver) {
 		}
 		modules.WriteJSON(w, http.StatusOK, map[string]any{"settings": settings, "status": status})
 	}))
-	mux.HandleWrite("POST /honeypot/repair", canManage, with(func(w http.ResponseWriter, r *http.Request, actor Actor) {
+	mux.HandleWrite("POST /honeypot/repair", canManage, with(func(w http.ResponseWriter, r *http.Request, actor modules.Actor) {
 		settings, status, err := service.Repair(r.Context(), actor)
 		if err != nil {
 			writeError(w, err)
@@ -70,6 +57,7 @@ func RegisterRoutes(mux modules.Mux, service *Service, resolve ActorResolver) {
 	}))
 }
 
+// writeError maps a service error to its status code.
 func writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrPermissionDenied):

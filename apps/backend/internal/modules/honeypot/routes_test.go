@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/quackdiscord/bot/internal/modules"
 	"github.com/quackdiscord/bot/internal/modules/honeypot"
 )
 
@@ -33,11 +34,11 @@ func (m testMux) HandleWrite(pattern string, allowed func(*http.Request) bool, h
 
 func routeEngine(fixture *fixture, canManage bool) http.Handler {
 	mux := testMux{http.NewServeMux()}
-	honeypot.RegisterRoutes(mux, fixture.service, func(r *http.Request) (honeypot.Actor, error) {
+	honeypot.RegisterRoutes(mux, fixture.service, func(r *http.Request) (modules.Actor, error) {
 		if r.Header.Get("Authorization") == "" {
-			return honeypot.Actor{}, errors.New("missing session")
+			return modules.Actor{}, errors.New("missing session")
 		}
-		return honeypot.Actor{GuildID: r.PathValue("guildID"), DiscordUserID: "admin", CanManage: canManage}, nil
+		return modules.Actor{GuildID: r.PathValue("guildID"), DiscordUserID: "admin", CanManage: canManage}, nil
 	})
 	return mux
 }

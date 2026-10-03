@@ -5,14 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/quackdiscord/bot/internal/modules"
 )
 
-// Service owns ticket authorization, lifecycle, privacy, and audit behavior.
+// Service is the ticket lifecycle: open, reply, resolve, cancel, reopen,
+// with each operation authorized against the caller's actor and audited.
 type Service struct {
 	registry *modules.Registry
 	store    *Store
@@ -20,13 +20,13 @@ type Service struct {
 	now      func() time.Time
 }
 
-// NewService constructs the ticket boundary from explicit module dependencies.
+// NewService returns a Service. A nil auditor only logs operations.
 func NewService(registry *modules.Registry, store *Store, auditor modules.Auditor) *Service {
 	return &Service{registry: registry, store: store, auditor: auditor, now: func() time.Time { return time.Now().UTC() }}
 }
 
 // Settings returns one guild's ticket settings to current managers.
-func (s *Service) Settings(ctx context.Context, actor Actor) (Settings, bool, error) {
+func (s *Service) Settings(ctx context.Context, actor modules.Actor) (Settings, bool, error) {
 	if !actor.CanManage {
 		s.audit(ctx, actor, "ticket.settings.read", "", "denied", ErrPermissionDenied)
 		return Settings{}, false, ErrPermissionDenied
@@ -35,7 +35,7 @@ func (s *Service) Settings(ctx context.Context, actor Actor) (Settings, bool, er
 }
 
 // Status returns non-content ticket health to current staff.
-func (s *Service) Status(ctx context.Context, actor Actor) (ModuleStatus, error) {
+func (s *Service) Status(ctx context.Context, actor modules.Actor) (ModuleStatus, error) {
 	if !actor.CanManage && !actor.CanModerate {
 		return ModuleStatus{}, ErrPermissionDenied
 	}
@@ -51,7 +51,7 @@ func (s *Service) Status(ctx context.Context, actor Actor) (ModuleStatus, error)
 }
 
 // UpdateSettings validates and replaces one guild's ticket configuration.
-func (s *Service) UpdateSettings(ctx context.Context, actor Actor, enabled bool, settings Settings) (Settings, error) {
+func (s *Service) UpdateSettings(ctx context.Context, actor modules.Actor, enabled bool, settings Settings) (Settings, error) {
 	if !actor.CanManage {
 		s.audit(ctx, actor, "ticket.settings.update", "", "denied", ErrPermissionDenied)
 		return Settings{}, ErrPermissionDenied
@@ -71,7 +71,7 @@ func (s *Service) UpdateSettings(ctx context.Context, actor Actor, enabled bool,
 }
 
 // Open creates one member ticket after duplicate and rolling-day limits pass.
-func (s *Service) Open(ctx context.Context, actor Actor, threadDiscordChannelID string) (*Ticket, error) {
+func (s *Service) Open(ctx context.Context, actor modules.Actor, threadDiscordChannelID string) (*Ticket, error) {
 	settings, enabled, err := s.loadSettings(ctx, actor.GuildID)
 	if err != nil {
 		return nil, err
@@ -92,7 +92,7 @@ func (s *Service) Open(ctx context.Context, actor Actor, threadDiscordChannelID 
 }
 
 // Resolve closes an open ticket as current staff and stores its captured transcript.
-func (s *Service) Resolve(ctx context.Context, actor Actor, ticketID, transcript string) (*Ticket, error) {
+func (s *Service) Resolve(ctx context.Context, actor modules.Actor, ticketID, transcript string) (*Ticket, error) {
 	if !actor.CanModerate {
 		s.audit(ctx, actor, "ticket.resolve", ticketID, "denied", ErrPermissionDenied)
 		return nil, ErrPermissionDenied
@@ -116,11 +116,13 @@ func (s *Service) Resolve(ctx context.Context, actor Actor, ticketID, transcript
 }
 
 // Cancel closes an open ticket at the owner's request or by current staff.
-func (s *Service) Cancel(ctx context.Context, actor Actor, ticketID string) (*Ticket, error) {
+func (s *Service) Cancel(ctx context.Context, actor modules.Actor, ticketID string) (*Ticket, error) {
 	return s.cancel(ctx, actor, ticketID, nil)
 }
 
-func (s *Service) cancel(ctx context.Context, actor Actor, ticketID string, transcriptContent *string) (*Ticket, error) {
+// cancel cancels a ticket, saving transcriptContent when the caller
+// captured one.
+func (s *Service) cancel(ctx context.Context, actor modules.Actor, ticketID string, transcriptContent *string) (*Ticket, error) {
 	ticket, err := s.store.get(ctx, actor.GuildID, ticketID)
 	if err != nil {
 		return nil, err
@@ -145,7 +147,7 @@ func (s *Service) cancel(ctx context.Context, actor Actor, ticketID string, tran
 }
 
 // Reopen restores a recently resolved or cancelled ticket for current staff.
-func (s *Service) Reopen(ctx context.Context, actor Actor, ticketID string) (*Ticket, error) {
+func (s *Service) Reopen(ctx context.Context, actor modules.Actor, ticketID string) (*Ticket, error) {
 	if !actor.CanModerate {
 		s.audit(ctx, actor, "ticket.reopen", ticketID, "denied", ErrPermissionDenied)
 		return nil, ErrPermissionDenied
@@ -174,7 +176,7 @@ func (s *Service) Reopen(ctx context.Context, actor Actor, ticketID string) (*Ti
 }
 
 // Reply records a private reply timeline event after owner-or-staff authorization.
-func (s *Service) Reply(ctx context.Context, actor Actor, ticketID, body string) error {
+func (s *Service) Reply(ctx context.Context, actor modules.Actor, ticketID, body string) error {
 	ticket, err := s.store.get(ctx, actor.GuildID, ticketID)
 	if err != nil {
 		return err
@@ -197,6 +199,7 @@ func (s *Service) Reply(ctx context.Context, actor Actor, ticketID, body string)
 	return nil
 }
 
+// validateReply bounds a reply to Discord's message length.
 func validateReply(body string) error {
 	if len(strings.TrimSpace(body)) == 0 || len(body) > 4000 {
 		return errors.New("ticket reply must contain 1 to 4000 characters")
@@ -205,7 +208,7 @@ func validateReply(body string) error {
 }
 
 // Queue lists guild tickets for current staff.
-func (s *Service) Queue(ctx context.Context, actor Actor, status Status, limit int) ([]Ticket, error) {
+func (s *Service) Queue(ctx context.Context, actor modules.Actor, status Status, limit int) ([]Ticket, error) {
 	if !actor.CanModerate {
 		return nil, ErrPermissionDenied
 	}
@@ -213,7 +216,7 @@ func (s *Service) Queue(ctx context.Context, actor Actor, status Status, limit i
 }
 
 // Detail returns a private ticket and timeline to its owner or current staff.
-func (s *Service) Detail(ctx context.Context, actor Actor, ticketID string) (*Ticket, []Event, error) {
+func (s *Service) Detail(ctx context.Context, actor modules.Actor, ticketID string) (*Ticket, []Event, error) {
 	ticket, err := s.store.get(ctx, actor.GuildID, ticketID)
 	if err != nil {
 		return nil, nil, err
@@ -226,7 +229,7 @@ func (s *Service) Detail(ctx context.Context, actor Actor, ticketID string) (*Ti
 }
 
 // Transcript returns retained private content to its owner or current staff.
-func (s *Service) Transcript(ctx context.Context, actor Actor, ticketID string) (*Transcript, error) {
+func (s *Service) Transcript(ctx context.Context, actor modules.Actor, ticketID string) (*Transcript, error) {
 	ticket, err := s.store.get(ctx, actor.GuildID, ticketID)
 	if err != nil {
 		return nil, err
@@ -237,7 +240,8 @@ func (s *Service) Transcript(ctx context.Context, actor Actor, ticketID string) 
 	return s.store.transcript(ctx, actor.GuildID, ticketID, s.now())
 }
 
-// RecordChannelMissing closes no ticket automatically; it records repair-needed state for staff visibility.
+// RecordChannelMissing notes on a ticket's timeline that its channel was
+// deleted. The ticket stays as it was for staff to deal with.
 func (s *Service) RecordChannelMissing(ctx context.Context, guildID, ticketID, channelID string) error {
 	ticket, err := s.store.get(ctx, guildID, ticketID)
 	if err != nil {
@@ -246,7 +250,8 @@ func (s *Service) RecordChannelMissing(ctx context.Context, guildID, ticketID, c
 	return s.store.append(ctx, *ticket, EventChannelMissing, "quack-system", "Private ticket channel was deleted", fmt.Sprintf(`{"channel_id":%q}`, channelID), s.now())
 }
 
-// RepairDeletedEntryChannel disables ticket creation and clears a deleted entry-channel reference.
+// RepairDeletedEntryChannel turns tickets off and clears the entry channel
+// if channelID was it.
 func (s *Service) RepairDeletedEntryChannel(ctx context.Context, guildID, channelID string) error {
 	settings, _, err := s.loadSettings(ctx, guildID)
 	if err != nil {
@@ -261,16 +266,18 @@ func (s *Service) RepairDeletedEntryChannel(ctx context.Context, guildID, channe
 	if err != nil {
 		return err
 	}
-	s.audit(ctx, Actor{GuildID: guildID, DiscordUserID: "quack-system"}, "ticket.entry_channel_repair", configuration.ID, "success", nil)
+	s.audit(ctx, modules.Actor{GuildID: guildID, DiscordUserID: "quack-system"}, "ticket.entry_channel_repair", configuration.ID, "success", nil)
 	return nil
 }
 
-// PurgeExpiredTranscripts enforces the configured upper retention boundary without deleting ticket timelines.
+// PurgeExpiredTranscripts deletes transcripts past their retention and
+// returns how many. Timelines are kept.
 func (s *Service) PurgeExpiredTranscripts(ctx context.Context) (int64, error) {
 	return s.store.purgeExpiredTranscripts(ctx, s.now())
 }
 
-// RecordPermissionsRepaired appends evidence after the Discord adapter restores the private ACL.
+// RecordPermissionsRepaired notes on a ticket's timeline that its ACL was
+// repaired.
 func (s *Service) RecordPermissionsRepaired(ctx context.Context, guildID, ticketID string) error {
 	ticket, err := s.store.get(ctx, guildID, ticketID)
 	if err != nil {
@@ -279,6 +286,8 @@ func (s *Service) RecordPermissionsRepaired(ctx context.Context, guildID, ticket
 	return s.store.append(ctx, *ticket, EventPermissionsRepaired, "quack-system", "Private ticket permissions repaired", "{}", s.now())
 }
 
+// loadSettings returns the guild's settings, defaults if it has none, and
+// whether tickets are on.
 func (s *Service) loadSettings(ctx context.Context, guildID string) (Settings, bool, error) {
 	configuration, err := s.registry.Configuration(ctx, guildID, modules.Tickets)
 	if err != nil {
@@ -294,13 +303,8 @@ func (s *Service) loadSettings(ctx context.Context, guildID string) (Settings, b
 	return settings, configuration.Enabled, nil
 }
 
-func validateSettingsJSON(raw string) error {
-	var settings Settings
-	if err := json.Unmarshal([]byte(raw), &settings); err != nil {
-		return err
-	}
-	return validateSettings(settings, false)
-}
+// validateSettings checks settings; an enabled module also needs an entry
+// channel and a staff role.
 func validateSettings(settings Settings, enabled bool) error {
 	if enabled && strings.TrimSpace(settings.EntryChannelDiscordID) == "" {
 		return errors.New("entry channel is required when tickets are enabled")
@@ -325,21 +329,15 @@ func validateSettings(settings Settings, enabled bool) error {
 	return nil
 }
 
-func (s *Service) audit(ctx context.Context, actor Actor, action, resourceID, result string, operationErr error) {
-	level := slog.LevelInfo
-	if result != "success" {
-		level = slog.LevelWarn
-	}
-	slog.Log(ctx, level, "Module operation completed", "module", "tickets", "guild_id", actor.GuildID, "action", action, "result", result)
-
-	if s == nil || s.auditor == nil {
-		return
-	}
+// audit logs and records a ticket operation.
+func (s *Service) audit(ctx context.Context, actor modules.Actor, action, resourceID, result string, operationErr error) {
 	reason := ""
 	if operationErr != nil {
 		reason = operationErr.Error()
 	}
-	if auditErr := s.auditor.RecordModuleAudit(ctx, modules.AuditEvent{GuildID: actor.GuildID, ActorDiscordUserID: actor.DiscordUserID, Action: action, ResourceType: "ticket", ResourceID: resourceID, Result: result, FailureReason: reason, MetadataJSON: "{}"}); auditErr != nil {
-		slog.ErrorContext(ctx, "Module audit could not be recorded", "module", "tickets", "guild_id", actor.GuildID, "action", action)
-	}
+	modules.Audit(ctx, s.auditor, "tickets", modules.AuditEvent{
+		GuildID: actor.GuildID, ActorDiscordUserID: actor.DiscordUserID,
+		Action: action, ResourceType: "ticket", ResourceID: resourceID,
+		Result: result, FailureReason: reason,
+	})
 }

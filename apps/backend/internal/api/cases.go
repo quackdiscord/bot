@@ -28,7 +28,7 @@ type voidCaseRequest struct {
 }
 
 func (s *Server) listCases(w http.ResponseWriter, r *http.Request) {
-	result, err := s.services.Cases.List(r.Context(), GuildStaff(r.Context()), caseListInput(r))
+	result, err := s.services.Cases.List(r.Context(), quack.StaffFromContext(r.Context()), caseListInput(r))
 	if err != nil {
 		writeCaseError(w, r, err)
 		return
@@ -44,7 +44,7 @@ func (s *Server) createCase(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, codeValidation, "invalid case payload")
 		return
 	}
-	created, err := s.services.Cases.Create(r.Context(), GuildStaff(r.Context()), quack.CaseInput{
+	created, err := s.services.Cases.Create(r.Context(), quack.StaffFromContext(r.Context()), quack.CaseInput{
 		TemplateID:              input.TemplateID,
 		TargetDiscordUserID:     input.TargetDiscordUserID,
 		Source:                  quack.CaseSourceDashboard,
@@ -66,7 +66,7 @@ func (s *Server) createCase(w http.ResponseWriter, r *http.Request) {
 
 // getCase looks a case up by ID or case number.
 func (s *Server) getCase(w http.ResponseWriter, r *http.Request) {
-	result, err := s.services.Cases.Get(r.Context(), GuildStaff(r.Context()), r.PathValue("caseRef"))
+	result, err := s.services.Cases.Get(r.Context(), quack.StaffFromContext(r.Context()), r.PathValue("caseRef"))
 	if err != nil {
 		writeCaseError(w, r, err)
 		return
@@ -81,7 +81,7 @@ func (s *Server) voidCase(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, codeValidation, "invalid void payload")
 		return
 	}
-	result, err := s.services.Cases.Void(r.Context(), GuildStaff(r.Context()), r.PathValue("caseRef"),
+	result, err := s.services.Cases.Void(r.Context(), quack.StaffFromContext(r.Context()), r.PathValue("caseRef"),
 		input.Reason, input.ReplacementCaseID)
 	if err != nil {
 		writeCaseError(w, r, err)
@@ -91,7 +91,7 @@ func (s *Server) voidCase(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listUserCases(w http.ResponseWriter, r *http.Request) {
-	result, err := s.services.Cases.UserHistory(r.Context(), GuildStaff(r.Context()),
+	result, err := s.services.Cases.UserHistory(r.Context(), quack.StaffFromContext(r.Context()),
 		r.PathValue("targetDiscordUserID"), caseListInput(r))
 	if err != nil {
 		writeCaseError(w, r, err)

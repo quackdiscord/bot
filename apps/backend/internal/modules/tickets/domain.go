@@ -1,14 +1,15 @@
-// Package tickets implements the optional private Discord support-ticket module.
+// Package tickets is the optional support-ticket module. A member opens a
+// ticket from a button in the entry channel and gets a private thread (or
+// text channel) shared with staff. Closing a ticket saves its transcript for
+// a bounded retention period; the ticket's timeline is kept.
 package tickets
 
 import (
 	"errors"
 	"time"
-
-	"github.com/quackdiscord/bot/internal/modules"
 )
 
-// Status is the durable ticket lifecycle state.
+// Status is where a ticket is in its lifecycle.
 type Status string
 
 const (
@@ -20,7 +21,7 @@ const (
 	StatusCancelled Status = "cancelled"
 )
 
-// EventType identifies immutable ticket timeline entries.
+// EventType is the kind of a ticket timeline entry.
 type EventType string
 
 const (
@@ -38,17 +39,19 @@ var (
 	ErrDisabled = errors.New("ticket module is disabled")
 	// ErrPermissionDenied reports an unauthorized ticket operation.
 	ErrPermissionDenied = errors.New("ticket permission denied")
-	// ErrNotFound reports a ticket outside the requested guild or absent ticket.
+	// ErrNotFound reports a ticket that does not exist in the guild.
 	ErrNotFound = errors.New("ticket not found")
-	// ErrDuplicateOpen reports the one-open-ticket-per-member invariant.
+	// ErrDuplicateOpen reports that the member already has an open ticket.
 	ErrDuplicateOpen = errors.New("member already has an open ticket")
-	// ErrRateLimited reports the configured daily open threshold.
+	// ErrRateLimited reports that the member hit the daily open limit.
 	ErrRateLimited = errors.New("ticket open rate limit exceeded")
-	// ErrInvalidTransition reports a lifecycle operation that is not valid from the current state.
+	// ErrInvalidTransition reports an operation the ticket's status does not
+	// allow.
 	ErrInvalidTransition = errors.New("invalid ticket transition")
 )
 
-// Settings fixes the module's Discord, privacy, retention, and abuse-control policy for one guild.
+// Settings are a guild's ticket settings, stored as the module's config
+// JSON.
 type Settings struct {
 	EntryChannelDiscordID string   `json:"entry_channel_discord_id"`
 	StaffRoleDiscordIDs   []string `json:"staff_role_discord_ids"`
@@ -59,18 +62,13 @@ type Settings struct {
 	ReopenWindowHours       int  `json:"reopen_window_hours"`
 }
 
-// Defaults returns privacy-preserving settings for a newly enabled guild.
+// Defaults returns the settings a guild starts with.
 func Defaults() Settings {
 	return Settings{UsePrivateThreads: true, TranscriptRetentionDays: 90, DailyOpenLimit: 3, ReopenWindowHours: 168}
 }
 
-// Actor is the transport-neutral identity and current Discord authority for a ticket operation.
-type Actor struct {
-	GuildID, DiscordUserID string
-	CanManage, CanModerate bool
-}
-
-// Ticket is the module-owned ticket state; it does not reference cases or appeals.
+// Ticket is one support ticket. Tickets are separate from cases and
+// appeals.
 type Ticket struct {
 	ID                      string     `json:"id"`
 	GuildID                 string     `json:"guild_id"`
@@ -83,7 +81,7 @@ type Ticket struct {
 	UpdatedAt               time.Time  `json:"updated_at"`
 }
 
-// Event is an immutable ticket timeline entry.
+// Event is an entry on a ticket's append-only timeline.
 type Event struct {
 	ID                 string    `json:"id"`
 	TicketID           string    `json:"ticket_id"`
@@ -95,7 +93,7 @@ type Event struct {
 	CreatedAt          time.Time `json:"created_at"`
 }
 
-// Transcript is private ticket content retained for a bounded period.
+// Transcript is a closed ticket's messages, kept until ExpiresAt.
 type Transcript struct {
 	TicketID   string    `json:"ticket_id"`
 	GuildID    string    `json:"guild_id"`
@@ -104,14 +102,9 @@ type Transcript struct {
 	ExpiresAt  time.Time `json:"expires_at"`
 }
 
-// ModuleStatus is the non-sensitive ticket configuration and queue health contract.
+// ModuleStatus is a content-free summary of a guild's tickets.
 type ModuleStatus struct {
 	Enabled         bool  `json:"enabled"`
 	EntryConfigured bool  `json:"entry_configured"`
 	OpenTickets     int64 `json:"open_tickets"`
-}
-
-// Descriptor exposes ticket configuration validation to the shared registry.
-func Descriptor() modules.Descriptor {
-	return modules.Descriptor{ID: modules.Tickets, DisplayName: "Tickets", Validate: validateSettingsJSON}
 }

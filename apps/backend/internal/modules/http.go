@@ -15,6 +15,30 @@ type Mux interface {
 	HandleWrite(pattern string, allowed func(*http.Request) bool, h http.Handler)
 }
 
+// WithActor adapts a handler that needs the caller's actor. A request whose
+// actor cannot be resolved gets a 401.
+func WithActor(resolve ActorResolver, h func(http.ResponseWriter, *http.Request, Actor)) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		actor, err := resolve(r)
+		if err != nil {
+			WriteError(w, http.StatusUnauthorized)
+			return
+		}
+		h(w, r, actor)
+	})
+}
+
+// Allow turns an actor check into the allowed func HandleWrite takes.
+func Allow(resolve ActorResolver, check func(Actor) bool) func(*http.Request) bool {
+	return func(r *http.Request) bool {
+		actor, err := resolve(r)
+		return err == nil && check(actor)
+	}
+}
+
+// CanManage reports whether the actor has Manage Guild.
+func CanManage(actor Actor) bool { return actor.CanManage }
+
 // WriteJSON writes v as a JSON response.
 func WriteJSON(w http.ResponseWriter, status int, v any) {
 	body, err := json.Marshal(v)

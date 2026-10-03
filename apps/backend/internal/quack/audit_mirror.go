@@ -3,7 +3,6 @@ package quack
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"maps"
 	"strings"
 	"sync"
@@ -28,47 +27,27 @@ type AuditMirrorMessage struct {
 	MetadataJSON       string
 }
 
-// AuditMirrorWorker copies important audit entries to each guild's audit
-// channel. It polls the audit log instead of hooking writes, so a Discord
-// outage never blocks the operation being audited. Each delivery outcome is
-// itself audited, which is also how the worker knows an entry is done.
-type AuditMirrorWorker struct {
-	store    AuditMirrorStore
-	sender   AuditMirrorSender
-	interval time.Duration
-	batch    int
-	pollMu   sync.Mutex
+// AuditMirror copies important audit entries to each guild's audit
+// channel. It polls the audit log (the worker calls PollOnce on a timer)
+// instead of hooking writes, so a Discord outage never blocks the operation
+// being audited. Each delivery outcome is itself audited, which is also how
+// the mirror knows an entry is done.
+type AuditMirror struct {
+	store  AuditMirrorStore
+	sender AuditMirrorSender
+	batch  int
+	pollMu sync.Mutex
 }
 
-// NewAuditMirrorWorker returns a worker that polls every interval, or every
-// five seconds when interval is not positive.
-func NewAuditMirrorWorker(store AuditMirrorStore, sender AuditMirrorSender, interval time.Duration) *AuditMirrorWorker {
-	if interval <= 0 {
-		interval = 5 * time.Second
-	}
-	return &AuditMirrorWorker{store: store, sender: sender, interval: interval, batch: 50}
-}
-
-// Run polls until ctx is canceled. Failed polls are logged and retried on the
-// next tick.
-func (w *AuditMirrorWorker) Run(ctx context.Context) {
-	ticker := time.NewTicker(w.interval)
-	defer ticker.Stop()
-	for {
-		if err := w.PollOnce(ctx); err != nil && ctx.Err() == nil {
-			slog.ErrorContext(ctx, "Audit mirror poll failed", "error", err)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
+// NewAuditMirror returns an AuditMirror that reads store and sends through
+// sender.
+func NewAuditMirror(store AuditMirrorStore, sender AuditMirrorSender) *AuditMirror {
+	return &AuditMirror{store: store, sender: sender, batch: 50}
 }
 
 // PollOnce mirrors one batch of pending entries. Concurrent calls run one at
 // a time so an entry is never sent twice.
-func (w *AuditMirrorWorker) PollOnce(ctx context.Context) error {
+func (w *AuditMirror) PollOnce(ctx context.Context) error {
 	w.pollMu.Lock()
 	defer w.pollMu.Unlock()
 	entries, err := w.store.ListPendingAuditMirrorEntries(ctx, w.batch)
@@ -87,7 +66,7 @@ func (w *AuditMirrorWorker) PollOnce(ctx context.Context) error {
 	return errors.Join(failures...)
 }
 
-func (w *AuditMirrorWorker) process(ctx context.Context, entry AuditLogEntry) error {
+func (w *AuditMirror) process(ctx context.Context, entry AuditLogEntry) error {
 	settings, err := w.store.GetGuildSettings(ctx, entry.GuildID)
 	if err != nil {
 		return w.recordOutcome(ctx, entry, AuditActionMirrorFailed, AuditResultFailure, "settings_unavailable", nil)
@@ -144,7 +123,7 @@ func (w *AuditMirrorWorker) process(ctx context.Context, entry AuditLogEntry) er
 	}
 }
 
-func (w *AuditMirrorWorker) recordOutcome(ctx context.Context, original AuditLogEntry, action AuditAction, result AuditResult, failure string, extra map[string]any) error {
+func (w *AuditMirror) recordOutcome(ctx context.Context, original AuditLogEntry, action AuditAction, result AuditResult, failure string, extra map[string]any) error {
 	return recordAudit(ctx, w.store, &AuditLogEntry{
 		GuildID:            original.GuildID,
 		ActorDiscordUserID: systemActorID,

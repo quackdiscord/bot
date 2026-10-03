@@ -219,7 +219,7 @@ type Guild struct {
 }
 
 // GuildSettings is a guild's core configuration: managed channels,
-// notification branding, module toggles, and starter policy state.
+// notification branding, and starter policy state.
 type GuildSettings struct {
 	ULIDModel
 	GuildID                           string
@@ -227,9 +227,6 @@ type GuildSettings struct {
 	ManagedEvidenceChannelDiscordID   string
 	NotificationIntroduction          string
 	NotificationFooter                string
-	TicketsEnabled                    bool
-	GeneralLoggingEnabled             bool
-	HoneypotEnabled                   bool
 	StarterPolicyTemplateID           string
 	StarterPolicyNoticePending        bool
 	StarterPolicyNoticeAcknowledgedAt *time.Time

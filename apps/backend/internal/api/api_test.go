@@ -12,6 +12,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/quackdiscord/bot/internal/config"
+	"github.com/quackdiscord/bot/internal/modules"
 	"github.com/quackdiscord/bot/internal/quack"
 	storage "github.com/quackdiscord/bot/internal/store"
 	"github.com/quackdiscord/bot/internal/testutil"
@@ -69,7 +70,7 @@ func newTestServer(t *testing.T, cfg config.Config, deps Deps) *Server {
 func storeServer(t *testing.T, store *storage.Store, guilds quack.GuildDirectory, scheduler quack.Scheduler, cfg config.Config) *Server {
 	t.Helper()
 	return newTestServer(t, cfg, Deps{
-		Services: quack.New(quack.Deps{Store: store, Guilds: guilds, Scheduler: scheduler}),
+		Services: quack.New(quack.Deps{Store: store, Guilds: guilds, Scheduler: scheduler, Modules: modules.NewRegistry(store.DB())}),
 		Store:    store,
 		Redis:    store.Redis(),
 	})

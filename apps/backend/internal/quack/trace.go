@@ -25,6 +25,7 @@ const (
 	requestIDKey traceKey = iota
 	correlationIDKey
 	auditSourceKey
+	staffKey
 )
 
 // ContextWithTrace returns ctx carrying a request ID and a correlation ID.
@@ -131,6 +132,19 @@ func AuditSourceFromContext(ctx context.Context) AuditSource {
 		}
 	}
 	return AuditSourceAPI
+}
+
+// ContextWithStaff returns ctx carrying the caller's live staff context, as
+// resolved by an adapter's guild authorization.
+func ContextWithStaff(ctx context.Context, staff *GuildStaffContext) context.Context {
+	return context.WithValue(ctx, staffKey, staff)
+}
+
+// StaffFromContext returns the staff context stored by ContextWithStaff, or
+// nil outside a guild request.
+func StaffFromContext(ctx context.Context) *GuildStaffContext {
+	staff, _ := ctx.Value(staffKey).(*GuildStaffContext)
+	return staff
 }
 
 // AuditSourceForModuleAction returns the audit source for a module audit

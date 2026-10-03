@@ -31,7 +31,6 @@ type contextKey int
 const (
 	routeKey contextKey = iota
 	sessionKey
-	guildStaffKey
 )
 
 func withRoute(ctx context.Context, pattern string) context.Context {

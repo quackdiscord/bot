@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/oklog/ulid/v2"
+	"github.com/quackdiscord/bot/internal/modules"
 	"gorm.io/gorm"
 )
 
@@ -17,7 +18,7 @@ const ticketOpeningTTL = 5 * time.Minute
 // reserveOpening consumes the member's duplicate and daily allowance before any
 // Discord channel is created. Failed attempts retain their daily count so a
 // member cannot repeatedly force expensive provisioning failures.
-func (s *Store) reserveOpening(ctx context.Context, actor Actor, dailyLimit int, now time.Time) (string, error) {
+func (s *Store) reserveOpening(ctx context.Context, actor modules.Actor, dailyLimit int, now time.Time) (string, error) {
 	if s == nil || s.db == nil || actor.GuildID == "" || actor.DiscordUserID == "" {
 		return "", errors.New("ticket member and database are required")
 	}
@@ -54,7 +55,7 @@ func (s *Store) reserveOpening(ctx context.Context, actor Actor, dailyLimit int,
 
 // finishOpening converts only the current member reservation into a durable
 // ticket and timeline. It never consumes a second daily allowance.
-func (s *Store) finishOpening(ctx context.Context, actor Actor, token, channelID string, now time.Time) (*Ticket, error) {
+func (s *Store) finishOpening(ctx context.Context, actor modules.Actor, token, channelID string, now time.Time) (*Ticket, error) {
 	var ticket Ticket
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		state, err := lockMemberState(tx, actor.GuildID, actor.DiscordUserID, now)
@@ -80,7 +81,7 @@ func (s *Store) finishOpening(ctx context.Context, actor Actor, token, channelID
 
 // releaseOpening clears a failed provision only while its original token owns
 // the member slot. Successful tickets and newer reservations are unaffected.
-func (s *Store) releaseOpening(ctx context.Context, actor Actor, token string) error {
+func (s *Store) releaseOpening(ctx context.Context, actor modules.Actor, token string) error {
 	return s.db.WithContext(ctx).Model(&memberStateRecord{}).
 		Where("guild_id = ? AND owner_discord_user_id = ? AND open_ticket_id = ?", actor.GuildID, actor.DiscordUserID, token).
 		Where("NOT EXISTS (SELECT 1 FROM tickets WHERE tickets.id = ?)", token).

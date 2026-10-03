@@ -76,7 +76,7 @@ func TestEndpointClasses(t *testing.T) {
 	cfg.Limits.CaseCreate.Max = 103
 	cfg.Limits.Retry.Max = 104
 	cfg.Limits.Evidence.Max = 105
-	server := newTestServer(t, cfg, Deps{Modules: fakeModule{}})
+	server := newTestServer(t, cfg, Deps{Modules: fakeModule{}.MountHTTP})
 	for _, test := range []struct {
 		method, path string
 		want         int

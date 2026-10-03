@@ -130,7 +130,7 @@ type AuditStore interface {
 	ListAuditLogEntriesFiltered(context.Context, ListAuditLogEntriesParams) (*ListAuditLogEntriesResult, error)
 }
 
-// AuditMirrorStore is what AuditMirrorWorker needs from storage.
+// AuditMirrorStore is what AuditMirror needs from storage.
 type AuditMirrorStore interface {
 	ClearGuildChannelReferences(ctx context.Context, guildID, channelID string, audit *AuditLogEntry) (*GuildSettings, error)
 	CreateAuditLogEntry(context.Context, *AuditLogEntry) error

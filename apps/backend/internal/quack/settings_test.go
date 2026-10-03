@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/internal/modules"
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
@@ -21,7 +22,8 @@ func TestGuildSettingsServiceAuthorizationAuditAndNotice(t *testing.T) {
 	}
 	manager := templateGuildContext(t, repositories, "settings-guild", "manager-1", uint64(discordgo.PermissionManageGuild))
 	moderator := templateGuildContext(t, repositories, "settings-guild", "moderator-1", uint64(discordgo.PermissionModerateMembers))
-	service := quack.NewGuildSettingsService(repositories, allowStaffChannel{})
+	registry := modules.NewRegistry(repositories.DB())
+	service := quack.NewGuildSettingsService(repositories, allowStaffChannel{}, registry)
 
 	auditChannel := "100000000000000001"
 	intro, footer := "Welcome to this guild", "Review case details in Quack"
@@ -37,12 +39,19 @@ func TestGuildSettingsServiceAuthorizationAuditAndNotice(t *testing.T) {
 	if updated.AuditMirrorChannelDiscordID != auditChannel || updated.ManagedEvidenceChannelDiscordID != "" || !updated.TicketsEnabled || !updated.GeneralLoggingEnabled || updated.HoneypotEnabled {
 		t.Fatalf("unexpected settings response: %+v", updated)
 	}
+	if states, err := registry.ModuleStates(ctx, bootstrap.Guild.ID); err != nil || states != (quack.ModuleStates{Tickets: true, GeneralLogging: true}) {
+		t.Fatalf("module switches = %+v, %v", states, err)
+	}
+	noModules := quack.NewGuildSettingsService(repositories, allowStaffChannel{}, nil)
+	if _, err := noModules.Update(ctx, manager, quack.GuildSettingsInput{HoneypotEnabled: &tickets}); !errors.Is(err, quack.ErrGuildSettingsValidation) {
+		t.Fatalf("switched a module on without modules: %v", err)
+	}
 
 	evidenceChannel := "100000000000000002"
 	if _, err := service.Update(ctx, manager, quack.GuildSettingsInput{ManagedEvidenceChannelDiscordID: &evidenceChannel}); !errors.Is(err, quack.ErrGuildSettingsValidation) {
 		t.Fatalf("manual evidence destination accepted: %v", err)
 	}
-	unvalidated := quack.NewGuildSettingsService(repositories, nil)
+	unvalidated := quack.NewGuildSettingsService(repositories, nil, registry)
 	if _, err := unvalidated.Update(ctx, manager, quack.GuildSettingsInput{AuditMirrorChannelDiscordID: &auditChannel}); !errors.Is(err, quack.ErrGuildSettingsValidation) {
 		t.Fatalf("unvalidated audit destination accepted: %v", err)
 	}

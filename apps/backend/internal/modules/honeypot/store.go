@@ -10,7 +10,8 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// Trigger records one message claim and its terminal outcome without storing message content.
+// Trigger is one message that hit a trap and what came of it. Message
+// content is never stored.
 type Trigger struct {
 	ID                   string    `gorm:"type:char(26);primaryKey"`
 	GuildID              string    `gorm:"type:char(26);not null;uniqueIndex:idx_honeypot_trigger,priority:1;index"`
@@ -24,13 +25,13 @@ type Trigger struct {
 	CreatedAt, UpdatedAt time.Time `gorm:"not null"`
 }
 
-// TableName keeps honeypot outcomes out of moderation case and optional-module tables.
+// TableName returns the honeypot_triggers table.
 func (Trigger) TableName() string { return "honeypot_triggers" }
 
-// Store owns only honeypot trigger claims and derived statistics.
+// Store persists triggers.
 type Store struct{ db *gorm.DB }
 
-// NewStore constructs isolated trigger persistence around a caller-owned connection.
+// NewStore returns a Store over db.
 func NewStore(db *gorm.DB) *Store { return &Store{db: db} }
 
 // Models returns the honeypot table's record. The store migrates it with the
@@ -39,7 +40,8 @@ func Models() []any {
 	return []any{&Trigger{}}
 }
 
-// Claim atomically deduplicates a Discord message before any moderation side effect.
+// Claim records a message before anything acts on it, and reports false if
+// it was already claimed, so a gateway replay cannot open a second case.
 func (s *Store) Claim(ctx context.Context, message Message, templateID string, outcome Outcome) (*Trigger, bool, error) {
 	if s == nil || s.db == nil {
 		return nil, false, errors.New("honeypot database is not connected")
@@ -53,7 +55,7 @@ func (s *Store) Claim(ctx context.Context, message Message, templateID string, o
 	return &record, result.RowsAffected == 1, nil
 }
 
-// Complete transitions one claimed message to a terminal outcome.
+// Complete records a pending trigger's outcome. A trigger completes once.
 func (s *Store) Complete(ctx context.Context, id string, outcome Outcome, caseID, failureCode string) error {
 	result := s.db.WithContext(ctx).Model(&Trigger{}).Where("id = ? AND outcome = ?", id, OutcomePending).Updates(map[string]any{"outcome": outcome, "case_id": caseID, "failure_code": failureCode, "updated_at": time.Now().UTC()})
 	if result.Error != nil {
@@ -65,7 +67,7 @@ func (s *Store) Complete(ctx context.Context, id string, outcome Outcome, caseID
 	return nil
 }
 
-// Statistics derives per-guild counts without reading cases or other modules.
+// Statistics counts a guild's triggers by outcome.
 func (s *Store) Statistics(ctx context.Context, guildID string) (Statistics, error) {
 	if s == nil || s.db == nil {
 		return Statistics{}, errors.New("honeypot database is not connected")

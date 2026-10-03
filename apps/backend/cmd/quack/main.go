@@ -23,9 +23,8 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/quackdiscord/bot/internal/app"
 	"github.com/quackdiscord/bot/internal/config"
-	"github.com/quackdiscord/bot/internal/logging"
-	quackruntime "github.com/quackdiscord/bot/internal/runtime"
 	"github.com/quackdiscord/bot/internal/store"
 	"github.com/quackdiscord/bot/internal/v4import"
 )
@@ -123,7 +122,7 @@ func loadConfig(path string, stderr io.Writer) (config.Config, error) {
 	if err != nil {
 		return config.Config{}, err
 	}
-	logger, err := logging.New(stderr, cfg.Environment == "dev", cfg.Log.Level)
+	logger, err := app.NewLogger(stderr, cfg.Environment == "dev", cfg.Log.Level)
 	if err != nil {
 		return config.Config{}, err
 	}
@@ -149,7 +148,7 @@ func serve(ctx context.Context, args []string, stderr io.Writer) error {
 		fmt.Fprintf(stderr, "quack: invalid config:\n%v\n", err)
 		return errReported
 	}
-	return quackruntime.Run(ctx, cfg)
+	return app.Run(ctx, cfg)
 }
 
 // migrate applies every pending migration, or with "down" rolls back the

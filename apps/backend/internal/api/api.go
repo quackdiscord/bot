@@ -49,11 +49,6 @@ type TemplateChangeHandler interface {
 	HandleTemplateChange(ctx context.Context, guildID, templateID string)
 }
 
-// ModuleRoutes mounts optional-module endpoints on a ModuleMux.
-type ModuleRoutes interface {
-	MountHTTP(mux *ModuleMux)
-}
-
 // Deps are the Server's collaborators. Modules and TemplateChanges may be
 // nil; everything else is required.
 type Deps struct {
@@ -61,9 +56,10 @@ type Deps struct {
 	Store    Storage
 	// Redis backs the rate limiter and the idempotency store. Both fail
 	// closed: if Redis is down, limited routes return 503.
-	Redis           redis.UniversalClient
-	Discord         DiscordStatus
-	Modules         ModuleRoutes
+	Redis   redis.UniversalClient
+	Discord DiscordStatus
+	// Modules mounts the optional modules' routes.
+	Modules         func(mux *ModuleMux)
 	TemplateChanges TemplateChangeHandler
 }
 
@@ -105,7 +101,7 @@ func New(cfg config.Config, deps Deps) (*Server, error) {
 	}
 	s.routes()
 	if deps.Modules != nil {
-		deps.Modules.MountHTTP(&ModuleMux{s: s})
+		deps.Modules(&ModuleMux{s: s})
 	}
 	s.handler = chain(http.HandlerFunc(s.route),
 		requestContext,
