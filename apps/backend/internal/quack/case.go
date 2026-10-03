@@ -125,6 +125,14 @@ func (s *CaseService) create(ctx context.Context, guildContext *GuildStaffContex
 	if len(input.IdempotencyKey) > 191 {
 		return nil, caseValidationError("idempotency key is too long")
 	}
+	// A replay must not repeat the preflight: evidence capture posts to Discord.
+	if existing, err := s.replay(ctx, guildContext.Guild.ID, input); err != nil || existing != nil {
+		if err != nil {
+			return nil, err
+		}
+		response := caseResponse(existing.Case, existing.ActionExecutions)
+		return &response, nil
+	}
 
 	var created *CreatedCase
 	var err error
@@ -248,27 +256,38 @@ func (s *CaseService) preflight(ctx context.Context, guildContext *GuildStaffCon
 	return result, nil
 }
 
-// createLocked writes the case. It runs inside the guild lock, so it is the
-// one place idempotency is checked and the level is selected for real.
+// replay returns the case already created with input's idempotency key, or nil
+// if there is none. Reusing a key for a different request is an error.
+func (s *CaseService) replay(ctx context.Context, guildID string, input CaseInput) (*CreatedCase, error) {
+	if input.IdempotencyKey == "" {
+		return nil, nil
+	}
+	existing, err := s.store.GetCaseByIdempotencyKey(ctx, guildID, input.IdempotencyKey)
+	if err != nil || existing == nil {
+		return nil, err
+	}
+	templateID := strings.TrimSpace(input.TemplateID)
+	if existing.TargetDiscordUserID != strings.TrimSpace(input.TargetDiscordUserID) ||
+		existing.TemplateID == nil || *existing.TemplateID != templateID {
+		return nil, caseValidationError("idempotency key was already used for another case request")
+	}
+	actions, err := s.store.ListCaseActionExecutions(ctx, existing.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &CreatedCase{Case: *existing, ActionExecutions: actions}, nil
+}
+
+// createLocked writes the case. It runs inside the guild lock, so the level
+// selected here is the one that counts.
 func (s *CaseService) createLocked(ctx context.Context, guildContext *GuildStaffContext, input CaseInput, preflight *casePreflight, attribution caseAttribution) (*CreatedCase, error) {
+	// Check again under the lock: a concurrent request with the same key may
+	// have committed after our first look.
+	if existing, err := s.replay(ctx, guildContext.Guild.ID, input); err != nil || existing != nil {
+		return existing, err
+	}
 	templateID := strings.TrimSpace(input.TemplateID)
 	targetID := strings.TrimSpace(input.TargetDiscordUserID)
-	if input.IdempotencyKey != "" {
-		existing, err := s.store.GetCaseByIdempotencyKey(ctx, guildContext.Guild.ID, input.IdempotencyKey)
-		if err != nil {
-			return nil, err
-		}
-		if existing != nil {
-			if existing.TargetDiscordUserID != targetID || existing.TemplateID == nil || *existing.TemplateID != templateID {
-				return nil, caseValidationError("idempotency key was already used for another case request")
-			}
-			actions, err := s.store.ListCaseActionExecutions(ctx, existing.ID)
-			if err != nil {
-				return nil, err
-			}
-			return &CreatedCase{Case: *existing, ActionExecutions: actions}, nil
-		}
-	}
 
 	source := input.Source
 	if source == "" {
