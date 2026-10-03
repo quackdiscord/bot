@@ -70,27 +70,34 @@ type commandClient interface {
 	delete(ctx context.Context, appID, guildID, commandID string) error
 }
 
-// sessionCommands is the commandClient backed by the bot's session.
+// sessionCommands is the commandClient backed by the bot's session. Unlike
+// moderation calls, command writes are idempotent, so they wait out a rate
+// limit instead of failing startup.
 type sessionCommands struct{ session *discordgo.Session }
 
+// syncRest is rest with rate-limit retries turned back on.
+func syncRest(ctx context.Context) []discordgo.RequestOption {
+	return rest(ctx, discordgo.WithRetryOnRatelimit(true))
+}
+
 func (c sessionCommands) list(ctx context.Context, appID, guildID string) ([]*discordgo.ApplicationCommand, error) {
-	return c.session.ApplicationCommands(appID, guildID, rest(ctx)...)
+	return c.session.ApplicationCommands(appID, guildID, syncRest(ctx)...)
 }
 
 func (c sessionCommands) create(
 	ctx context.Context, appID, guildID string, command *discordgo.ApplicationCommand,
 ) (*discordgo.ApplicationCommand, error) {
-	return c.session.ApplicationCommandCreate(appID, guildID, command, rest(ctx)...)
+	return c.session.ApplicationCommandCreate(appID, guildID, command, syncRest(ctx)...)
 }
 
 func (c sessionCommands) edit(
 	ctx context.Context, appID, guildID, commandID string, command *discordgo.ApplicationCommand,
 ) (*discordgo.ApplicationCommand, error) {
-	return c.session.ApplicationCommandEdit(appID, guildID, commandID, command, rest(ctx)...)
+	return c.session.ApplicationCommandEdit(appID, guildID, commandID, command, syncRest(ctx)...)
 }
 
 func (c sessionCommands) delete(ctx context.Context, appID, guildID, commandID string) error {
-	return c.session.ApplicationCommandDelete(appID, guildID, commandID, rest(ctx)...)
+	return c.session.ApplicationCommandDelete(appID, guildID, commandID, syncRest(ctx)...)
 }
 
 // cachedCommand is what the cache remembers about the last write of one
@@ -234,6 +241,7 @@ func (s syncer) sync(ctx context.Context, local []*discordgo.ApplicationCommand)
 // syncOne creates, edits, or skips one command. It skips when the remote
 // definition already matches, and refreshes the cache if it was stale.
 func (s syncer) syncOne(ctx context.Context, command, remote *discordgo.ApplicationCommand) error {
+	command = s.forScope(command)
 	name, scope := command.Name, s.scope()
 	localHash, localBody, err := fingerprint(command)
 	if err != nil {
@@ -285,6 +293,20 @@ func (s syncer) syncOne(ctx context.Context, command, remote *discordgo.Applicat
 	}
 	s.remember(ctx, name, command, updated, localHash)
 	return nil
+}
+
+// forScope returns command as Discord stores it in the syncer's scope.
+// Guild commands have no DM setting: Discord drops dm_permission and never
+// returns it, so comparing it would make every start edit every command.
+func (s syncer) forScope(command *discordgo.ApplicationCommand) *discordgo.ApplicationCommand {
+	//lint:ignore SA1019 the field Quack's commands still set; see moderatorCommand.
+	if s.guild == "" || command.DMPermission == nil {
+		return command
+	}
+	scoped := *command
+	//lint:ignore SA1019 cleared because guild commands cannot carry it.
+	scoped.DMPermission = nil
+	return &scoped
 }
 
 // remember records the ID Discord returned for the local definition, both

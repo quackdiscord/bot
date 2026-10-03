@@ -246,6 +246,31 @@ func TestSyncer(t *testing.T) {
 	}
 }
 
+// TestGuildSyncIgnoresDMPermission pins the restart loop that hit Discord's
+// rate limit: guild commands come back without dm_permission, which must not
+// count as a change.
+func TestGuildSyncIgnoresDMPermission(t *testing.T) {
+	local := caseCommand()
+	//lint:ignore SA1019 the test needs the field the commands set.
+	if local.DMPermission == nil {
+		t.Fatal("caseCommand no longer sets DMPermission; this test is moot")
+	}
+	remote := remoteCase(func(c *discordgo.ApplicationCommand) {
+		//lint:ignore SA1019 Discord omits it for guild commands.
+		c.DMPermission = nil
+	})
+	client := &fakeCommands{remote: []*discordgo.ApplicationCommand{remote}}
+	s := syncer{client: client, cache: memoryCommandCache{}, appID: "sync-guild-dm", guild: "guild"}
+	for range 2 {
+		if err := s.sync(context.Background(), []*discordgo.ApplicationCommand{local}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(client.created) != 0 || len(client.edited) != 0 {
+		t.Fatalf("created=%d edited=%d, want no writes", len(client.created), len(client.edited))
+	}
+}
+
 func TestRedisCommandCacheRoundTrip(t *testing.T) {
 	server := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
