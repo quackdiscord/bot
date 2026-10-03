@@ -17,6 +17,8 @@ func TestRunRejectsBadUsage(t *testing.T) {
 		{"serve", "-nope"},
 		{"migrate", "sideways"},
 		{"migrate", "up", "down"},
+		{"migrate", "-drop-all"},
+		{"migrate", "-drop-all", "up"},
 		{"import-v4"},
 		{"import-v4", "export"},
 		{"import-v4", "import"},

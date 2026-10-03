@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/oklog/ulid/v2"
-	"github.com/quackdiscord/bot/internal/modules"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -34,11 +33,10 @@ type Store struct{ db *gorm.DB }
 // NewStore constructs isolated trigger persistence around a caller-owned connection.
 func NewStore(db *gorm.DB) *Store { return &Store{db: db} }
 
-// Migration exposes logical migration 0300 for integration into the production ledger.
-func Migration() modules.Migration {
-	return modules.Migration{Version: 300, Name: "honeypot_triggers", Apply: func(db *gorm.DB) error {
-		return db.AutoMigrate(&Trigger{})
-	}}
+// Models returns the honeypot table's record. The store migrates it with the
+// rest of the schema.
+func Models() []any {
+	return []any{&Trigger{}}
 }
 
 // Claim atomically deduplicates a Discord message before any moderation side effect.

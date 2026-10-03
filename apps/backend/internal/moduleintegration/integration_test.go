@@ -97,14 +97,8 @@ func TestOptionalModuleHTTPRegistrarsMountCompleteSurface(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	if err := modules.RegistryMigration().Apply(db); err != nil {
-		t.Fatalf("migrate registry: %v", err)
-	}
-	if err := tickets.Migration().Apply(db); err != nil {
-		t.Fatalf("migrate tickets: %v", err)
-	}
-	if err := honeypot.Migration().Apply(db); err != nil {
-		t.Fatalf("migrate honeypots: %v", err)
+	if err := store.New(db, nil).Migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
 	}
 	registry, err := modules.NewRegistry(modules.NewSQLSettingsStore(db), tickets.Descriptor(), generallogging.Descriptor(), honeypot.Descriptor())
 	if err != nil {
@@ -207,7 +201,7 @@ func TestGatewayIntentsFollowEnabledModulesWithoutMessageContentLeak(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := modules.RegistryMigration().Apply(db); err != nil {
+	if err := store.New(db, nil).Migrate(); err != nil {
 		t.Fatal(err)
 	}
 	runtime := &Runtime{db: db}

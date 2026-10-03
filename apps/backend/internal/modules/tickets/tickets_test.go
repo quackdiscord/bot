@@ -6,13 +6,12 @@ import (
 	"fmt"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discord"
 	"github.com/quackdiscord/bot/internal/modules"
 	"github.com/quackdiscord/bot/internal/modules/tickets"
-	"gorm.io/driver/sqlite"
+	"github.com/quackdiscord/bot/internal/testutil"
 	"gorm.io/gorm"
 )
 
@@ -30,16 +29,7 @@ func (a *auditRecorder) RecordModuleAudit(_ context.Context, event modules.Audit
 
 func setup(t *testing.T) (*gorm.DB, *tickets.Service, *auditRecorder) {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := modules.RegistryMigration().Apply(db); err != nil {
-		t.Fatal(err)
-	}
-	if err := tickets.Migration().Apply(db); err != nil {
-		t.Fatal(err)
-	}
+	db := testutil.NewSQLiteDB(t)
 	registry, err := modules.NewRegistry(modules.NewSQLSettingsStore(db), tickets.Descriptor())
 	if err != nil {
 		t.Fatal(err)
@@ -113,25 +103,6 @@ func TestLifecyclePrivacyDuplicateRateAndIsolation(t *testing.T) {
 	}
 	if len(audit.events) < 5 {
 		t.Fatalf("audit events=%d", len(audit.events))
-	}
-}
-
-func TestImportDryRunAndIdempotency(t *testing.T) {
-	db, _, audit := setup(t)
-	importer := tickets.NewImporter(tickets.NewStore(db), audit)
-	actor := tickets.Actor{GuildID: "guild-a", DiscordUserID: "admin", CanManage: true}
-	row := tickets.LegacyTicket{SourceID: "legacy-1", GuildID: "guild-a", OwnerDiscordUserID: "member", Status: tickets.StatusResolved, CreatedAt: time.Now().Add(-time.Hour)}
-	dry, err := importer.Import(context.Background(), actor, []tickets.LegacyTicket{row}, true)
-	if err != nil || !dry[0].WouldCreate {
-		t.Fatalf("dry=%+v err=%v", dry, err)
-	}
-	first, err := importer.Import(context.Background(), actor, []tickets.LegacyTicket{row}, false)
-	if err != nil || !first[0].Created {
-		t.Fatalf("first=%+v err=%v", first, err)
-	}
-	second, err := importer.Import(context.Background(), actor, []tickets.LegacyTicket{row}, false)
-	if err != nil || second[0].Created || second[0].TargetID != first[0].TargetID {
-		t.Fatalf("second=%+v err=%v", second, err)
 	}
 }
 

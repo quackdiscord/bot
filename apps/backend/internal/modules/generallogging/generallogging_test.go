@@ -10,7 +10,7 @@ import (
 
 	"github.com/quackdiscord/bot/internal/modules"
 	logmodule "github.com/quackdiscord/bot/internal/modules/generallogging"
-	"gorm.io/driver/sqlite"
+	"github.com/quackdiscord/bot/internal/testutil"
 	"gorm.io/gorm"
 )
 
@@ -47,13 +47,7 @@ func (f *deliveryFake) SendStaffLog(_ context.Context, _, _, payload string) err
 
 func setup(t *testing.T) (*gorm.DB, *logmodule.Service, *deliveryFake, *auditRecorder) {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := modules.RegistryMigration().Apply(db); err != nil {
-		t.Fatal(err)
-	}
+	db := testutil.NewSQLiteDB(t)
 	registry, err := modules.NewRegistry(modules.NewSQLSettingsStore(db), logmodule.Descriptor())
 	if err != nil {
 		t.Fatal(err)
@@ -206,35 +200,5 @@ func TestDeliveryQueueConcurrentBoundedLifecycle(t *testing.T) {
 	queue.Close()
 	if err := queue.Submit(logmodule.Event{}); err == nil {
 		t.Fatal("submit after close succeeded")
-	}
-}
-
-func TestSettingsImportDryRunAndIdempotency(t *testing.T) {
-	db, service, _, audit := setup(t)
-	importer := logmodule.NewImporter(db, audit)
-	actor := logmodule.Actor{GuildID: "guild-a", DiscordUserID: "admin", CanManage: true}
-	settings := logmodule.Defaults()
-	settings.Channels = map[logmodule.EventType]string{logmodule.MemberJoin: "staff"}
-	settings.CacheEntriesPerGuild = 1
-	row := logmodule.LegacySettings{SourceID: "legacy-settings", GuildID: "guild-a", Enabled: true, Settings: settings}
-	dry, err := importer.Import(context.Background(), actor, []logmodule.LegacySettings{row}, true)
-	if err != nil || !dry[0].WouldCreate {
-		t.Fatalf("dry=%+v err=%v", dry, err)
-	}
-	first, err := importer.Import(context.Background(), actor, []logmodule.LegacySettings{row}, false)
-	if err != nil || !first[0].Created {
-		t.Fatalf("first=%+v err=%v", first, err)
-	}
-	second, err := importer.Import(context.Background(), actor, []logmodule.LegacySettings{row}, false)
-	if err != nil || second[0].Created {
-		t.Fatalf("second=%+v err=%v", second, err)
-	}
-	for _, id := range []string{"after-import-1", "after-import-2"} {
-		if err := service.CacheMessage(context.Background(), logmodule.CachedMessage{GuildID: "guild-a", MessageDiscordID: id}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if status := service.Status("guild-a"); status.CachedMessages != 1 {
-		t.Fatalf("imported cache limit not applied: %+v", status)
 	}
 }

@@ -173,7 +173,7 @@ func TestMySQLUnavailableEvidenceSnapshotUsesPersistableTimestamp(t *testing.T) 
 		t.Fatal(err)
 	}
 	guildContext := &quack.GuildStaffContext{
-		Guild: guild, Staff: &quack.StaffMember{GuildID: guild.ID, DiscordUserID: "moderator"},
+		Guild: guild, Staff: &quack.StaffMember{GuildID: guild.ID, DiscordUserID: "moderator"}, ActorDiscordUserID: "moderator",
 		Permissions: map[quack.PermissionAction]bool{
 			quack.PermissionActionCaseTemplateWrite: true,
 			quack.PermissionActionCaseCreate:        true,

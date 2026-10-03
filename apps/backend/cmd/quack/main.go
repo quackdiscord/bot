@@ -3,7 +3,7 @@
 // Usage:
 //
 //	quack [serve] [-config file]
-//	quack migrate [-config file] [up|down]
+//	quack migrate [-config file] [-drop-all] [up|down]
 //	quack import-v4 import|rollback|check-scope [flags]
 //
 // Settings come from code defaults, then the TOML file, then QUACK_* env vars.
@@ -35,6 +35,7 @@ const usage = `Usage: quack <command> [flags]
 Commands:
   serve                   run the bot and HTTP API (the default)
   migrate [up|down]       apply pending migrations, or roll back the newest one
+                          (rolling back the baseline needs -drop-all)
   import-v4 import        import v4 case history from a JSONL file
   import-v4 rollback      undo one import batch
   import-v4 check-scope   check that v4 and v5 command names don't collide
@@ -152,11 +153,13 @@ func serve(ctx context.Context, args []string, stderr io.Writer) error {
 }
 
 // migrate applies every pending migration, or with "down" rolls back the
-// newest one. It touches only MySQL.
+// newest one. Rolling back the baseline drops every table, so it also needs
+// -drop-all. It touches only MySQL.
 func migrate(args []string, stderr io.Writer) error {
 	fs, path := newFlagSet("migrate", stderr)
+	dropAll := fs.Bool("drop-all", false, "allow \"down\" to roll back the baseline, dropping every table and all data")
 	fs.Usage = func() {
-		fmt.Fprintln(stderr, "Usage: quack migrate [-config file] [up|down]")
+		fmt.Fprintln(stderr, "Usage: quack migrate [-config file] [-drop-all] [up|down]")
 		fs.PrintDefaults()
 	}
 	if err := parse(fs, args); err != nil {
@@ -170,19 +173,28 @@ func migrate(args []string, stderr io.Writer) error {
 		fs.Usage()
 		return errReported
 	}
+	if *dropAll && direction != "down" {
+		fmt.Fprintln(stderr, "quack migrate: -drop-all only applies to down")
+		return errReported
+	}
 	cfg, err := loadConfig(*path, stderr)
 	if err != nil {
 		return err
 	}
 	return withStore(cfg, func(s *store.Store) error {
-		if direction == "down" {
-			if err := s.RollbackLastMigration(); err != nil {
-				return fmt.Errorf("roll back latest migration: %w", err)
+		if direction == "up" {
+			if err := s.Migrate(); err != nil {
+				return fmt.Errorf("apply migrations: %w", err)
 			}
 			return nil
 		}
-		if err := s.Migrate(); err != nil {
-			return fmt.Errorf("apply migrations: %w", err)
+		err := s.Rollback(*dropAll)
+		if errors.Is(err, store.ErrBaselineRollback) {
+			fmt.Fprintln(stderr, "quack migrate: the newest migration is the baseline; rolling it back drops every table and all data.\nRerun with -drop-all to do that.")
+			return errReported
+		}
+		if err != nil {
+			return fmt.Errorf("roll back latest migration: %w", err)
 		}
 		return nil
 	})

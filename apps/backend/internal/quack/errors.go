@@ -26,10 +26,6 @@ var (
 	ErrTemplateValidation       = errors.New("template validation failed")
 	ErrTemplateNotFound         = errors.New("case template not found")
 	ErrTemplatePermissionDenied = errors.New("template permission denied")
-	// ErrTemplateCompatibilityReviewRequired marks an imported template that
-	// cannot be expressed as a valid v5 template. It is usually wrapped in a
-	// *TemplateCompatibilityReviewError.
-	ErrTemplateCompatibilityReviewRequired = errors.New("template compatibility review required")
 
 	ErrGuildSettingsValidation       = errors.New("guild settings validation failed")
 	ErrGuildSettingsPermissionDenied = errors.New("guild settings permission denied")
@@ -88,27 +84,6 @@ func (e *AuthorizationError) Error() string {
 }
 
 func (e *AuthorizationError) Unwrap() error { return ErrAuthorizationDenied }
-
-// TemplateCompatibilityReviewError identifies an imported template that an
-// administrator must review before it can be used.
-type TemplateCompatibilityReviewError struct {
-	TemplateID string
-	Reason     string
-}
-
-func (e *TemplateCompatibilityReviewError) Error() string {
-	if e == nil {
-		return ErrTemplateCompatibilityReviewRequired.Error()
-	}
-	if e.Reason == "" {
-		return fmt.Sprintf("%s for template %s", ErrTemplateCompatibilityReviewRequired, e.TemplateID)
-	}
-	return fmt.Sprintf("%s for template %s: %s", ErrTemplateCompatibilityReviewRequired, e.TemplateID, e.Reason)
-}
-
-func (e *TemplateCompatibilityReviewError) Unwrap() error {
-	return ErrTemplateCompatibilityReviewRequired
-}
 
 // EvidenceUnavailableError means a valid message link could not be captured,
 // for example because the message was deleted. Outcome is recorded on the

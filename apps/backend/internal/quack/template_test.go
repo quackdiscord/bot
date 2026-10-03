@@ -6,7 +6,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/quack"
@@ -243,69 +242,6 @@ func TestTemplateServiceGuildBoundary(t *testing.T) {
 	_, err = service.Update(ctx, guildTwo, created.ID, validTemplateInput("spam"))
 	if !errors.Is(err, quack.ErrTemplateNotFound) {
 		t.Fatalf("expected not found across guild boundary, got %v", err)
-	}
-}
-
-func TestTemplateServiceGetReturnsExplicitCompatibilityReviewError(t *testing.T) {
-	ctx := context.Background()
-	repositories := newMigratedStore(t)
-	// Recreate a pre-0410 quarantined fixture. The final live schema rejects
-	// multiple actions before they can enter normal service behavior.
-	if err := repositories.DB().Exec("DROP INDEX uq_v5_level_enforcement_action").Error; err != nil {
-		t.Fatalf("drop final action constraint for compatibility fixture: %v", err)
-	}
-	guildContext := templateGuildContext(t, repositories, "guild-1", "user-1", uint64(discordgo.PermissionManageGuild))
-	service := quack.NewTemplateService(repositories)
-
-	created, err := service.Create(ctx, guildContext, validTemplateInput("legacy-policy"))
-	if err != nil {
-		t.Fatalf("create compatibility fixture: %v", err)
-	}
-
-	var escalation store.CaseTemplateLevelRecord
-	if err := repositories.DB().Where("template_id = ? AND is_default = ?", created.ID, false).First(&escalation).Error; err != nil {
-		t.Fatalf("load escalation level: %v", err)
-	}
-	now := time.Now().UTC()
-	secondAction := store.CaseTemplateLevelActionRecord{
-		ULIDModelRecord:  store.ULIDModelRecord{ID: "service-compat-action00000", CreatedAt: now, UpdatedAt: now},
-		LevelID:          escalation.ID,
-		Position:         2,
-		ActionType:       quack.ActionKickUser,
-		ConfigJSON:       `{}`,
-		IdempotencyScope: "case",
-		Enabled:          true,
-	}
-	if err := repositories.DB().Select("*").Create(&secondAction).Error; err != nil {
-		t.Fatalf("create preserved second action: %v", err)
-	}
-	if err := repositories.DB().Model(&store.CaseTemplateLevelRecord{}).Where("template_id = ? AND is_default = ?", created.ID, true).UpdateColumn("is_default", false).Error; err != nil {
-		t.Fatalf("remove legacy default: %v", err)
-	}
-	if err := repositories.DB().Model(&store.CaseTemplateRecord{}).Where("id = ?", created.ID).UpdateColumn("archived_at", now).Error; err != nil {
-		t.Fatalf("archive quarantined template: %v", err)
-	}
-	reason := "level has multiple actions; template does not have exactly one default level"
-	if err := repositories.DB().Exec(
-		"INSERT INTO quack_v5_0002_template_compatibility (template_id, previous_archived_at, previous_deleted_at, reason, recorded_at) VALUES (?, ?, ?, ?, ?)",
-		created.ID, nil, nil, reason, now,
-	).Error; err != nil {
-		t.Fatalf("record compatibility state: %v", err)
-	}
-
-	response, err := service.Get(ctx, guildContext, created.ID)
-	if response != nil {
-		t.Fatalf("quarantined template returned a live response: %+v", response)
-	}
-	if !errors.Is(err, quack.ErrTemplateCompatibilityReviewRequired) {
-		t.Fatalf("expected compatibility review error, got %v", err)
-	}
-	var compatibilityError *quack.TemplateCompatibilityReviewError
-	if !errors.As(err, &compatibilityError) {
-		t.Fatalf("expected typed compatibility error, got %T", err)
-	}
-	if compatibilityError.TemplateID != created.ID || compatibilityError.Reason != reason {
-		t.Fatalf("unexpected compatibility error: %+v", compatibilityError)
 	}
 }
 

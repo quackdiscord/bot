@@ -2,13 +2,10 @@ package tickets
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/oklog/ulid/v2"
-	"github.com/quackdiscord/bot/internal/modules"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -64,17 +61,16 @@ type memberStateRecord struct {
 
 func (memberStateRecord) TableName() string { return "ticket_member_states" }
 
-// Store persists tickets, their immutable timelines, transcripts, and import identities.
+// Store persists tickets, their immutable timelines, and transcripts.
 type Store struct{ db *gorm.DB }
 
 // NewStore constructs ticket persistence from an adapter-owned database handle.
 func NewStore(db *gorm.DB) *Store { return &Store{db: db} }
 
-// Migration exposes ticket schema changes without editing the central migration registry.
-func Migration() modules.Migration {
-	return modules.Migration{Version: 110, Name: "ticket_lifecycle", Apply: func(db *gorm.DB) error {
-		return db.AutoMigrate(&ticketRecord{}, &eventRecord{}, &transcriptRecord{}, &memberStateRecord{})
-	}}
+// Models returns the ticket tables' records. The store migrates them with the
+// rest of the schema.
+func Models() []any {
+	return []any{&ticketRecord{}, &eventRecord{}, &transcriptRecord{}, &memberStateRecord{}}
 }
 
 func (s *Store) create(ctx context.Context, guildID, ownerID, threadID string, dailyLimit int, now time.Time) (*Ticket, error) {
@@ -266,67 +262,6 @@ func (s *Store) transcript(ctx context.Context, guildID, ticketID string, now ti
 func (s *Store) purgeExpiredTranscripts(ctx context.Context, now time.Time) (int64, error) {
 	result := s.db.WithContext(ctx).Where("expires_at <= ?", now).Delete(&transcriptRecord{})
 	return result.RowsAffected, result.Error
-}
-
-func (s *Store) importTicket(ctx context.Context, source LegacyTicket, now time.Time) (string, bool, error) {
-	var targetID string
-	created := false
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var prior modules.ImportRecord
-		q := tx.Where("guild_id = ? AND module_id = ? AND source_id = ?", source.GuildID, modules.Tickets, source.SourceID).Limit(1).Find(&prior)
-		if q.Error != nil {
-			return q.Error
-		}
-		if q.RowsAffected > 0 {
-			targetID = prior.TargetID
-			return nil
-		}
-		threadID := source.ThreadDiscordChannelID
-		if threadID == "" {
-			sum := sha256.Sum256([]byte(source.GuildID + ":" + source.SourceID))
-			threadID = fmt.Sprintf("legacy-%x", sum[:12])
-		}
-		record := ticketRecord{ID: ulid.Make().String(), GuildID: source.GuildID, OwnerDiscordUserID: source.OwnerDiscordUserID, ThreadDiscordChannelID: threadID, Status: source.Status, MetadataJSON: `{"imported_from":"v4"}`, CreatedAt: source.CreatedAt, UpdatedAt: now}
-		if record.CreatedAt.IsZero() {
-			record.CreatedAt = now
-		}
-		if err := tx.Create(&record).Error; err != nil {
-			return fmt.Errorf("create imported ticket: %w", err)
-		}
-		if err := appendEvent(tx, record, EventOpened, "quack-v4-import", "Imported from v4", `{"source":"v4"}`, now); err != nil {
-			return err
-		}
-		if source.Status == StatusOpen {
-			state, err := lockMemberState(tx, source.GuildID, source.OwnerDiscordUserID, now)
-			if err != nil {
-				return err
-			}
-			if state.OpenTicketID != "" {
-				return ErrDuplicateOpen
-			}
-			state.OpenTicketID = record.ID
-			state.UpdatedAt = now
-			if err := tx.Save(state).Error; err != nil {
-				return err
-			}
-		}
-		ledger := modules.ImportRecord{ID: ulid.Make().String(), GuildID: source.GuildID, ModuleID: modules.Tickets, SourceID: source.SourceID, TargetID: record.ID, CreatedAt: now}
-		if err := tx.Create(&ledger).Error; err != nil {
-			return err
-		}
-		targetID, created = record.ID, true
-		return nil
-	})
-	return targetID, created, err
-}
-
-func (s *Store) importTarget(ctx context.Context, guildID, sourceID string) (string, bool, error) {
-	var record modules.ImportRecord
-	result := s.db.WithContext(ctx).Where("guild_id = ? AND module_id = ? AND source_id = ?", guildID, modules.Tickets, sourceID).Limit(1).Find(&record)
-	if result.Error != nil {
-		return "", false, result.Error
-	}
-	return record.TargetID, result.RowsAffected > 0, nil
 }
 
 func ticketFromRecord(r ticketRecord) Ticket {

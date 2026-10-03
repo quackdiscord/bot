@@ -310,7 +310,7 @@ type Case struct {
 	TargetDiscordUserID     string
 	ModeratorDiscordUserID  string
 	Reason                  string
-	Validity                CaseValidity `gorm:"column:status"`
+	Validity                CaseValidity
 	Source                  CaseSource
 	CorrelationID           string
 	ContextChannelDiscordID string

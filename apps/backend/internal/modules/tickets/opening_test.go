@@ -17,7 +17,9 @@ func TestOpeningReservationFencesExpiredWorkers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Migration().Apply(db); err != nil {
+	// The store's baseline migrates these tables, but importing it here
+	// would be a cycle.
+	if err := db.AutoMigrate(Models()...); err != nil {
 		t.Fatal(err)
 	}
 	s := NewStore(db)

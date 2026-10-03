@@ -10,7 +10,7 @@ import (
 
 	"github.com/quackdiscord/bot/internal/modules"
 	"github.com/quackdiscord/bot/internal/modules/honeypot"
-	"gorm.io/driver/sqlite"
+	"github.com/quackdiscord/bot/internal/testutil"
 	"gorm.io/gorm"
 )
 
@@ -79,21 +79,7 @@ type fixture struct {
 
 func setup(t *testing.T) *fixture {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared&_busy_timeout=5000", t.Name())), &gorm.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatal(err)
-	}
-	sqlDB.SetMaxOpenConns(1)
-	if err := modules.RegistryMigration().Apply(db); err != nil {
-		t.Fatal(err)
-	}
-	if err := honeypot.Migration().Apply(db); err != nil {
-		t.Fatal(err)
-	}
+	db := testutil.NewSQLiteDB(t)
 	registry, err := modules.NewRegistry(modules.NewSQLSettingsStore(db), honeypot.Descriptor(),
 		modules.Descriptor{ID: modules.Tickets, DisplayName: "Tickets"},
 		modules.Descriptor{ID: modules.GeneralLogging, DisplayName: "General logging"})
@@ -282,51 +268,6 @@ func TestGuildAndModuleConfigurationIsolation(t *testing.T) {
 	if err != nil || other == nil || !other.Enabled {
 		t.Fatalf("other guild contaminated: %+v err=%v", other, err)
 	}
-	var caseTables int64
-	if err := fixture.db.Raw("SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('cases','case_actions','appeals')").Scan(&caseTables).Error; err != nil || caseTables != 0 {
-		t.Fatalf("module migration contaminated core schema: tables=%d err=%v", caseTables, err)
-	}
-}
-
-func TestImportDryRunIdempotencyAndValidation(t *testing.T) {
-	fixture := setup(t)
-	actor := honeypot.Actor{GuildID: "guild-a", DiscordUserID: "admin", CanManage: true}
-	importer := honeypot.NewImporter(fixture.db, fixture.audit, fixture.validator, fixture.validator)
-	row := honeypot.LegacySettings{SourceID: "legacy-honeypot", GuildID: "guild-a", Enabled: true, Settings: honeypot.Settings{ChannelDiscordID: "trap", TemplateID: "template"}}
-	if _, err := fixture.registry.SetConfiguration(context.Background(), modules.Configuration{GuildID: "guild-a", ModuleID: modules.Honeypots, ConfigJSON: `{"channel_discord_id":"old-trap","template_id":"old-template"}`}); err != nil {
-		t.Fatal(err)
-	}
-	dry, err := importer.Import(context.Background(), actor, []honeypot.LegacySettings{row}, true)
-	if err != nil || len(dry) != 1 || !dry[0].WouldCreate {
-		t.Fatalf("dry=%+v err=%v", dry, err)
-	}
-	var before int64
-	fixture.db.Model(&modules.ImportRecord{}).Count(&before)
-	if before != 0 {
-		t.Fatalf("dry run wrote %d ledger rows", before)
-	}
-	first, err := importer.Import(context.Background(), actor, []honeypot.LegacySettings{row}, false)
-	if err != nil || !first[0].Created {
-		t.Fatalf("first=%+v err=%v", first, err)
-	}
-	second, err := importer.Import(context.Background(), actor, []honeypot.LegacySettings{row}, false)
-	if err != nil || second[0].Created {
-		t.Fatalf("second=%+v err=%v", second, err)
-	}
-	var count int64
-	fixture.db.Model(&modules.ImportRecord{}).Where("module_id = ?", modules.Honeypots).Count(&count)
-	if count != 1 {
-		t.Fatalf("ledger rows=%d", count)
-	}
-	configuration, err := fixture.registry.Configuration(context.Background(), "guild-a", modules.Honeypots)
-	if err != nil || configuration == nil || !configuration.Enabled || configuration.ID == "" {
-		t.Fatalf("upserted configuration=%+v err=%v", configuration, err)
-	}
-	fixture.validator.channelErr = errors.New("missing permissions")
-	row.SourceID = "unsafe"
-	if _, err := importer.Import(context.Background(), actor, []honeypot.LegacySettings{row}, true); !errors.Is(err, honeypot.ErrChannelUnavailable) {
-		t.Fatalf("unsafe import error=%v", err)
-	}
 }
 
 func TestRuntimeIntentsQueueAndIndependentShutdown(t *testing.T) {
@@ -354,10 +295,7 @@ func TestRuntimeIntentsQueueAndIndependentShutdown(t *testing.T) {
 	}
 }
 
-func TestMigrationDescriptorAndManagerPermissions(t *testing.T) {
-	if migration := honeypot.Migration(); migration.Version != 300 || migration.Name != "honeypot_triggers" {
-		t.Fatalf("migration=%+v", migration)
-	}
+func TestManagerPermissions(t *testing.T) {
 	fixture := setup(t)
 	if _, _, err := fixture.service.Settings(context.Background(), honeypot.Actor{GuildID: "guild-a"}); !errors.Is(err, honeypot.ErrPermissionDenied) {
 		t.Fatalf("read permission error=%v", err)

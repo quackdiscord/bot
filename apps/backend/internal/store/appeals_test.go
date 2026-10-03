@@ -1,4 +1,4 @@
-package store
+package store_test
 
 import (
 	"context"
@@ -10,41 +10,265 @@ import (
 	"time"
 
 	"github.com/quackdiscord/bot/internal/quack"
-	"gorm.io/gorm"
+	"github.com/quackdiscord/bot/internal/store"
 )
 
-func newAppealTestStore(t *testing.T) (*Store, *quack.Guild) {
-	t.Helper()
-	db := openSQLiteMigrationDB(t)
-	sqlDB, err := db.DB()
+func TestAppealLifecycleAndAtomicAcceptance(t *testing.T) {
+	ctx := context.Background()
+	s, guildID := newTestStore(t)
+	guild, err := s.GetGuildByID(ctx, guildID)
 	if err != nil {
-		t.Fatalf("open appeal test connection: %v", err)
+		t.Fatal(err)
 	}
-	// SQLite ignores SELECT FOR UPDATE. Keep one connection so concurrent
-	// transition tests model MySQL's row-lock serialization instead of failing
-	// both transactions with shared-cache table-lock errors.
-	sqlDB.SetMaxOpenConns(1)
-	migrations := registeredMigrations()
-	if err := runMigrations(db, migrations); err != nil {
-		t.Fatalf("migrate appeals schema: %v", err)
+	c := createAppealableCase(t, s, guildID, true,
+		quack.CaseActionExecution{Position: 0, ActionType: quack.ActionBanUser, Status: quack.ActionExecutionSucceeded, ConfigSnapshotJSON: "{}"},
+		quack.CaseActionExecution{Position: 1, ActionType: quack.ActionTimeoutUser, Status: quack.ActionExecutionPending, ConfigSnapshotJSON: "{}", SafeForRetry: true},
+	)
+	service := quack.NewAppealService(s)
+
+	settings, err := service.GetSettings(ctx, guildID)
+	if err != nil || !settings.Default || len(settings.Questions) == 0 {
+		t.Fatalf("default settings: %+v err=%v", settings, err)
 	}
-	repository := New(db, nil)
-	guild, err := repository.UpsertGuild(context.Background(), quack.UpsertGuildParams{DiscordGuildID: "appeal-guild", Name: "Appeal Guild", OwnerDiscordUserID: "owner"})
+	manager := &quack.GuildStaffContext{Guild: guild, Staff: &quack.StaffMember{GuildID: guildID, DiscordUserID: "manager"},
+		Permissions: map[quack.PermissionAction]bool{quack.PermissionActionGuildSettingsWrite: true}}
+	questions := []quack.AppealQuestion{
+		{ID: "explanation", Prompt: "Explain your appeal", Type: quack.AppealQuestionLongText, Required: true, Position: 0},
+		{ID: "contact", Prompt: "May staff contact you?", Type: quack.AppealQuestionBoolean, Position: 1},
+	}
+	if configured, err := service.UpdateSettings(ctx, manager, questions); err != nil || configured.Default || len(configured.Questions) != 2 {
+		t.Fatalf("configure appeal form: %+v err=%v", configured, err)
+	}
+	answers := []quack.AppealAnswer{{QuestionID: "explanation", Value: "The decision should be reconsidered."}, {QuestionID: "contact", Value: true}}
+	appeal, err := service.Submit(ctx, c.ID, "target", quack.AppealSubmissionInput{Answers: answers})
 	if err != nil {
-		t.Fatalf("create guild: %v", err)
+		t.Fatalf("submit appeal: %v", err)
 	}
-	return repository, guild
+	if appeal.Status != quack.AppealStatusPending || len(appeal.Questions) != 2 || len(appeal.Events) != 1 {
+		t.Fatalf("unexpected submitted appeal: %+v", appeal)
+	}
+	replacement := []quack.AppealQuestion{{ID: "replacement", Prompt: "Replacement", Type: quack.AppealQuestionShortText, Required: true}}
+	if _, err := service.UpdateSettings(ctx, manager, replacement); err != nil {
+		t.Fatalf("replace appeal form: %v", err)
+	}
+	if got, err := service.GetMember(ctx, appeal.ID, "target"); err != nil || len(got.Questions) != 2 || got.Questions[0].ID != "explanation" {
+		t.Fatalf("appeal kept no snapshot of its form: %+v err=%v", got, err)
+	}
+	if _, err := service.Submit(ctx, c.ID, "target", quack.AppealSubmissionInput{Answers: answers}); !errors.Is(err, quack.ErrAppealConflict) {
+		t.Fatalf("second appeal for one case = %v, want ErrAppealConflict", err)
+	}
+	if _, err := service.GetMember(ctx, appeal.ID, "other"); !errors.Is(err, quack.ErrAppealNotFound) {
+		t.Fatalf("another member read the appeal: %v", err)
+	}
+
+	moderator := &quack.GuildStaffContext{Guild: guild, Staff: &quack.StaffMember{GuildID: guildID, DiscordUserID: "moderator"},
+		ActorDiscordUserID: "moderator", Permissions: map[quack.PermissionAction]bool{quack.PermissionActionAppealReview: true}}
+	if requested, err := service.RequestInformation(ctx, moderator, appeal.ID, "Please clarify."); err != nil || requested.Status != quack.AppealStatusNeedsInformation {
+		t.Fatalf("request information: %+v err=%v", requested, err)
+	}
+	memberView, err := service.GetMember(ctx, appeal.ID, "target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range memberView.Events {
+		if event.ActorType == "staff" && event.ActorDiscordUserID != "" {
+			t.Fatalf("member timeline leaked staff identity: %+v", event)
+		}
+	}
+	if _, err := service.SubmitInformation(ctx, appeal.ID, "target", quack.AppealInformationInput{Body: "More context."}); err != nil {
+		t.Fatalf("submit information: %v", err)
+	}
+	accepted, err := service.Accept(ctx, moderator, appeal.ID, "The added context changes the decision.")
+	if err != nil || accepted.Status != quack.AppealStatusAccepted || len(accepted.ReversalOffers) != 1 ||
+		accepted.ReversalOffers[0].ActionType != quack.ActionUnbanUser {
+		t.Fatalf("accept appeal: %+v err=%v", accepted, err)
+	}
+
+	// Acceptance voids the case and cancels unstarted work, but queues no
+	// reversal on its own.
+	executions, err := s.ListCaseActionExecutions(ctx, c.ID)
+	if err != nil || len(executions) != 2 || executions[1].Status != quack.ActionExecutionCancelled || executions[1].LastErrorCode != "case_voided" {
+		t.Fatalf("executions after acceptance: %+v err=%v", executions, err)
+	}
+	if n, err := s.GetCaseNotification(ctx, c.ID); err != nil || n.Status != quack.NotificationFailed || n.LastErrorCode != "case_voided" {
+		t.Fatalf("notification after acceptance: %+v err=%v", n, err)
+	}
+	if persisted, err := s.GetCaseByID(ctx, c.ID); err != nil || persisted.Validity != quack.CaseValidityVoided {
+		t.Fatalf("case after acceptance: %+v err=%v", persisted, err)
+	}
+	appealID := appeal.ID
+	queued, err := s.QueueCaseReversal(ctx, quack.QueueCaseReversalParams{GuildID: guildID, CaseID: c.ID, ActorDiscordUserID: "moderator",
+		OriginalExecutionID: executions[0].ID, ActionType: quack.ActionUnbanUser, AppealID: &appealID})
+	if err != nil || queued == nil || queued.ReversalAppealID == nil || *queued.ReversalAppealID != appeal.ID || queued.SafeForRetry {
+		t.Fatalf("reversal: %+v err=%v", queued, err)
+	}
+	if _, err := service.Reject(ctx, moderator, appeal.ID, "late competing decision"); !errors.Is(err, quack.ErrAppealConflict) {
+		t.Fatalf("decided appeal took a second decision: %v", err)
+	}
+
+	cases := quack.NewCaseService(s, nil, nil, nil)
+	detail, err := cases.GetMemberCase(ctx, c.ID, "target")
+	if err != nil || detail.Validity != quack.CaseValidityVoided || detail.AppealStatus != quack.AppealStatusAccepted || detail.Appealable {
+		t.Fatalf("member case after acceptance: %+v err=%v", detail, err)
+	}
+	encoded, _ := json.Marshal(detail)
+	for _, secret := range []string{"moderator", "worker", "last_error"} {
+		if strings.Contains(string(encoded), secret) {
+			t.Fatalf("member case exposes %q: %s", secret, encoded)
+		}
+	}
+
+	// Two dispatchers racing still deliver each notification once.
+	client := &appealNotifier{}
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	for i := range errs {
+		wg.Go(func() { errs[i] = quack.NewAppealNotificationDispatcher(s, client).DispatchPending(ctx, 10) })
+	}
+	wg.Wait()
+	if err := errors.Join(errs...); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	var total, open int64
+	db := s.DB().Table("appeal_notifications")
+	if err := db.Count(&total).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DB().Table("appeal_notifications").Where("status IN ?", []quack.AppealNotificationStatus{
+		quack.AppealNotificationPending, quack.AppealNotificationClaimed}).Count(&open).Error; err != nil {
+		t.Fatal(err)
+	}
+	member, staff := client.counts()
+	if open != 0 || member == 0 || staff == 0 || int64(member+staff) != total {
+		t.Fatalf("delivered member=%d staff=%d of %d, %d still open", member, staff, total, open)
+	}
 }
 
-func createAppealableCase(t *testing.T, repository *Store, guildID, target string, appealable bool) *quack.Case {
-	t.Helper()
-	snapshot := `{"template":{"appealable":true}}`
-	if !appealable {
-		snapshot = `{"template":{"appealable":false}}`
+func TestAppealRejectsIneligibleCasesAndConcurrentDecisions(t *testing.T) {
+	ctx := context.Background()
+	s, guildID := newTestStore(t)
+	guild, _ := s.GetGuildByID(ctx, guildID)
+	service := quack.NewAppealService(s)
+	closed := createAppealableCase(t, s, guildID, false)
+	if _, err := service.Submit(ctx, closed.ID, "target", quack.AppealSubmissionInput{}); !errors.Is(err, quack.ErrAppealCaseIneligible) {
+		t.Fatalf("non-appealable case = %v, want ErrAppealCaseIneligible", err)
 	}
-	created, err := repository.CreateCase(context.Background(), quack.CreateCaseParams{
-		Case:  quack.Case{GuildID: guildID, TemplateVersion: 1, TemplateSnapshotJSON: snapshot, TargetDiscordUserID: target, ModeratorDiscordUserID: "moderator", Reason: "Official reason", Validity: quack.CaseValidityValid, Source: quack.CaseSourceDashboard, MetadataJSON: "{}", ContextValuesJSON: "[]"},
-		Event: quack.CaseEvent{EventType: quack.CaseEventCreated, ActorDiscordUserID: "moderator", ActorType: "staff", Visibility: quack.EventVisibilityPublic, Body: "Case created", MetadataJSON: "{}"},
+	open := createAppealableCase(t, s, guildID, true)
+	appeal, err := service.Submit(ctx, open.ID, "target", reasonAnswer())
+	if err != nil {
+		t.Fatal(err)
+	}
+	moderator := reviewer(guild)
+	var wg sync.WaitGroup
+	results := make([]error, 2)
+	wg.Go(func() { _, results[0] = service.Accept(ctx, moderator, appeal.ID, "accepted concurrently") })
+	wg.Go(func() { _, results[1] = service.Reject(ctx, moderator, appeal.ID, "rejected concurrently") })
+	wg.Wait()
+	if (results[0] == nil) == (results[1] == nil) {
+		t.Fatalf("want exactly one decision to win, got %v and %v", results[0], results[1])
+	}
+}
+
+func TestAppealAcceptanceRacingDirectVoid(t *testing.T) {
+	ctx := context.Background()
+	s, guildID := newTestStore(t)
+	guild, _ := s.GetGuildByID(ctx, guildID)
+	service := quack.NewAppealService(s)
+	c := createAppealableCase(t, s, guildID, true)
+	appeal, err := service.Submit(ctx, c.ID, "target", reasonAnswer())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	wg.Go(func() { _, _ = service.Accept(ctx, reviewer(guild), appeal.ID, "Accepted.") })
+	wg.Go(func() {
+		_, _ = s.VoidCase(ctx, quack.VoidCaseParams{GuildID: guildID, CaseID: c.ID, ActorDiscordUserID: "other", Reason: "Direct correction"})
+	})
+	wg.Wait()
+	gotAppeal, _ := s.GetAppealByID(ctx, appeal.ID)
+	gotCase, _ := s.GetCaseByID(ctx, c.ID)
+	if gotAppeal.Status == quack.AppealStatusAccepted && gotCase.Validity != quack.CaseValidityVoided {
+		t.Fatalf("accepted appeal left its case valid: appeal=%+v case=%+v", gotAppeal, gotCase)
+	}
+}
+
+func TestAppealRejectReopenClose(t *testing.T) {
+	ctx := context.Background()
+	s, guildID := newTestStore(t)
+	guild, _ := s.GetGuildByID(ctx, guildID)
+	service := quack.NewAppealService(s)
+	c := createAppealableCase(t, s, guildID, true)
+	appeal, err := service.Submit(ctx, c.ID, "target", reasonAnswer())
+	if err != nil {
+		t.Fatal(err)
+	}
+	moderator := reviewer(guild)
+	if got, err := service.Reject(ctx, moderator, appeal.ID, "Insufficient context."); err != nil || got.Status != quack.AppealStatusRejected {
+		t.Fatalf("reject: %+v err=%v", got, err)
+	}
+	if got, err := service.Reopen(ctx, moderator, appeal.ID, "One more question."); err != nil || got.Status != quack.AppealStatusNeedsInformation {
+		t.Fatalf("reopen: %+v err=%v", got, err)
+	}
+	if _, err := service.SubmitInformation(ctx, appeal.ID, "target", quack.AppealInformationInput{Body: "Answer."}); err != nil {
+		t.Fatalf("submit information: %v", err)
+	}
+	closedAppeal, err := service.Close(ctx, moderator, appeal.ID, "Review complete.")
+	if err != nil || closedAppeal.Status != quack.AppealStatusClosed || len(closedAppeal.Events) != 5 {
+		t.Fatalf("close: %+v err=%v", closedAppeal, err)
+	}
+	if got, err := s.GetCaseByID(ctx, c.ID); err != nil || got.Validity != quack.CaseValidityValid {
+		t.Fatalf("non-accepting decisions changed the case: %+v err=%v", got, err)
+	}
+	if got, err := s.ListAppeals(ctx, quack.AppealListParams{GuildID: guildID, Status: quack.AppealStatusClosed}); err != nil || got.Total != 1 {
+		t.Fatalf("ListAppeals(closed) = %+v, %v", got, err)
+	}
+}
+
+func TestAppealNotificationLeaseFencing(t *testing.T) {
+	ctx := context.Background()
+	s, guildID := newTestStore(t)
+	c := createAppealableCase(t, s, guildID, true)
+	if _, err := quack.NewAppealService(s).Submit(ctx, c.ID, "target", reasonAnswer()); err != nil {
+		t.Fatal(err)
+	}
+	first, err := s.ClaimPendingAppealNotifications(ctx, 1)
+	if err != nil || len(first) != 1 || first[0].Status != quack.AppealNotificationClaimed || first[0].LeaseToken == "" {
+		t.Fatalf("first claim: %+v err=%v", first, err)
+	}
+	if again, err := s.ClaimPendingAppealNotifications(ctx, 1); err != nil || len(again) != 0 {
+		t.Fatalf("claimed a leased notification: %+v err=%v", again, err)
+	}
+	expire(t, s, "appeal_notifications", first[0].ID)
+	second, err := s.ClaimPendingAppealNotifications(ctx, 1)
+	if err != nil || len(second) != 1 || second[0].ID != first[0].ID || second[0].LeaseToken == first[0].LeaseToken {
+		t.Fatalf("reclaim: %+v err=%v", second, err)
+	}
+	stale := quack.CompleteAppealNotificationParams{NotificationID: first[0].ID, LeaseToken: first[0].LeaseToken, Status: quack.AppealNotificationSent}
+	if err := s.CompleteAppealNotification(ctx, stale); !errors.Is(err, quack.ErrAppealStateConflict) {
+		t.Fatalf("stale completion = %v, want ErrAppealStateConflict", err)
+	}
+	current := quack.CompleteAppealNotificationParams{NotificationID: second[0].ID, LeaseToken: second[0].LeaseToken, Status: quack.AppealNotificationSent}
+	if err := s.CompleteAppealNotification(ctx, current); err != nil {
+		t.Fatalf("current completion: %v", err)
+	}
+}
+
+// createAppealableCase creates a case for member "target" whose template
+// snapshot allows or forbids appeals, with a pending notification.
+func createAppealableCase(t *testing.T, s *store.Store, guildID string, appealable bool, executions ...quack.CaseActionExecution) *quack.Case {
+	t.Helper()
+	c := newCase(guildID, nil)
+	c.TargetDiscordUserID = "target"
+	c.ModeratorDiscordUserID = "moderator"
+	c.TemplateSnapshotJSON = `{"template":{"appealable":false}}`
+	if appealable {
+		c.TemplateSnapshotJSON = `{"template":{"appealable":true}}`
+	}
+	created, err := s.CreateCase(context.Background(), quack.CreateCaseParams{
+		Case:             c,
+		Event:            newCaseEvent(),
+		ActionExecutions: executions,
+		Notification:     pendingNotification(),
 	})
 	if err != nil {
 		t.Fatalf("create case: %v", err)
@@ -52,400 +276,73 @@ func createAppealableCase(t *testing.T, repository *Store, guildID, target strin
 	return &created.Case
 }
 
-func TestLogical0200MigrationCreatesAppealContracts(t *testing.T) {
-	repository, _ := newAppealTestStore(t)
-	for _, table := range []any{&appealV5Record{}, &appealEventV5Record{}, &GuildAppealSettingsRecord{}, &AppealNotificationRecord{}} {
-		if !repository.db.Migrator().HasTable(table) {
-			t.Fatalf("missing appeal table for %T", table)
-		}
+// createAppeal saves an appeal directly, bypassing the service's checks.
+func createAppeal(t *testing.T, s *store.Store, guildID, caseID string) *quack.Appeal {
+	t.Helper()
+	c, err := s.GetCaseByID(context.Background(), caseID)
+	if err != nil || c == nil {
+		t.Fatalf("get appealed case: %+v, %v", c, err)
 	}
-	if !repository.db.Migrator().HasIndex(&appealV5Record{}, "CaseID") {
-		t.Fatal("missing one-appeal-per-case unique index")
+	appeal, err := s.CreateAppeal(context.Background(), quack.CreateAppealParams{
+		Appeal: quack.Appeal{
+			GuildID: guildID, CaseID: &caseID, TargetDiscordUserID: c.TargetDiscordUserID, Status: quack.AppealStatusPending,
+			Content: "Please reconsider", QuestionSnapshotJSON: "[]", AnswersJSON: "[]", Version: 1, MetadataJSON: "{}",
+		},
+		Event:     quack.AppealEvent{EventType: "submitted", ActorType: "member", Body: "Submitted"},
+		CaseEvent: quack.CaseEvent{EventType: quack.CaseEventAppealCreated, Visibility: quack.EventVisibilityPublic, Body: "Appeal submitted"},
+		Audit: quack.AuditLogEntry{GuildID: guildID, Source: quack.AuditSourceAPI, Action: "appeal.create",
+			ResourceType: "appeal", Result: quack.AuditResultSuccess},
+		Notification: quack.AppealNotification{TargetDiscordUserID: "target-1", Audience: quack.AppealNotificationStaff,
+			Status: quack.AppealNotificationPending, Body: "New appeal"},
+	})
+	if err != nil {
+		t.Fatalf("create appeal: %v", err)
+	}
+	return appeal
+}
+
+func reasonAnswer() quack.AppealSubmissionInput {
+	return quack.AppealSubmissionInput{Answers: []quack.AppealAnswer{{QuestionID: "reason", Value: "Please reconsider."}}}
+}
+
+func reviewer(guild *quack.Guild) *quack.GuildStaffContext {
+	return &quack.GuildStaffContext{
+		Guild:       guild,
+		Staff:       &quack.StaffMember{GuildID: guild.ID, DiscordUserID: "moderator"},
+		Permissions: map[quack.PermissionAction]bool{quack.PermissionActionAppealReview: true},
 	}
 }
 
-func TestLogical0200MigrationPreservesPlaceholderAppealsSafely(t *testing.T) {
-	db := openSQLiteMigrationDB(t)
-	if err := runMigrations(db, registeredMigrations()[:8]); err != nil {
-		t.Fatalf("migrate baseline: %v", err)
-	}
-	repository := New(db, nil)
-	guild, err := repository.UpsertGuild(context.Background(), quack.UpsertGuildParams{DiscordGuildID: "legacy-appeal", Name: "Legacy Appeal", OwnerDiscordUserID: "owner"})
-	if err != nil {
-		t.Fatalf("create guild: %v", err)
-	}
-	item := createAppealableCase(t, repository, guild.ID, "target", true)
-	now := time.Now().UTC()
-	legacy := migration0200LegacyAppeal{ID: "01KXLEGACYAPPEAL0000000001", GuildID: guild.ID, CaseID: &item.ID, TargetDiscordUserID: "target", Status: string(quack.AppealStatusPending), Content: "legacy content", MetadataJSON: "{}", CreatedAt: now, UpdatedAt: now}
-	if err := insertLegacyAppeal(db, &legacy); err != nil {
-		t.Fatalf("insert legacy appeal: %v", err)
-	}
-	legacyEvent := AppealEventRecord{ULIDModelRecord: ULIDModelRecord{ID: "01KXLEGACYAPPEALEVENT0001", CreatedAt: now, UpdatedAt: now}, AppealID: legacy.ID, GuildID: guild.ID, EventType: "reviewed", ActorDiscordUserID: "legacy-moderator", Body: "legacy review", MetadataJSON: "{}"}
-	if err := db.Create(&legacyEvent).Error; err != nil {
-		t.Fatalf("insert legacy event: %v", err)
-	}
-	migrations := registeredMigrations()
-	if err := runMigrations(db, migrations); err != nil {
-		t.Fatalf("upgrade legacy appeal: %v", err)
-	}
-	var upgraded appealV5Record
-	if err := db.First(&upgraded, "id = ?", legacy.ID).Error; err != nil {
-		t.Fatalf("read upgraded appeal: %v", err)
-	}
-	if upgraded.Content != legacy.Content || !strings.Contains(upgraded.QuestionSnapshotJSON, "legacy_content") || !strings.Contains(upgraded.AnswersJSON, legacy.Content) || upgraded.Version != 1 {
-		t.Fatalf("legacy appeal was not preserved and backfilled: %+v", upgraded)
-	}
-	legacyResponse, err := quack.NewAppealService(repository).GetMember(context.Background(), legacy.ID, "target")
-	if err != nil || len(legacyResponse.Questions) != 1 || len(legacyResponse.Answers) != 1 {
-		t.Fatalf("upgraded legacy appeal is not readable: %+v err=%v", legacyResponse, err)
-	}
-	var upgradedEvent appealEventV5Record
-	if err := db.First(&upgradedEvent, "id = ?", legacyEvent.ID).Error; err != nil || upgradedEvent.ActorType != "staff" {
-		t.Fatalf("legacy staff identity was not safely classified: %+v err=%v", upgradedEvent, err)
+// expire moves a row's lease into the past.
+func expire(t *testing.T, s *store.Store, table, id string) {
+	t.Helper()
+	if err := s.DB().Table(table).Where("id = ?", id).Update("lease_expires_at", time.Now().UTC().Add(-time.Minute)).Error; err != nil {
+		t.Fatalf("expire %s lease: %v", table, err)
 	}
 }
 
-func TestMySQLLogical0200AppealMigrationAndAcceptance(t *testing.T) {
-	db := openMySQLMigrationDB(t)
-	if err := runMigrations(db, registeredMigrations()[:8]); err != nil {
-		t.Fatalf("migrate MySQL baseline: %v", err)
-	}
-	repository := New(db, nil)
-	guild, err := repository.UpsertGuild(context.Background(), quack.UpsertGuildParams{DiscordGuildID: "mysql-appeal", Name: "MySQL Appeal", OwnerDiscordUserID: "owner"})
-	if err != nil {
-		t.Fatalf("create MySQL guild: %v", err)
-	}
-	legacyCase := createAppealableCase(t, repository, guild.ID, "legacy-target", true)
-	now := time.Now().UTC()
-	legacy := migration0200LegacyAppeal{ID: "01KXMYSQLLEGACYAPPEAL00001", GuildID: guild.ID, CaseID: &legacyCase.ID, TargetDiscordUserID: "legacy-target", Status: string(quack.AppealStatusPending), Content: "preserved MySQL content", MetadataJSON: "{}", CreatedAt: now, UpdatedAt: now}
-	if err := insertLegacyAppeal(db, &legacy); err != nil {
-		t.Fatalf("insert MySQL legacy appeal: %v", err)
-	}
-	migrations := registeredMigrations()
-	if err := runMigrations(db, migrations); err != nil {
-		t.Fatalf("migrate MySQL appeal schema: %v", err)
-	}
-	var upgraded appealV5Record
-	if err := db.First(&upgraded, "id = ?", legacy.ID).Error; err != nil || upgraded.Content != legacy.Content || upgraded.Version != 1 {
-		t.Fatalf("MySQL legacy appeal was not preserved: %+v err=%v", upgraded, err)
-	}
-	item := createAppealableCase(t, repository, guild.ID, "target", true)
-	service := quack.NewAppealService(repository)
-	appeal, err := service.Submit(context.Background(), item.ID, "target", quack.AppealSubmissionInput{Answers: []quack.AppealAnswer{{QuestionID: "reason", Value: "Please reconsider."}}})
-	if err != nil {
-		t.Fatalf("submit MySQL appeal: %v", err)
-	}
-	moderator := &quack.GuildStaffContext{Guild: guild, Staff: &quack.StaffMember{GuildID: guild.ID, DiscordUserID: "moderator"}, Permissions: map[quack.PermissionAction]bool{quack.PermissionActionAppealReview: true}}
-	if _, err := service.Accept(context.Background(), moderator, appeal.ID, "Accepted after review."); err != nil {
-		t.Fatalf("accept MySQL appeal: %v", err)
-	}
-	persisted, err := repository.GetCaseByID(context.Background(), item.ID)
-	if err != nil || persisted.Validity != quack.CaseValidityVoided {
-		t.Fatalf("MySQL acceptance did not atomically void case: %+v err=%v", persisted, err)
-	}
+// appealNotifier counts deliveries by audience.
+type appealNotifier struct {
+	mu            sync.Mutex
+	member, staff int
 }
 
-func TestAppealServiceOwnershipSnapshotTimelineAndAtomicAcceptance(t *testing.T) {
-	ctx := context.Background()
-	repository, guild := newAppealTestStore(t)
-	caseModel := createAppealableCase(t, repository, guild.ID, "target", true)
-	now := time.Now().UTC()
-	originalAction := quack.CaseActionExecution{ULIDModel: quack.ULIDModel{ID: "01KXAPPEALACTION0000000001", CreatedAt: now, UpdatedAt: now}, CaseID: caseModel.ID, Position: 0, ActionType: quack.ActionBanUser, Status: quack.ActionExecutionSucceeded, IdempotencyKey: "appeal-original-ban", ConfigSnapshotJSON: "{}", SafeForRetry: false}
-	if err := repository.db.Create(&originalAction).Error; err != nil {
-		t.Fatalf("create original enforcement: %v", err)
-	}
-	queuedAction := quack.CaseActionExecution{ULIDModel: quack.ULIDModel{ID: "01KXAPPEALACTION0000000002", CreatedAt: now, UpdatedAt: now}, CaseID: caseModel.ID, Position: 1, ActionType: quack.ActionTimeoutUser, Status: quack.ActionExecutionPending, IdempotencyKey: "appeal-pending-timeout", ConfigSnapshotJSON: "{}", SafeForRetry: true}
-	if err := repository.db.Create(&queuedAction).Error; err != nil {
-		t.Fatalf("create queued enforcement: %v", err)
-	}
-	queuedCaseNotification := quack.CaseNotification{ULIDModel: quack.ULIDModel{ID: "01KXAPPEALNOTICE00000000001", CreatedAt: now, UpdatedAt: now}, CaseID: caseModel.ID, Status: quack.NotificationPending}
-	if err := repository.db.Create(&queuedCaseNotification).Error; err != nil {
-		t.Fatalf("create queued case notification: %v", err)
-	}
-	service := quack.NewAppealService(repository)
-
-	settings, err := service.GetSettings(ctx, guild.ID)
-	if err != nil || !settings.Default || len(settings.Questions) == 0 {
-		t.Fatalf("default settings: %+v err=%v", settings, err)
-	}
-	manager := &quack.GuildStaffContext{Guild: guild, Staff: &quack.StaffMember{GuildID: guild.ID, DiscordUserID: "manager"}, Permissions: map[quack.PermissionAction]bool{quack.PermissionActionGuildSettingsWrite: true}}
-	configuredQuestions := []quack.AppealQuestion{{ID: "explanation", Prompt: "Explain your appeal", Type: quack.AppealQuestionLongText, Required: true, Position: 0}, {ID: "contact", Prompt: "May staff contact you?", Type: quack.AppealQuestionBoolean, Position: 1}}
-	configured, err := service.UpdateSettings(ctx, manager, configuredQuestions)
-	if err != nil || configured.Default || len(configured.Questions) != 2 {
-		t.Fatalf("configure appeal form: %+v err=%v", configured, err)
-	}
-	answers := []quack.AppealAnswer{{QuestionID: "explanation", Value: "The decision should be reconsidered."}, {QuestionID: "contact", Value: true}}
-	appeal, err := service.Submit(ctx, caseModel.ID, "target", quack.AppealSubmissionInput{Answers: answers})
-	if err != nil {
-		t.Fatalf("submit appeal: %v", err)
-	}
-	if appeal.Status != quack.AppealStatusPending || len(appeal.Questions) != len(configuredQuestions) || len(appeal.Events) != 1 {
-		t.Fatalf("unexpected submitted appeal: %+v", appeal)
-	}
-	if _, err := service.UpdateSettings(ctx, manager, []quack.AppealQuestion{{ID: "replacement", Prompt: "Replacement future question", Type: quack.AppealQuestionShortText, Required: true, Position: 0}}); err != nil {
-		t.Fatalf("replace future appeal form: %v", err)
-	}
-	snapshotted, err := service.GetMember(ctx, appeal.ID, "target")
-	if err != nil || len(snapshotted.Questions) != 2 || snapshotted.Questions[0].ID != "explanation" {
-		t.Fatalf("appeal form was not snapshotted: %+v err=%v", snapshotted, err)
-	}
-	if _, err := service.Submit(ctx, caseModel.ID, "target", quack.AppealSubmissionInput{Answers: answers}); !errors.Is(err, quack.ErrAppealConflict) {
-		t.Fatalf("expected one appeal per case, got %v", err)
-	}
-	if _, err := service.GetMember(ctx, appeal.ID, "other"); !errors.Is(err, quack.ErrAppealNotFound) {
-		t.Fatalf("unrelated member read should be hidden, got %v", err)
-	}
-
-	moderator := &quack.GuildStaffContext{Guild: guild, Staff: &quack.StaffMember{GuildID: guild.ID, DiscordUserID: "moderator"}, ActorDiscordUserID: "moderator", Permissions: map[quack.PermissionAction]bool{quack.PermissionActionAppealReview: true}}
-	requested, err := service.RequestInformation(ctx, moderator, appeal.ID, "Please clarify the timeline.")
-	if err != nil || requested.Status != quack.AppealStatusNeedsInformation {
-		t.Fatalf("request information: %+v err=%v", requested, err)
-	}
-	memberView, err := service.GetMember(ctx, appeal.ID, "target")
-	if err != nil {
-		t.Fatalf("member read: %v", err)
-	}
-	for _, event := range memberView.Events {
-		if event.ActorType == "staff" && event.ActorDiscordUserID != "" {
-			t.Fatalf("member timeline leaked staff identity: %+v", event)
-		}
-	}
-	if _, err := service.SubmitInformation(ctx, appeal.ID, "target", quack.AppealInformationInput{Body: "Additional timeline context."}); err != nil {
-		t.Fatalf("submit information: %v", err)
-	}
-	accepted, err := service.Accept(ctx, moderator, appeal.ID, "The added context changes the decision.")
-	if err != nil || accepted.Status != quack.AppealStatusAccepted || len(accepted.ReversalOffers) != 1 || accepted.ReversalOffers[0].ActionType != quack.ActionUnbanUser {
-		t.Fatalf("accept appeal: %+v err=%v", accepted, err)
-	}
-	actionsBeforeReversal, err := repository.ListCaseActionExecutions(ctx, caseModel.ID)
-	if err != nil || len(actionsBeforeReversal) != 2 || actionsBeforeReversal[1].Status != quack.ActionExecutionCancelled || actionsBeforeReversal[1].LastErrorCode != "case_voided" {
-		t.Fatalf("acceptance silently queued a reversal: actions=%+v err=%v", actionsBeforeReversal, err)
-	}
-	var cancelledNotification quack.CaseNotification
-	if err := repository.db.First(&cancelledNotification, "id = ?", queuedCaseNotification.ID).Error; err != nil || cancelledNotification.Status != quack.NotificationFailed || cancelledNotification.LastErrorCode != "case_voided" {
-		t.Fatalf("appeal acceptance did not cancel queued case notification: %+v err=%v", cancelledNotification, err)
-	}
-	appealID := appeal.ID
-	queued, err := repository.QueueCaseReversal(ctx, quack.QueueCaseReversalParams{GuildID: guild.ID, CaseID: caseModel.ID, ActorDiscordUserID: "moderator", OriginalExecutionID: originalAction.ID, ActionType: quack.ActionUnbanUser, AppealID: &appealID})
-	if err != nil || queued == nil || queued.ReversalAppealID == nil || *queued.ReversalAppealID != appeal.ID {
-		t.Fatalf("explicit accepted-appeal reversal was not linked: %+v err=%v", queued, err)
-	}
-	persistedCase, err := repository.GetCaseByID(ctx, caseModel.ID)
-	if err != nil || persistedCase.Validity != quack.CaseValidityVoided {
-		t.Fatalf("accepted appeal did not atomically void case: %+v err=%v", persistedCase, err)
-	}
-	if _, err := service.Reject(ctx, moderator, appeal.ID, "late competing decision"); !errors.Is(err, quack.ErrAppealConflict) {
-		t.Fatalf("accepted appeal allowed competing decision: %v", err)
-	}
-	caseService := quack.NewCaseService(repository, nil, nil, nil)
-	memberDetail, err := caseService.GetMemberCase(ctx, caseModel.ID, "target")
-	if err != nil || memberDetail.Validity != quack.CaseValidityVoided || memberDetail.AppealStatus != quack.AppealStatusAccepted || memberDetail.Appealable {
-		t.Fatalf("member case projection did not retain voided accepted appeal: %+v err=%v", memberDetail, err)
-	}
-	memberCases, err := caseService.ListMemberCases(ctx, guild.ID, "target", quack.CaseListInput{})
-	if err != nil || len(memberCases.Cases) != 1 || memberCases.Cases[0].Validity != quack.CaseValidityVoided {
-		t.Fatalf("member history omitted voided case: %+v err=%v", memberCases, err)
-	}
-	encodedMember, _ := json.Marshal(memberDetail)
-	if strings.Contains(string(encodedMember), "moderator") || strings.Contains(string(encodedMember), "worker") || strings.Contains(string(encodedMember), "last_error") {
-		t.Fatalf("member case projection exposed staff or internal fields: %s", encodedMember)
-	}
-	var notificationRecords []AppealNotificationRecord
-	err = repository.db.Where("status = ?", quack.AppealNotificationPending).Order("created_at ASC").Find(&notificationRecords).Error
-	notifications := make([]quack.AppealNotification, 0, len(notificationRecords))
-	for _, record := range notificationRecords {
-		notifications = append(notifications, appealNotificationModel(record))
-	}
-	if err != nil || len(notifications) < 2 {
-		t.Fatalf("expected staff and member notifications, got %+v err=%v", notifications, err)
-	}
-	for _, notification := range notifications {
-		if notification.Audience == quack.AppealNotificationMember && (notification.Body == "" || strings.Contains(notification.Body, "moderator")) {
-			t.Fatalf("member notification leaked staff identity: %+v", notification)
-		}
-	}
-	client := &appealNotificationClientStub{}
-	var dispatchErrors [2]error
-	var dispatchWait sync.WaitGroup
-	for index := range dispatchErrors {
-		dispatchWait.Add(1)
-		go func(index int) {
-			defer dispatchWait.Done()
-			dispatchErrors[index] = quack.NewAppealNotificationDispatcher(repository, client).DispatchPending(ctx, 10)
-		}(index)
-	}
-	dispatchWait.Wait()
-	for _, dispatchErr := range dispatchErrors {
-		if dispatchErr != nil {
-			t.Fatalf("dispatch appeal notifications: %v", dispatchErr)
-		}
-	}
-	var remaining int64
-	err = repository.db.Model(&AppealNotificationRecord{}).Where("status IN ?", []quack.AppealNotificationStatus{quack.AppealNotificationPending, quack.AppealNotificationClaimed}).Count(&remaining).Error
-	memberSends, staffSends := client.counts()
-	if err != nil || remaining != 0 || memberSends == 0 || staffSends == 0 || memberSends+staffSends != len(notifications) {
-		t.Fatalf("notification adapter did not deliver each item once: remaining=%d member=%d staff=%d expected=%d err=%v", remaining, memberSends, staffSends, len(notifications), err)
-	}
-}
-
-func TestAppealServiceRejectsIneligibleCasesAndConcurrentDecisions(t *testing.T) {
-	ctx := context.Background()
-	repository, guild := newAppealTestStore(t)
-	service := quack.NewAppealService(repository)
-	nonAppealable := createAppealableCase(t, repository, guild.ID, "target", false)
-	if _, err := service.Submit(ctx, nonAppealable.ID, "target", quack.AppealSubmissionInput{}); !errors.Is(err, quack.ErrAppealCaseIneligible) {
-		t.Fatalf("non-appealable case accepted: %v", err)
-	}
-	eligible := createAppealableCase(t, repository, guild.ID, "target", true)
-	appeal, err := service.Submit(ctx, eligible.ID, "target", quack.AppealSubmissionInput{Answers: []quack.AppealAnswer{{QuestionID: "reason", Value: "Please reconsider."}}})
-	if err != nil {
-		t.Fatalf("submit eligible appeal: %v", err)
-	}
-	moderator := &quack.GuildStaffContext{Guild: guild, Staff: &quack.StaffMember{GuildID: guild.ID, DiscordUserID: "moderator"}, Permissions: map[quack.PermissionAction]bool{quack.PermissionActionAppealReview: true}}
-	var successes int
-	var mutex sync.Mutex
-	var wait sync.WaitGroup
-	for _, accept := range []bool{true, false} {
-		accept := accept
-		wait.Add(1)
-		go func() {
-			defer wait.Done()
-			var transitionErr error
-			if accept {
-				_, transitionErr = service.Accept(ctx, moderator, appeal.ID, "accepted concurrently")
-			} else {
-				_, transitionErr = service.Reject(ctx, moderator, appeal.ID, "rejected concurrently")
-			}
-			if transitionErr == nil {
-				mutex.Lock()
-				successes++
-				mutex.Unlock()
-			}
-		}()
-	}
-	wait.Wait()
-	if successes != 1 {
-		t.Fatalf("expected exactly one concurrent decision, got %d", successes)
-	}
-}
-
-func TestAppealNotificationClaimRecoversExpiredLeaseAndRejectsStaleCompletion(t *testing.T) {
-	ctx := context.Background()
-	repository, guild := newAppealTestStore(t)
-	item := createAppealableCase(t, repository, guild.ID, "target", true)
-	service := quack.NewAppealService(repository)
-	if _, err := service.Submit(ctx, item.ID, "target", quack.AppealSubmissionInput{Answers: []quack.AppealAnswer{{QuestionID: "reason", Value: "Please reconsider."}}}); err != nil {
-		t.Fatalf("submit appeal: %v", err)
-	}
-	first, err := repository.ClaimPendingAppealNotifications(ctx, 1)
-	if err != nil || len(first) != 1 || first[0].Status != quack.AppealNotificationClaimed || first[0].LeaseToken == "" {
-		t.Fatalf("first claim: %+v err=%v", first, err)
-	}
-	expired := time.Now().UTC().Add(-time.Minute)
-	if err := repository.db.Model(&AppealNotificationRecord{}).Where("id = ?", first[0].ID).Update("lease_expires_at", expired).Error; err != nil {
-		t.Fatalf("expire first claim: %v", err)
-	}
-	second, err := repository.ClaimPendingAppealNotifications(ctx, 1)
-	if err != nil || len(second) != 1 || second[0].ID != first[0].ID || second[0].LeaseToken == first[0].LeaseToken {
-		t.Fatalf("reclaimed notification: first=%+v second=%+v err=%v", first, second, err)
-	}
-	if err := repository.CompleteAppealNotification(ctx, quack.CompleteAppealNotificationParams{NotificationID: first[0].ID, LeaseToken: first[0].LeaseToken, Status: quack.AppealNotificationSent}); !errors.Is(err, quack.ErrAppealStateConflict) {
-		t.Fatalf("stale lease completed reclaimed notification: %v", err)
-	}
-	if err := repository.CompleteAppealNotification(ctx, quack.CompleteAppealNotificationParams{NotificationID: second[0].ID, LeaseToken: second[0].LeaseToken, Status: quack.AppealNotificationSent}); err != nil {
-		t.Fatalf("current lease completion: %v", err)
-	}
-}
-
-func TestAppealRejectedReopenedAndClosedTimeline(t *testing.T) {
-	ctx := context.Background()
-	repository, guild := newAppealTestStore(t)
-	service := quack.NewAppealService(repository)
-	item := createAppealableCase(t, repository, guild.ID, "target", true)
-	appeal, err := service.Submit(ctx, item.ID, "target", quack.AppealSubmissionInput{Answers: []quack.AppealAnswer{{QuestionID: "reason", Value: "Please reconsider."}}})
-	if err != nil {
-		t.Fatalf("submit: %v", err)
-	}
-	moderator := &quack.GuildStaffContext{Guild: guild, Staff: &quack.StaffMember{GuildID: guild.ID, DiscordUserID: "moderator"}, Permissions: map[quack.PermissionAction]bool{quack.PermissionActionAppealReview: true}}
-	if rejected, err := service.Reject(ctx, moderator, appeal.ID, "Insufficient context."); err != nil || rejected.Status != quack.AppealStatusRejected {
-		t.Fatalf("reject: %+v err=%v", rejected, err)
-	}
-	if reopened, err := service.Reopen(ctx, moderator, appeal.ID, "One final clarification is needed."); err != nil || reopened.Status != quack.AppealStatusNeedsInformation {
-		t.Fatalf("reopen: %+v err=%v", reopened, err)
-	}
-	if _, err := service.SubmitInformation(ctx, appeal.ID, "target", quack.AppealInformationInput{Body: "Final clarification."}); err != nil {
-		t.Fatalf("submit reopened information: %v", err)
-	}
-	closed, err := service.Close(ctx, moderator, appeal.ID, "Review is complete.")
-	if err != nil || closed.Status != quack.AppealStatusClosed || len(closed.Events) != 5 {
-		t.Fatalf("close timeline: %+v err=%v", closed, err)
-	}
-	persisted, err := repository.GetCaseByID(ctx, item.ID)
-	if err != nil || persisted.Validity != quack.CaseValidityValid {
-		t.Fatalf("reject/reopen/close changed case validity: %+v err=%v", persisted, err)
-	}
-}
-
-func TestAppealAcceptanceAndDirectVoidCannotProduceAcceptedValidCase(t *testing.T) {
-	ctx := context.Background()
-	repository, guild := newAppealTestStore(t)
-	service := quack.NewAppealService(repository)
-	item := createAppealableCase(t, repository, guild.ID, "target", true)
-	appeal, err := service.Submit(ctx, item.ID, "target", quack.AppealSubmissionInput{Answers: []quack.AppealAnswer{{QuestionID: "reason", Value: "Please reconsider."}}})
-	if err != nil {
-		t.Fatalf("submit: %v", err)
-	}
-	moderator := &quack.GuildStaffContext{Guild: guild, Staff: &quack.StaffMember{GuildID: guild.ID, DiscordUserID: "moderator"}, Permissions: map[quack.PermissionAction]bool{quack.PermissionActionAppealReview: true}}
-	var wait sync.WaitGroup
-	wait.Add(2)
-	go func() {
-		defer wait.Done()
-		_, _ = service.Accept(ctx, moderator, appeal.ID, "Accepted concurrently.")
-	}()
-	go func() {
-		defer wait.Done()
-		_, _ = repository.VoidCase(ctx, quack.VoidCaseParams{GuildID: guild.ID, CaseID: item.ID, ActorDiscordUserID: "other-moderator", Reason: "Direct correction"})
-	}()
-	wait.Wait()
-	persistedAppeal, err := repository.GetAppealByID(ctx, appeal.ID)
-	if err != nil {
-		t.Fatalf("read appeal: %v", err)
-	}
-	persistedCase, err := repository.GetCaseByID(ctx, item.ID)
-	if err != nil {
-		t.Fatalf("read case: %v", err)
-	}
-	if persistedAppeal.Status == quack.AppealStatusAccepted && persistedCase.Validity != quack.CaseValidityVoided {
-		t.Fatalf("race produced accepted appeal with valid case: appeal=%+v case=%+v", persistedAppeal, persistedCase)
-	}
-}
-
-type appealNotificationClientStub struct {
-	mutex  sync.Mutex
-	member int
-	staff  int
-}
-
-func insertLegacyAppeal(db *gorm.DB, appeal *migration0200LegacyAppeal) error {
-	return db.Select("id", "guild_id", "case_id", "target_discord_user_id", "status", "content", "decision_reason", "reviewed_by_discord_user_id", "reviewed_at", "review_message_discord_id", "metadata_json", "created_at", "updated_at").Create(appeal).Error
-}
-
-func (c *appealNotificationClientStub) SendAppealMemberNotification(context.Context, string, string) (string, error) {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-	c.member++
+func (n *appealNotifier) SendAppealMemberNotification(context.Context, string, string) (string, error) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.member++
 	return "member-message", nil
 }
 
-func (c *appealNotificationClientStub) SendAppealStaffNotification(context.Context, string, string) (string, error) {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-	c.staff++
+func (n *appealNotifier) SendAppealStaffNotification(context.Context, string, string) (string, error) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.staff++
 	return "staff-message", nil
 }
 
-func (c *appealNotificationClientStub) counts() (int, int) {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-	return c.member, c.staff
+func (n *appealNotifier) counts() (int, int) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.member, n.staff
 }

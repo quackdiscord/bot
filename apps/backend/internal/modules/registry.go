@@ -168,13 +168,6 @@ func (s *SQLSettingsStore) PutModuleConfiguration(ctx context.Context, configura
 	return &configuration, nil
 }
 
-// Migration is an integration-safe optional-module schema contribution.
-type Migration struct {
-	Version uint64
-	Name    string
-	Apply   func(*gorm.DB) error
-}
-
 // AuditEvent is an immutable optional-module operation outcome destined for Quack's core audit sink.
 type AuditEvent struct {
 	GuildID, ActorDiscordUserID, Action, ResourceType, ResourceID, Result, FailureReason, MetadataJSON string
@@ -185,22 +178,8 @@ type Auditor interface {
 	RecordModuleAudit(context.Context, AuditEvent) error
 }
 
-// ImportRecord makes each legacy source identity idempotent within one guild and module.
-type ImportRecord struct {
-	ID        string    `gorm:"type:char(26);primaryKey"`
-	GuildID   string    `gorm:"type:char(26);not null;uniqueIndex:idx_module_import,priority:1"`
-	ModuleID  ID        `gorm:"size:64;not null;uniqueIndex:idx_module_import,priority:2"`
-	SourceID  string    `gorm:"size:191;not null;uniqueIndex:idx_module_import,priority:3"`
-	TargetID  string    `gorm:"size:191;not null"`
-	CreatedAt time.Time `gorm:"not null"`
-}
-
-// TableName provides one cross-module ledger without mixing imported data into core history.
-func (ImportRecord) TableName() string { return "module_import_records" }
-
-// RegistryMigration exposes the shared configuration schema in the reserved module range.
-func RegistryMigration() Migration {
-	return Migration{Version: 100, Name: "optional_module_registry", Apply: func(db *gorm.DB) error {
-		return db.AutoMigrate(&Configuration{}, &ImportRecord{})
-	}}
+// Models returns the registry's table records. The store migrates them with
+// the rest of the schema, so this package never runs DDL itself.
+func Models() []any {
+	return []any{&Configuration{}}
 }

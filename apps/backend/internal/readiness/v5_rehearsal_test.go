@@ -89,8 +89,8 @@ type offlineDiscord struct{}
 
 func (offlineDiscord) Status() (bool, string, int64) { return false, "", 0 }
 
-// assertContiguousMigrationLedger verifies that clean installation records an
-// ordered prefix with no duplicate or skipped physical migration versions.
+// assertContiguousMigrationLedger verifies that a clean install records the
+// baseline as its only migration.
 func assertContiguousMigrationLedger(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	var ledger []struct {
@@ -100,19 +100,8 @@ func assertContiguousMigrationLedger(t *testing.T, db *gorm.DB) {
 	if err := db.Raw("SELECT version, name FROM quack_schema_migrations ORDER BY version").Scan(&ledger).Error; err != nil {
 		t.Fatalf("read migration ledger: %v", err)
 	}
-	if len(ledger) != 11 {
-		t.Fatalf("migration ledger omitted final v5 migrations: %+v", ledger)
-	}
-	for index, entry := range ledger {
-		want := uint64(index + 1)
-		if entry.Version != want {
-			t.Fatalf("migration ledger is not contiguous at index %d: got %d want %d", index, entry.Version, want)
-		}
-	}
-	for version, name := range map[int]string{9: "appeals_and_member_access_0200", 10: "v4_historical_import_0400", 11: "final_storage_constraints_0410"} {
-		if ledger[version-1].Name != name {
-			t.Fatalf("migration %d has name %q, want %q", version, ledger[version-1].Name, name)
-		}
+	if len(ledger) != 1 || ledger[0].Version != 1 || ledger[0].Name != "baseline" {
+		t.Fatalf("migration ledger = %+v, want only the baseline", ledger)
 	}
 }
 

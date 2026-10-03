@@ -168,7 +168,7 @@ func TestCaseServiceVoidedCasesDoNotCount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create prior case: %v", err)
 	}
-	if err := store.DB().Model(&quack.Case{}).Where("id = ?", prior.ID).Update("status", quack.CaseValidityVoided).Error; err != nil {
+	if err := store.DB().Model(&quack.Case{}).Where("id = ?", prior.ID).Update("validity", quack.CaseValidityVoided).Error; err != nil {
 		t.Fatalf("void prior case: %v", err)
 	}
 

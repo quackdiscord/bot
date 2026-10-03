@@ -5,22 +5,11 @@ import (
 	"testing"
 
 	"github.com/quackdiscord/bot/internal/modules"
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
+	"github.com/quackdiscord/bot/internal/testutil"
 )
 
 func TestRegistryKeepsGuildsAndModulesIndependent(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file:module-registry?mode=memory&cache=shared"), &gorm.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	migration := modules.RegistryMigration()
-	if migration.Version != 100 {
-		t.Fatalf("migration version = %d", migration.Version)
-	}
-	if err := migration.Apply(db); err != nil {
-		t.Fatal(err)
-	}
+	db := testutil.NewSQLiteDB(t)
 	registry, err := modules.NewRegistry(modules.NewSQLSettingsStore(db),
 		modules.Descriptor{ID: modules.Tickets, DisplayName: "Tickets"},
 		modules.Descriptor{ID: modules.GeneralLogging, DisplayName: "General logging"})
