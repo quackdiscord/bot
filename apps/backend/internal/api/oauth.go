@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/quackdiscord/bot/internal/config"
+	"github.com/quackdiscord/bot/internal/modules"
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
@@ -53,6 +54,36 @@ type discordUser struct {
 	Avatar     string `json:"avatar"`
 }
 
+// loginQuery is the query /auth/discord/login reads.
+type loginQuery struct {
+	// Mode "json" returns the authorization URL instead of redirecting.
+	Mode string `query:"mode" enum:"redirect,json"`
+	// RedirectTo is where the dashboard lands after sign-in. Unsafe targets
+	// fall back to the configured post-login page.
+	RedirectTo string `query:"redirect_to"`
+}
+
+// loginResponse is the mode=json answer to /auth/discord/login.
+type loginResponse struct {
+	AuthURL string `json:"auth_url"`
+	State   string `json:"state"`
+}
+
+// callbackQuery is what Discord sends back to /auth/discord/callback.
+type callbackQuery struct {
+	Code  string `query:"code"`
+	State string `query:"state"`
+	// Error is set when the user declined.
+	Error string `query:"error"`
+}
+
+// signInResponse is the mode=json answer to /auth/discord/callback.
+type signInResponse struct {
+	CSRFToken string              `json:"csrf_token"`
+	ExpiresAt time.Time           `json:"expires_at"`
+	User      sessionUserResponse `json:"user"`
+}
+
 // requireOAuth answers 503 when the Discord application is not configured
 // for sign-in.
 func (s *Server) requireOAuth(next http.Handler) http.Handler {
@@ -71,14 +102,15 @@ func (s *Server) requireOAuth(next http.Handler) http.Handler {
 // browser with a cookie, and either redirects to Discord or, with mode=json,
 // returns the authorization URL.
 func (s *Server) discordLogin(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query()
+	var query loginQuery
+	modules.DecodeQuery(r, &query)
 	mode := "redirect"
-	if strings.EqualFold(strings.TrimSpace(query.Get("mode")), "json") {
+	if strings.EqualFold(strings.TrimSpace(query.Mode), "json") {
 		mode = "json"
 	}
 	stateID := quack.NewID()
 	state := &quack.OAuthState{
-		RedirectTo:   sanitizeRedirectTarget(query.Get("redirect_to"), s.cfg.Auth.PostLoginRedirect),
+		RedirectTo:   sanitizeRedirectTarget(query.RedirectTo, s.cfg.Auth.PostLoginRedirect),
 		ResponseMode: mode,
 		CreatedAt:    time.Now().UTC(),
 	}
@@ -94,7 +126,7 @@ func (s *Server) discordLogin(w http.ResponseWriter, r *http.Request) {
 	s.setCookie(w, s.oauthStateCookie(), stateID, int(stateTTL.Seconds()), true)
 	authURL := s.discordAuthURL(stateID)
 	if mode == "json" {
-		writeJSON(w, http.StatusOK, map[string]any{"auth_url": authURL, "state": stateID})
+		writeJSON(w, http.StatusOK, loginResponse{AuthURL: authURL, State: stateID})
 		return
 	}
 	http.Redirect(w, r, authURL, http.StatusFound)
@@ -104,13 +136,14 @@ func (s *Server) discordLogin(w http.ResponseWriter, r *http.Request) {
 // cookie before consuming it, exchanges the code, and creates the session.
 // Discord's error text is never echoed back.
 func (s *Server) discordCallback(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query()
-	if query.Get("error") != "" {
+	var query callbackQuery
+	modules.DecodeQuery(r, &query)
+	if query.Error != "" {
 		writeError(w, r, http.StatusUnauthorized, codeReauthenticate, "Discord authorization was not granted; sign in again")
 		return
 	}
-	code := strings.TrimSpace(query.Get("code"))
-	stateID := strings.TrimSpace(query.Get("state"))
+	code := strings.TrimSpace(query.Code)
+	stateID := strings.TrimSpace(query.State)
 	if code == "" || stateID == "" {
 		writeError(w, r, http.StatusBadRequest, codeValidation, "OAuth code and state are required")
 		return
@@ -153,10 +186,10 @@ func (s *Server) discordCallback(w http.ResponseWriter, r *http.Request) {
 	s.setAuthCookies(w, session.ID, session.CSRFToken, int(s.cfg.Auth.SessionTTL.Seconds()))
 
 	if state.ResponseMode == "json" {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"csrf_token": session.CSRFToken,
-			"user":       sessionUser(session),
-			"expires_at": session.SessionExpiresAt,
+		writeJSON(w, http.StatusOK, signInResponse{
+			CSRFToken: session.CSRFToken,
+			ExpiresAt: session.SessionExpiresAt,
+			User:      sessionUser(session),
 		})
 		return
 	}

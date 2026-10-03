@@ -6,8 +6,9 @@
 // live guild authorization, and for writes an Idempotency-Key. routes.go
 // lists every route. Handlers decode the request, call one quack service,
 // and encode the result; service errors become statuses through the tables
-// in json.go. The JSON contract is fixed by the dashboard and
-// contracts/http/swagger.yaml.
+// in json.go. The JSON contract is fixed by the dashboard; every route
+// registers a Doc, from which internal/contract generates
+// contracts/http/openapi.yaml.
 package api
 
 import (
@@ -79,7 +80,9 @@ type Server struct {
 	oauth           oauthClient
 	trustedProxies  []*net.IPNet
 
-	mux     *http.ServeMux
+	mux *http.ServeMux
+	// table records every route on mux, for the HTTP contract.
+	table   []Route
 	handler http.Handler
 }
 

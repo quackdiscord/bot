@@ -172,15 +172,11 @@ func build(ctx context.Context, cfg config.Config, st *store.Store, rdb *redis.C
 	q.honeypot.RegisterSetup(router)
 
 	server, err := api.New(cfg, api.Deps{
-		Services: services,
-		Store:    st,
-		Redis:    rdb,
-		Discord:  bot,
-		Modules: func(mux *api.ModuleMux) {
-			q.tickets.MountHTTP(mux)
-			q.logging.MountHTTP(mux)
-			q.honeypot.MountHTTP(mux)
-		},
+		Services:        services,
+		Store:           st,
+		Redis:           rdb,
+		Discord:         bot,
+		Modules:         mountModules(q.tickets, q.logging, q.honeypot),
 		TemplateChanges: q.honeypot,
 	})
 	if err != nil {
@@ -188,6 +184,31 @@ func build(ctx context.Context, cfg config.Config, st *store.Store, rdb *redis.C
 	}
 	q.server = server
 	return q, nil
+}
+
+// mountModules mounts every optional module's HTTP routes. build and Routes
+// share it, so the HTTP contract lists exactly the modules the server
+// serves.
+func mountModules(t *tickets.Module, l *logging.Module, h *honeypot.Module) func(*api.ModuleMux) {
+	return func(mux *api.ModuleMux) {
+		t.MountHTTP(mux)
+		l.MountHTTP(mux)
+		h.MountHTTP(mux)
+	}
+}
+
+// Routes returns every route the HTTP API mounts, core and module, for
+// generating the HTTP contract. It builds the API around empty services and
+// modules, so nothing it returns may be served.
+func Routes() ([]api.Route, error) {
+	server, err := api.New(config.Default(), api.Deps{
+		Services: &quack.Services{},
+		Modules:  mountModules(&tickets.Module{}, &logging.Module{}, &honeypot.Module{}),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return server.Routes(), nil
 }
 
 // startBackground starts the case action worker and its loops, then the

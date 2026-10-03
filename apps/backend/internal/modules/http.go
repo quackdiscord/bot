@@ -3,16 +3,42 @@ package modules
 import (
 	"encoding/json"
 	"net/http"
+	"reflect"
 )
 
 // Mux is where a module mounts its HTTP routes. Patterns are a method and a
 // path relative to the guild's module prefix, such as "GET /tickets/status".
 // api.ModuleMux implements it, adding authentication, live guild context,
-// rate limits, and idempotent writes.
+// rate limits, and idempotent writes. Each route's Doc goes into the HTTP
+// contract.
 type Mux interface {
-	Handle(pattern string, h http.Handler)
+	Handle(pattern string, doc Doc, h http.Handler)
 	// HandleWrite mounts a write that only callers passing allowed may make.
-	HandleWrite(pattern string, allowed func(*http.Request) bool, h http.Handler)
+	HandleWrite(pattern string, doc Doc, allowed func(*http.Request) bool, h http.Handler)
+}
+
+// Doc describes a module route for the HTTP contract,
+// contracts/http/openapi.yaml. Query, Body, and Response are zero values of
+// the exact types the handler reads and writes, so the contract follows the
+// code. It mirrors api.Doc, which modules cannot import.
+type Doc struct {
+	// ID is the operation ID client generators name functions after. It is
+	// unique across the API.
+	ID      string
+	Summary string
+	// Description adds detail the summary cannot carry, or is empty.
+	Description string
+	// Query is a struct whose `query` tags name the query parameters, or nil.
+	Query any
+	// Body is the JSON request body, or nil for none.
+	Body any
+	// Status is the success status; zero means 200.
+	Status int
+	// Response is the JSON success body, or nil for none.
+	Response any
+	// Errors are the error statuses the handler itself can answer with. The
+	// API adds the ones its protection can.
+	Errors []int
 }
 
 // WithActor adapts a handler that needs the caller's actor. A request whose
@@ -56,6 +82,19 @@ func WriteJSON(w http.ResponseWriter, status int, v any) {
 // error envelope, so module error text never reaches clients.
 func WriteError(w http.ResponseWriter, status int) {
 	w.WriteHeader(status)
+}
+
+// DecodeQuery fills the string fields of the struct dst points to from the
+// query parameters their `query` tags name. Reading the query this way keeps
+// the struct a route documents as its Doc.Query the one actually in use.
+func DecodeQuery(r *http.Request, dst any) {
+	query := r.URL.Query()
+	v := reflect.ValueOf(dst).Elem()
+	for i := range v.NumField() {
+		if name := v.Type().Field(i).Tag.Get("query"); name != "" {
+			v.Field(i).SetString(query.Get(name))
+		}
+	}
 }
 
 // DecodeJSON decodes one JSON value from the request body. Unlike the core

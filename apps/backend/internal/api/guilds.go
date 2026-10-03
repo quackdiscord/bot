@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/quackdiscord/bot/internal/quack"
 )
@@ -71,31 +72,69 @@ func (s *Server) listGuilds(w http.ResponseWriter, r *http.Request) {
 		guildListErrors.write(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"guilds": guilds})
+	writeJSON(w, http.StatusOK, guildListResponse{Guilds: guilds})
+}
+
+type guildListResponse struct {
+	Guilds []quack.UserGuildListItem `json:"guilds"`
+}
+
+// guildMeResponse is the guild and the caller's live staff standing in it.
+// Permissions maps each permission action to whether the caller has it.
+type guildMeResponse struct {
+	Guild       guildSummary    `json:"guild"`
+	Permissions map[string]bool `json:"permissions" nullable:"false"`
+	Staff       staffSummary    `json:"staff"`
+}
+
+type guildSummary struct {
+	DiscordGuildID     string `json:"discord_guild_id"`
+	IconURL            string `json:"icon_url"`
+	ID                 string `json:"id"`
+	Name               string `json:"name"`
+	OwnerDiscordUserID string `json:"owner_discord_user_id"`
+}
+
+// staffSummary is the caller as guild staff. Permission bit sets are
+// decimal strings, since they overflow JavaScript numbers.
+type staffSummary struct {
+	DiscordUserID       string     `json:"discord_user_id"`
+	DisplayName         string     `json:"display_name"`
+	ID                  string     `json:"id"`
+	IsAdmin             bool       `json:"is_admin"`
+	IsModerator         bool       `json:"is_moderator"`
+	LastActiveAt        *time.Time `json:"last_active_at"`
+	LastSeenPermissions string     `json:"last_seen_permissions"`
+	PermissionBits      string     `json:"permission_bits"`
+}
+
+// settingsEnvelope wraps the guild's settings.
+type settingsEnvelope struct {
+	Settings *quack.GuildSettingsResponse `json:"settings" nullable:"false"`
 }
 
 // guildMe describes the guild and the caller's live staff permissions in it.
 func (s *Server) guildMe(w http.ResponseWriter, r *http.Request) {
 	staff := quack.StaffFromContext(r.Context())
-	writeJSON(w, http.StatusOK, map[string]any{
-		"guild": map[string]any{
-			"id":                    staff.Guild.ID,
-			"discord_guild_id":      staff.Guild.DiscordGuildID,
-			"name":                  staff.Guild.Name,
-			"icon_url":              staff.Guild.IconURL,
-			"owner_discord_user_id": staff.Guild.OwnerDiscordUserID,
+	writeJSON(w, http.StatusOK, guildMeResponse{
+		Guild: guildSummary{
+			ID:                 staff.Guild.ID,
+			DiscordGuildID:     staff.Guild.DiscordGuildID,
+			Name:               staff.Guild.Name,
+			IconURL:            staff.Guild.IconURL,
+			OwnerDiscordUserID: staff.Guild.OwnerDiscordUserID,
 		},
-		"staff": map[string]any{
-			"id":                    staff.Staff.ID,
-			"discord_user_id":       staff.Staff.DiscordUserID,
-			"display_name":          staff.Staff.LastKnownDisplayName,
-			"permission_bits":       quack.PermissionBitsString(staff.PermissionBits),
-			"is_admin":              staff.IsAdmin,
-			"is_moderator":          staff.IsModerator,
-			"last_active_at":        staff.Staff.LastActiveAt,
-			"last_seen_permissions": quack.PermissionBitsString(staff.Staff.LastSeenPermissionBits),
+		Staff: staffSummary{
+			ID:                  staff.Staff.ID,
+			DiscordUserID:       staff.Staff.DiscordUserID,
+			DisplayName:         staff.Staff.LastKnownDisplayName,
+			PermissionBits:      quack.PermissionBitsString(staff.PermissionBits),
+			IsAdmin:             staff.IsAdmin,
+			IsModerator:         staff.IsModerator,
+			LastActiveAt:        staff.Staff.LastActiveAt,
+			LastSeenPermissions: quack.PermissionBitsString(staff.Staff.LastSeenPermissionBits),
 		},
-		"permissions": quack.PermissionMapStrings(staff.Permissions),
+		Permissions: quack.PermissionMapStrings(staff.Permissions),
 	})
 }
 
@@ -105,7 +144,7 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		settingsErrors.write(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"settings": settings})
+	writeJSON(w, http.StatusOK, settingsEnvelope{Settings: settings})
 }
 
 // updateSettings applies a partial settings update. An undecodable payload
@@ -122,7 +161,7 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
 		settingsErrors.write(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"settings": settings})
+	writeJSON(w, http.StatusOK, settingsEnvelope{Settings: settings})
 }
 
 // acknowledgeStarterPolicyNotice dismisses the one-time starter template
@@ -134,5 +173,5 @@ func (s *Server) acknowledgeStarterPolicyNotice(w http.ResponseWriter, r *http.R
 		settingsErrors.write(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"settings": settings})
+	writeJSON(w, http.StatusOK, settingsEnvelope{Settings: settings})
 }

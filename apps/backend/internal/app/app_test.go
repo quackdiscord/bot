@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/config"
+	"github.com/quackdiscord/bot/internal/contract"
 	"github.com/quackdiscord/bot/internal/discord"
 	"github.com/quackdiscord/bot/internal/testutil"
 )
@@ -80,6 +82,65 @@ func TestBuildWiresEverySurface(t *testing.T) {
 		if code := serve(a, route); code != http.StatusUnauthorized {
 			t.Errorf("%s: status %d, want 401 from a mounted, authenticated route", route, code)
 		}
+	}
+}
+
+// TestContractCoversEveryMountedRoute checks the HTTP contract against the
+// server build really wires: every mounted route, core and module, is
+// documented with the same method and path, and every documented operation
+// is mounted.
+func TestContractCoversEveryMountedRoute(t *testing.T) {
+	st := testutil.NewSQLiteRedisStore(t)
+	bot, err := discord.New("Bot offline")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := build(context.Background(), config.Default(), st, st.Redis(), bot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mounted := map[string]bool{}
+	for _, route := range a.server.Routes() {
+		mounted[route.Method+" "+route.Path] = true
+	}
+
+	routes, err := Routes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, err := contract.Build(routes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document struct {
+		Paths map[string]map[string]json.RawMessage `json:"paths"`
+	}
+	if err := json.Unmarshal(encoded, &document); err != nil {
+		t.Fatal(err)
+	}
+	documented := map[string]bool{}
+	for path, item := range document.Paths {
+		for method := range item {
+			documented[strings.ToUpper(method)+" "+path] = true
+		}
+	}
+
+	for route := range mounted {
+		if !documented[route] {
+			t.Errorf("%s is mounted but missing from the contract", route)
+		}
+	}
+	for route := range documented {
+		if !mounted[route] {
+			t.Errorf("%s is in the contract but not mounted", route)
+		}
+	}
+	if len(mounted) == 0 {
+		t.Fatal("no routes mounted")
 	}
 }
 

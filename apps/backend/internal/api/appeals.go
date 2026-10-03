@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/quackdiscord/bot/internal/modules"
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
@@ -15,13 +16,26 @@ type appealReversalRequest struct {
 	Confirm             bool             `json:"confirm"`
 }
 
+// appealListQuery filters and pages the guild's appeals.
+type appealListQuery struct {
+	Status quack.AppealStatus `query:"status"`
+	pageQuery
+}
+
+// appealEnvelope wraps one appeal.
+type appealEnvelope struct {
+	Appeal *quack.AppealResponse `json:"appeal" nullable:"false"`
+}
+
 // appealDecision is one staff decision on an appeal, such as
 // AppealService.Accept.
 type appealDecision func(ctx context.Context, staff *quack.GuildStaffContext, appealID, reason string) (*quack.AppealResponse, error)
 
 func (s *Server) listStaffAppeals(w http.ResponseWriter, r *http.Request) {
 	limit, offset := pageParams(r)
-	status := quack.AppealStatus(strings.TrimSpace(r.URL.Query().Get("status")))
+	var q appealListQuery
+	modules.DecodeQuery(r, &q)
+	status := quack.AppealStatus(strings.TrimSpace(string(q.Status)))
 	result, err := s.services.Appeals.ListStaff(r.Context(), quack.StaffFromContext(r.Context()), status, limit, offset)
 	if err != nil {
 		appealErrors.write(w, r, err)
@@ -37,7 +51,7 @@ func (s *Server) getStaffAppeal(w http.ResponseWriter, r *http.Request) {
 		appealErrors.write(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"appeal": result})
+	writeJSON(w, http.StatusOK, appealEnvelope{Appeal: result})
 }
 
 // decideAppeal returns the handler for one staff decision. Each takes a
@@ -54,7 +68,7 @@ func decideAppeal(decide appealDecision) http.HandlerFunc {
 			appealErrors.write(w, r, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"appeal": result})
+		writeJSON(w, http.StatusOK, appealEnvelope{Appeal: result})
 	}
 }
 
@@ -82,7 +96,7 @@ func (s *Server) reverseAcceptedAppeal(w http.ResponseWriter, r *http.Request) {
 		caseErrors.write(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"action": result})
+	writeJSON(w, http.StatusAccepted, actionEnvelope{Action: result})
 }
 
 // submitAppeal files the member's one appeal for a case.
@@ -97,7 +111,7 @@ func (s *Server) submitAppeal(w http.ResponseWriter, r *http.Request) {
 		appealErrors.write(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"appeal": result})
+	writeJSON(w, http.StatusCreated, appealEnvelope{Appeal: result})
 }
 
 func (s *Server) getMemberAppeal(w http.ResponseWriter, r *http.Request) {
@@ -107,7 +121,7 @@ func (s *Server) getMemberAppeal(w http.ResponseWriter, r *http.Request) {
 		appealErrors.write(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"appeal": result})
+	writeJSON(w, http.StatusOK, appealEnvelope{Appeal: result})
 }
 
 // submitAppealInformation answers staff's request for more information.
@@ -122,5 +136,5 @@ func (s *Server) submitAppealInformation(w http.ResponseWriter, r *http.Request)
 		appealErrors.write(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"appeal": result})
+	writeJSON(w, http.StatusOK, appealEnvelope{Appeal: result})
 }

@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/quackdiscord/bot/internal/modules"
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
@@ -26,13 +27,18 @@ type failedActionResponse struct {
 
 // failedActionListResponse is one page of the recovery queue.
 type failedActionListResponse struct {
-	Executions []failedActionResponse `json:"executions"`
+	Executions []failedActionResponse `json:"executions" nullable:"false"`
 	Total      int64                  `json:"total"`
 }
 
 // failedActionEnvelope wraps the action a retry or dismissal changed.
 type failedActionEnvelope struct {
 	Action failedActionResponse `json:"action"`
+}
+
+// actionEnvelope wraps a queued reversal. It is the full execution record.
+type actionEnvelope struct {
+	Action *quack.CaseActionExecution `json:"action" nullable:"false"`
 }
 
 // reverseActionRequest names the execution to undo. AppealID links the
@@ -91,7 +97,7 @@ func (s *Server) reverseCaseAction(w http.ResponseWriter, r *http.Request) {
 		caseErrors.write(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"action": result})
+	writeJSON(w, http.StatusAccepted, actionEnvelope{Action: result})
 }
 
 // newFailedActionList always returns an executions array, never null.
@@ -123,16 +129,24 @@ func newFailedAction(execution quack.CaseActionExecution) failedActionResponse {
 	}
 }
 
+// pageQuery is the pagination of a plain list.
+type pageQuery struct {
+	Limit  string `query:"limit" type:"integer" minimum:"1" maximum:"100" default:"50"`
+	Offset string `query:"offset" type:"integer" minimum:"0" maximum:"100000" default:"0"`
+}
+
 // pageParams reads limit (default 50) and offset (default 0). The endpoint
-// policy has already rejected values that are malformed or out of range.
+// policy has already rejected values that are malformed or out of range,
+// including empty ones.
 func pageParams(r *http.Request) (limit, offset int) {
-	q := r.URL.Query()
+	var q pageQuery
+	modules.DecodeQuery(r, &q)
 	limit = 50
-	if q.Has("limit") {
-		limit, _ = strconv.Atoi(q.Get("limit"))
+	if q.Limit != "" {
+		limit, _ = strconv.Atoi(q.Limit)
 	}
-	if q.Has("offset") {
-		offset, _ = strconv.Atoi(q.Get("offset"))
+	if q.Offset != "" {
+		offset, _ = strconv.Atoi(q.Offset)
 	}
 	return limit, offset
 }

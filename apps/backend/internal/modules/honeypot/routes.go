@@ -16,10 +16,40 @@ func RegisterRoutes(mux modules.Mux, service *Service, resolve modules.ActorReso
 	}
 	canManage := modules.Allow(resolve, modules.CanManage)
 
-	mux.Handle("GET /honeypot/settings", with(h.settings))
-	mux.Handle("GET /honeypot/status", with(h.status))
-	mux.HandleWrite("PUT /honeypot/settings", canManage, with(h.updateSettings))
-	mux.HandleWrite("POST /honeypot/repair", canManage, with(h.repair))
+	failures := []int{http.StatusBadRequest, http.StatusForbidden, http.StatusServiceUnavailable}
+
+	mux.Handle("GET /honeypot/settings", modules.Doc{
+		ID: "getHoneypotSettings", Summary: "Honeypot settings and health; needs Manage Guild",
+		Response: settingsResponse{}, Errors: failures,
+	}, with(h.settings))
+	mux.Handle("GET /honeypot/status", modules.Doc{
+		ID: "getHoneypotStatus", Summary: "Honeypot health; needs Manage Guild",
+		Response: statusResponse{}, Errors: failures,
+	}, with(h.status))
+	mux.HandleWrite("PUT /honeypot/settings", modules.Doc{
+		ID: "updateHoneypotSettings", Summary: "Replace honeypot settings; needs Manage Guild",
+		Body: settingsRequest{}, Response: settingsResponse{}, Errors: failures,
+	}, canManage, with(h.updateSettings))
+	mux.HandleWrite("POST /honeypot/repair", modules.Doc{
+		ID: "repairHoneypot", Summary: "Turn the honeypot back on with its kept settings, checked live; needs Manage Guild",
+		Response: settingsResponse{}, Errors: failures,
+	}, canManage, with(h.repair))
+}
+
+// settingsRequest turns the honeypot on or off and replaces its settings.
+type settingsRequest struct {
+	Enabled  bool     `json:"enabled"`
+	Settings Settings `json:"settings"`
+}
+
+// settingsResponse is the honeypot's settings and health.
+type settingsResponse struct {
+	Settings Settings `json:"settings"`
+	Status   Status   `json:"status"`
+}
+
+type statusResponse struct {
+	Status Status `json:"status"`
 }
 
 // routes are the honeypot HTTP handlers.
@@ -36,14 +66,11 @@ func (rt routes) status(w http.ResponseWriter, r *http.Request, actor modules.Ac
 		writeError(w, err)
 		return
 	}
-	modules.WriteJSON(w, http.StatusOK, map[string]any{"status": status})
+	modules.WriteJSON(w, http.StatusOK, statusResponse{Status: status})
 }
 
 func (rt routes) updateSettings(w http.ResponseWriter, r *http.Request, actor modules.Actor) {
-	var input struct {
-		Enabled  bool     `json:"enabled"`
-		Settings Settings `json:"settings"`
-	}
+	var input settingsRequest
 	if err := modules.DecodeJSON(r, &input); err != nil {
 		modules.WriteError(w, http.StatusBadRequest)
 		return
@@ -63,7 +90,7 @@ func writeSettings(w http.ResponseWriter, settings Settings, status Status, err 
 		writeError(w, err)
 		return
 	}
-	modules.WriteJSON(w, http.StatusOK, map[string]any{"settings": settings, "status": status})
+	modules.WriteJSON(w, http.StatusOK, settingsResponse{Settings: settings, Status: status})
 }
 
 // writeError maps a service error to its status code.

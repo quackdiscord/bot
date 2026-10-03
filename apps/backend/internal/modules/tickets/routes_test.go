@@ -18,13 +18,13 @@ import (
 // write permissions with a 403, standing in for api.ModuleMux.
 type testMux struct{ *http.ServeMux }
 
-func (m testMux) Handle(pattern string, h http.Handler) {
+func (m testMux) Handle(pattern string, _ modules.Doc, h http.Handler) {
 	method, path, _ := strings.Cut(pattern, " ")
 	m.ServeMux.Handle(method+" /guilds/{guildID}/modules"+path, h)
 }
 
-func (m testMux) HandleWrite(pattern string, allowed func(*http.Request) bool, h http.Handler) {
-	m.Handle(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func (m testMux) HandleWrite(pattern string, d modules.Doc, allowed func(*http.Request) bool, h http.Handler) {
+	m.Handle(pattern, d, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !allowed(r) {
 			w.WriteHeader(http.StatusForbidden)
 			return

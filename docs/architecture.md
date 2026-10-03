@@ -12,6 +12,7 @@ All packages live under `apps/backend/internal` unless noted.
 | Package | Responsibility |
 | --- | --- |
 | `cmd/quack` | The binary: `serve`, `migrate`, and `import-v4`. |
+| `cmd/openapi` | Writes `contracts/http/openapi.yaml`; run by `go generate ./...`. |
 | `config` | Loads settings from code defaults, an optional TOML file, and `QUACK_*` env vars, and validates them. |
 | `quack` | The moderation domain: templates, escalation, cases, actions, notifications, appeals, audit, statistics, and the ports it needs. |
 | `store` | GORM/MySQL and Redis implementation of the `quack` storage ports, the schema, and migrations. |
@@ -25,6 +26,7 @@ All packages live under `apps/backend/internal` unless noted.
 | `modules/honeypot` | Trap channels that open a case through the normal case path. |
 | `v4import` | Parses and validates v4 case history exports for `quack import-v4`. |
 | `app` | Composition root: builds every component from config, runs them, and stops them in reverse order. |
+| `contract` | Generates the OpenAPI HTTP contract from the API's route table. Only `cmd/openapi` and tests import it, so the server binary does not carry the reflector. |
 | `testutil` | Shared test stores (in-memory SQLite plus miniredis). |
 
 Dependency direction:
@@ -42,7 +44,8 @@ cmd/quack ──> app ──> api, discord, worker, store, modules/*, config
   migrate their tables, and implements the `v4import.Repository` interface.
 - The three modules import `discord` for the router, `/setup`, and the
   bot. Module HTTP routes are mounted through the `modules.Mux` interface,
-  which `api.ModuleMux` satisfies, so modules do not import `api`.
+  which `api.ModuleMux` satisfies, so modules do not import `api`; `api`
+  imports `modules` for `modules.Doc` and `modules.DecodeQuery`.
 - Only `app` and `cmd/quack` see the whole graph.
 
 `quack.New` (`quack/quack.go`) builds `quack.Services`: `Guilds`, `Settings`,
@@ -431,7 +434,28 @@ never lost.
 
 `api.Server` (`api/api.go`, routes in `api/routes.go`) uses stdlib
 `net/http` with Go 1.22 `ServeMux` patterns. The JSON contract is fixed by the
-dashboard and described in `contracts/http/swagger.yaml`.
+dashboard and described in `contracts/http/openapi.yaml` (OpenAPI 3.1), which
+is generated from the code:
+
+- Every route is registered with an `api.Doc` (module routes with a
+  `modules.Doc`) naming its operation ID, summary, and the Go types its
+  handler reads and writes: query struct (`query` tags, decoded with
+  `modules.DecodeQuery`), JSON body, success status and body, and handler
+  error statuses. The registration helper also records the route's
+  `api.Protection` (credential, rate limit, guild authorization,
+  idempotency), from which the session, CSRF, `Idempotency-Key`, and
+  protection-level error statuses are derived. `Server.Routes` returns the
+  table; `Server.mount` is the only place routes reach the mux.
+- `internal/contract` reflects that table into the document with
+  `swaggest/openapi-go`. Field names, `omitempty`, and nullability come from
+  the real JSON types; response fields that are always written are marked
+  required; string enums are read from the typed constants in source. Every
+  error status carries the error envelope schema.
+- `cmd/openapi` (run by `go generate ./...`) writes the file from
+  `app.Routes`, which mounts modules through the same `mountModules` as
+  `build`. `cmd/openapi`'s test fails when the committed file is stale, and
+  `TestContractCoversEveryMountedRoute` in `internal/app` checks that the
+  server `build` wires and the document list the same operations.
 
 Every request passes through one global chain:
 

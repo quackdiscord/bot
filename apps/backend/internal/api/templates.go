@@ -6,13 +6,27 @@ import (
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
+type templateListResponse struct {
+	Templates []quack.TemplateResponse `json:"templates"`
+}
+
+// templateEnvelope wraps one template.
+type templateEnvelope struct {
+	Template *quack.TemplateResponse `json:"template" nullable:"false"`
+}
+
+// templatePolicyEnvelope wraps an exported template policy.
+type templatePolicyEnvelope struct {
+	Policy *quack.TemplatePolicy `json:"policy" nullable:"false"`
+}
+
 func (s *Server) listTemplates(w http.ResponseWriter, r *http.Request) {
 	templates, err := s.services.Templates.List(r.Context(), quack.StaffFromContext(r.Context()))
 	if err != nil {
 		templateErrors.withFallback("failed to list templates").write(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"templates": templates})
+	writeJSON(w, http.StatusOK, templateListResponse{Templates: templates})
 }
 
 func (s *Server) createTemplate(w http.ResponseWriter, r *http.Request) {
@@ -25,7 +39,7 @@ func (s *Server) createTemplate(w http.ResponseWriter, r *http.Request) {
 		templateErrors.write(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"template": template})
+	writeJSON(w, http.StatusCreated, templateEnvelope{Template: template})
 }
 
 // importTemplate creates a template from a policy exported by
@@ -40,7 +54,7 @@ func (s *Server) importTemplate(w http.ResponseWriter, r *http.Request) {
 		templateErrors.write(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"template": template})
+	writeJSON(w, http.StatusCreated, templateEnvelope{Template: template})
 }
 
 func (s *Server) getTemplate(w http.ResponseWriter, r *http.Request) {
@@ -50,7 +64,7 @@ func (s *Server) getTemplate(w http.ResponseWriter, r *http.Request) {
 		templateErrors.write(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"template": template})
+	writeJSON(w, http.StatusOK, templateEnvelope{Template: template})
 }
 
 func (s *Server) updateTemplate(w http.ResponseWriter, r *http.Request) {
@@ -65,7 +79,7 @@ func (s *Server) updateTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.templateChanged(r, staff, template.ID)
-	writeJSON(w, http.StatusOK, map[string]any{"template": template})
+	writeJSON(w, http.StatusOK, templateEnvelope{Template: template})
 }
 
 // archiveTemplate soft-deletes a template, which restoreTemplate undoes.
@@ -77,7 +91,7 @@ func (s *Server) archiveTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.templateChanged(r, staff, template.ID)
-	writeJSON(w, http.StatusOK, map[string]any{"template": template})
+	writeJSON(w, http.StatusOK, templateEnvelope{Template: template})
 }
 
 func (s *Server) restoreTemplate(w http.ResponseWriter, r *http.Request) {
@@ -87,7 +101,7 @@ func (s *Server) restoreTemplate(w http.ResponseWriter, r *http.Request) {
 		templateErrors.write(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"template": template})
+	writeJSON(w, http.StatusOK, templateEnvelope{Template: template})
 }
 
 // exportTemplate returns the template's policy without guild-specific IDs,
@@ -99,7 +113,7 @@ func (s *Server) exportTemplate(w http.ResponseWriter, r *http.Request) {
 		templateErrors.write(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"policy": policy})
+	writeJSON(w, http.StatusOK, templatePolicyEnvelope{Policy: policy})
 }
 
 // templateChanged tells TemplateChanges, if set, that a template was

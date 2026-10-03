@@ -119,14 +119,34 @@ func (s *Server) csrf(next http.Handler) http.Handler {
 // echo on writes.
 func (s *Server) authMe(w http.ResponseWriter, r *http.Request) {
 	session := sessionFrom(r.Context())
-	writeJSON(w, http.StatusOK, map[string]any{
-		"csrf_token": session.CSRFToken,
-		"user":       sessionUser(session),
-		"session": map[string]any{
-			"expires_at": session.SessionExpiresAt,
-			"last_seen":  session.LastSeenAt,
-		},
+	writeJSON(w, http.StatusOK, authMeResponse{
+		CSRFToken: session.CSRFToken,
+		Session:   sessionTimes{ExpiresAt: session.SessionExpiresAt, LastSeen: session.LastSeenAt},
+		User:      sessionUser(session),
 	})
+}
+
+// authMeResponse is the signed-in user, their session, and the CSRF token
+// the dashboard echoes in X-CSRF-Token.
+type authMeResponse struct {
+	CSRFToken string              `json:"csrf_token"`
+	Session   sessionTimes        `json:"session"`
+	User      sessionUserResponse `json:"user"`
+}
+
+type sessionTimes struct {
+	ExpiresAt time.Time `json:"expires_at"`
+	LastSeen  time.Time `json:"last_seen"`
+}
+
+// sessionUserResponse is the dashboard's view of the signed-in Discord user. It
+// carries no credentials. AvatarURL is empty when the user has no avatar.
+type sessionUserResponse struct {
+	Avatar     string `json:"avatar"`
+	AvatarURL  string `json:"avatar_url"`
+	GlobalName string `json:"global_name"`
+	ID         string `json:"id"`
+	Username   string `json:"username"`
 }
 
 // logout ends the current session.
@@ -155,15 +175,14 @@ func (s *Server) logoutAll(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// sessionUser is the dashboard's view of the signed-in Discord user. It
-// carries no credentials.
-func sessionUser(session *quack.AuthSession) map[string]any {
-	return map[string]any{
-		"id":          session.DiscordUserID,
-		"username":    session.Username,
-		"global_name": session.GlobalName,
-		"avatar":      session.Avatar,
-		"avatar_url":  discordAvatarURL(session.DiscordUserID, session.Avatar),
+// sessionUser describes the session's Discord user.
+func sessionUser(session *quack.AuthSession) sessionUserResponse {
+	return sessionUserResponse{
+		ID:         session.DiscordUserID,
+		Username:   session.Username,
+		GlobalName: session.GlobalName,
+		Avatar:     session.Avatar,
+		AvatarURL:  discordAvatarURL(session.DiscordUserID, session.Avatar),
 	}
 }
 

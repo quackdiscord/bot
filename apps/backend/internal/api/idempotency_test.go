@@ -11,6 +11,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/config"
+	"github.com/quackdiscord/bot/internal/modules"
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
@@ -154,13 +155,13 @@ type fakeModule struct {
 
 func (m fakeModule) MountHTTP(mux *ModuleMux) {
 	allowed := func(*http.Request) bool { return m.allowed == nil || m.allowed.Load() }
-	mux.HandleWrite("PUT /example/settings", allowed, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleWrite("PUT /example/settings", modules.Doc{}, allowed, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if m.calls != nil {
 			m.calls.Add(1)
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"saved": true, "actor": quack.StaffFromContext(r.Context()).ActorDiscordUserID})
 	}))
-	mux.HandleWrite("POST /example/fail", allowed, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleWrite("POST /example/fail", modules.Doc{}, allowed, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "token=must-not-persist"})
 	}))
 }

@@ -16,10 +16,43 @@ func RegisterRoutes(mux modules.Mux, service *Service, resolve modules.ActorReso
 	}
 	canManage := modules.Allow(resolve, modules.CanManage)
 
-	mux.Handle("GET /general-logging/settings", with(h.settings))
-	mux.Handle("GET /general-logging/status", with(h.status))
-	mux.HandleWrite("PUT /general-logging/settings", canManage, with(h.updateSettings))
-	mux.HandleWrite("POST /general-logging/repair-channel/{channelID}", canManage, with(h.repairChannel))
+	failures := []int{http.StatusBadRequest, http.StatusForbidden, http.StatusServiceUnavailable}
+
+	mux.Handle("GET /general-logging/settings", modules.Doc{
+		ID: "getLoggingSettings", Summary: "General logging settings and health",
+		Response: settingsResponse{}, Errors: failures,
+	}, with(h.settings))
+	mux.Handle("GET /general-logging/status", modules.Doc{
+		ID: "getLoggingStatus", Summary: "General logging health",
+		Response: statusResponse{}, Errors: failures,
+	}, with(h.status))
+	mux.HandleWrite("PUT /general-logging/settings", modules.Doc{
+		ID: "updateLoggingSettings", Summary: "Replace general logging settings; needs Manage Guild",
+		Body: settingsPayload{}, Response: settingsPayload{}, Errors: failures,
+	}, canManage, with(h.updateSettings))
+	mux.HandleWrite("POST /general-logging/repair-channel/{channelID}", modules.Doc{
+		ID: "repairLoggingChannel", Summary: "Remove every route to a deleted channel; needs Manage Guild",
+		Response: settingsPayload{}, Errors: failures,
+	}, canManage, with(h.repairChannel))
+}
+
+// settingsPayload is whether general logging is on and its settings, as
+// read and as written back. A write replaces both.
+type settingsPayload struct {
+	Enabled  bool     `json:"enabled"`
+	Settings Settings `json:"settings"`
+}
+
+// settingsResponse is the settings with the module's health.
+type settingsResponse struct {
+	Enabled  bool     `json:"enabled"`
+	Settings Settings `json:"settings"`
+	Status   Status   `json:"status"`
+}
+
+type statusResponse struct {
+	Enabled bool   `json:"enabled"`
+	Status  Status `json:"status"`
 }
 
 // routes are the general logging HTTP handlers.
@@ -31,7 +64,7 @@ func (rt routes) settings(w http.ResponseWriter, r *http.Request, actor modules.
 		writeError(w, err)
 		return
 	}
-	modules.WriteJSON(w, http.StatusOK, map[string]any{"enabled": enabled, "settings": settings, "status": status})
+	modules.WriteJSON(w, http.StatusOK, settingsResponse{Enabled: enabled, Settings: settings, Status: status})
 }
 
 func (rt routes) status(w http.ResponseWriter, r *http.Request, actor modules.Actor) {
@@ -40,14 +73,11 @@ func (rt routes) status(w http.ResponseWriter, r *http.Request, actor modules.Ac
 		writeError(w, err)
 		return
 	}
-	modules.WriteJSON(w, http.StatusOK, map[string]any{"enabled": enabled, "status": status})
+	modules.WriteJSON(w, http.StatusOK, statusResponse{Enabled: enabled, Status: status})
 }
 
 func (rt routes) updateSettings(w http.ResponseWriter, r *http.Request, actor modules.Actor) {
-	var input struct {
-		Enabled  bool     `json:"enabled"`
-		Settings Settings `json:"settings"`
-	}
+	var input settingsPayload
 	if err := modules.DecodeJSON(r, &input); err != nil {
 		modules.WriteError(w, http.StatusBadRequest)
 		return
@@ -57,7 +87,7 @@ func (rt routes) updateSettings(w http.ResponseWriter, r *http.Request, actor mo
 		writeError(w, err)
 		return
 	}
-	modules.WriteJSON(w, http.StatusOK, map[string]any{"enabled": input.Enabled, "settings": settings})
+	modules.WriteJSON(w, http.StatusOK, settingsPayload{Enabled: input.Enabled, Settings: settings})
 }
 
 func (rt routes) repairChannel(w http.ResponseWriter, r *http.Request, actor modules.Actor) {
@@ -66,7 +96,7 @@ func (rt routes) repairChannel(w http.ResponseWriter, r *http.Request, actor mod
 		writeError(w, err)
 		return
 	}
-	modules.WriteJSON(w, http.StatusOK, map[string]any{"enabled": enabled, "settings": settings})
+	modules.WriteJSON(w, http.StatusOK, settingsPayload{Enabled: enabled, Settings: settings})
 }
 
 // writeError maps a service error to its status code.

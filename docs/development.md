@@ -45,6 +45,7 @@ module.
 | `go vet ./...` | Vet. |
 | `go test ./...` | All tests; see [`testing.md`](testing.md). |
 | `go build ./cmd/quack` | Build the binary. |
+| `go generate ./...` | Regenerate `contracts/http/openapi.yaml` (and the Discord icon catalog, which needs Node). `go run ./cmd/openapi` prints the contract to stdout. |
 | `staticcheck ./...` | Optional, if you have it installed. |
 
 CI (`.github/workflows/go.yml`) builds `./cmd/quack` and runs `go test ./...`
@@ -61,9 +62,15 @@ The package map and request flows are in
   `store/migrate.go` plus the record structs in `store/schema.go`; see
   [`migrations.md`](migrations.md).
 - **HTTP routes** go in `internal/api/routes.go`. Handlers sit next to their
-  topic (`cases.go`, `appeals.go`, and so on). The JSON contract is
-  `contracts/http/swagger.yaml`. Nothing generates it anymore, so update it by
-  hand when a response changes.
+  topic (`cases.go`, `appeals.go`, and so on). Each route passes an `api.Doc`
+  (or `modules.Doc` for module routes) naming the Go types its handler reads
+  and writes; use named types, not `map[string]any` or anonymous structs, so
+  the schema is real. The JSON contract, `contracts/http/openapi.yaml`, is
+  generated from those docs: run `go generate ./...` from `apps/backend`
+  after changing a route or any type it reads or writes, and commit the
+  result. `go test ./...` fails while the file is stale (use `-count=1` if
+  only the YAML changed, since the test cache does not track files outside
+  the module). Never edit the file by hand.
 - **Discord commands and components** go in `internal/discord`. Custom IDs
   are part of messages already posted in Discord, so don't rename them.
 - **Background loops** are registered with `Worker.Every` in

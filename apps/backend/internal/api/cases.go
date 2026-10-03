@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/quackdiscord/bot/internal/modules"
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
@@ -23,8 +24,41 @@ type caseCreateRequest struct {
 }
 
 type voidCaseRequest struct {
-	Reason            string  `json:"reason"`
-	ReplacementCaseID *string `json:"replacement_case_id"`
+	Reason string `json:"reason"`
+	// ReplacementCaseID is still accepted for compatibility, but setting it
+	// is a 400.
+	ReplacementCaseID *string `json:"replacement_case_id" deprecated:"true"`
+}
+
+// caseListQuery holds the case list filters. They pass through as strings,
+// unchecked; the case service validates them.
+type caseListQuery struct {
+	Limit                  string                      `query:"limit" type:"integer" minimum:"1" maximum:"100"`
+	Offset                 string                      `query:"offset" type:"integer" minimum:"0" maximum:"100000"`
+	TargetDiscordUserID    string                      `query:"target_discord_user_id"`
+	ModeratorDiscordUserID string                      `query:"moderator_discord_user_id"`
+	TemplateID             string                      `query:"template_id"`
+	Validity               quack.CaseValidity          `query:"validity"`
+	CaseNumber             string                      `query:"case_number" type:"integer"`
+	ActionResult           quack.ActionExecutionStatus `query:"action_result"`
+	AppealStatus           quack.AppealStatus          `query:"appeal_status"`
+	CreatedAfter           string                      `query:"created_after" format:"date-time"`
+	CreatedBefore          string                      `query:"created_before" format:"date-time"`
+}
+
+// caseEnvelope wraps a case that was just created or voided.
+type caseEnvelope struct {
+	Case *quack.CaseResponse `json:"case" nullable:"false"`
+}
+
+// caseDetailEnvelope wraps a case with its full history, for staff.
+type caseDetailEnvelope struct {
+	Case *quack.CaseDetailResponse `json:"case" nullable:"false"`
+}
+
+// memberCaseEnvelope wraps the member-facing view of a case.
+type memberCaseEnvelope struct {
+	Case *quack.MemberCaseDetail `json:"case" nullable:"false"`
 }
 
 func (s *Server) listCases(w http.ResponseWriter, r *http.Request) {
@@ -60,7 +94,7 @@ func (s *Server) createCase(w http.ResponseWriter, r *http.Request) {
 		caseErrors.write(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"case": created})
+	writeJSON(w, http.StatusCreated, caseEnvelope{Case: created})
 }
 
 // getCase looks a case up by ID or case number.
@@ -70,7 +104,7 @@ func (s *Server) getCase(w http.ResponseWriter, r *http.Request) {
 		caseErrors.write(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"case": result})
+	writeJSON(w, http.StatusOK, caseDetailEnvelope{Case: result})
 }
 
 // voidCase marks a case invalid. The case and its history are kept.
@@ -91,7 +125,7 @@ func (s *Server) voidCase(w http.ResponseWriter, r *http.Request) {
 		caseErrors.write(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"case": result})
+	writeJSON(w, http.StatusOK, caseEnvelope{Case: result})
 }
 
 func (s *Server) listUserCases(w http.ResponseWriter, r *http.Request) {
@@ -125,24 +159,24 @@ func (s *Server) getMemberCase(w http.ResponseWriter, r *http.Request) {
 		caseErrors.write(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"case": result})
+	writeJSON(w, http.StatusOK, memberCaseEnvelope{Case: result})
 }
 
-// caseListInput passes the list filters through as strings; the case
-// service validates them.
+// caseListInput reads the case list filters.
 func caseListInput(r *http.Request) quack.CaseListInput {
-	q := r.URL.Query()
+	var q caseListQuery
+	modules.DecodeQuery(r, &q)
 	return quack.CaseListInput{
-		Limit:                  q.Get("limit"),
-		Offset:                 q.Get("offset"),
-		TargetDiscordUserID:    q.Get("target_discord_user_id"),
-		ModeratorDiscordUserID: q.Get("moderator_discord_user_id"),
-		TemplateID:             q.Get("template_id"),
-		Validity:               q.Get("validity"),
-		CaseNumber:             q.Get("case_number"),
-		ActionResult:           q.Get("action_result"),
-		AppealStatus:           q.Get("appeal_status"),
-		CreatedAfter:           q.Get("created_after"),
-		CreatedBefore:          q.Get("created_before"),
+		Limit:                  q.Limit,
+		Offset:                 q.Offset,
+		TargetDiscordUserID:    q.TargetDiscordUserID,
+		ModeratorDiscordUserID: q.ModeratorDiscordUserID,
+		TemplateID:             q.TemplateID,
+		Validity:               string(q.Validity),
+		CaseNumber:             q.CaseNumber,
+		ActionResult:           string(q.ActionResult),
+		AppealStatus:           string(q.AppealStatus),
+		CreatedAfter:           q.CreatedAfter,
+		CreatedBefore:          q.CreatedBefore,
 	}
 }

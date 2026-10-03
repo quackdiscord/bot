@@ -33,9 +33,28 @@ type readinessCheck struct {
 	Latency int64  `json:"latency_ms,omitempty"`
 }
 
+// readinessResponse is the /readyz report. Checks is keyed by dependency:
+// database, redis, discord, queue, migration, and action_capabilities.
 type readinessResponse struct {
 	Ready  bool                      `json:"ready"`
-	Checks map[string]readinessCheck `json:"checks"`
+	Checks map[string]readinessCheck `json:"checks" nullable:"false"`
+}
+
+// statusResponse is the /status report.
+type statusResponse struct {
+	Database connectionStatus `json:"database"`
+	Discord  connectionStatus `json:"discord"`
+	Redis    connectionStatus `json:"redis"`
+}
+
+type livenessResponse struct {
+	Live bool `json:"live"`
+}
+
+// guildOpsResponse is one guild's operational health.
+type guildOpsResponse struct {
+	GuildHealth quack.GuildOperationalHealth `json:"guild_health"`
+	Operations  *quack.OpsStatusResponse     `json:"operations" nullable:"false"`
 }
 
 // status reports Discord, Redis, and database connectivity. It always
@@ -44,17 +63,17 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), healthTimeout)
 	defer cancel()
 	connected, username, latency := s.discord.Status()
-	writeJSON(w, http.StatusOK, map[string]any{
-		"discord":  connectionStatus{Connected: connected, Username: username, Latency: latency},
-		"redis":    ping(ctx, s.store.PingRedis),
-		"database": ping(ctx, s.store.PingDatabase),
+	writeJSON(w, http.StatusOK, statusResponse{
+		Discord:  connectionStatus{Connected: connected, Username: username, Latency: latency},
+		Redis:    ping(ctx, s.store.PingRedis),
+		Database: ping(ctx, s.store.PingDatabase),
 	})
 }
 
 // liveness only says the process is serving. It ignores dependencies, so an
 // outage does not make the orchestrator restart a healthy process.
 func (s *Server) liveness(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"live": true})
+	writeJSON(w, http.StatusOK, livenessResponse{Live: true})
 }
 
 // readiness checks everything needed to take moderation work: database,
@@ -196,7 +215,7 @@ func (s *Server) writeGuildOps(w http.ResponseWriter, r *http.Request, guildID s
 	if err != nil {
 		health = quack.GuildOperationalHealth{Degraded: true, Reasons: []string{"guild_health_unavailable"}}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"operations": status, "guild_health": health})
+	writeJSON(w, http.StatusOK, guildOpsResponse{GuildHealth: health, Operations: status})
 }
 
 // validOpsKey reports whether the request carries the configured ops key.
