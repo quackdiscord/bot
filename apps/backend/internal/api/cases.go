@@ -30,7 +30,7 @@ type voidCaseRequest struct {
 func (s *Server) listCases(w http.ResponseWriter, r *http.Request) {
 	result, err := s.services.Cases.List(r.Context(), quack.StaffFromContext(r.Context()), caseListInput(r))
 	if err != nil {
-		writeCaseError(w, r, err)
+		caseErrors.write(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -40,8 +40,7 @@ func (s *Server) listCases(w http.ResponseWriter, r *http.Request) {
 // service, which deduplicates inside its lock.
 func (s *Server) createCase(w http.ResponseWriter, r *http.Request) {
 	var input caseCreateRequest
-	if err := decodeJSON(r, &input); err != nil {
-		writeError(w, r, http.StatusBadRequest, codeValidation, "invalid case payload")
+	if !decode(w, r, &input, "invalid case payload") {
 		return
 	}
 	created, err := s.services.Cases.Create(r.Context(), quack.StaffFromContext(r.Context()), quack.CaseInput{
@@ -58,7 +57,7 @@ func (s *Server) createCase(w http.ResponseWriter, r *http.Request) {
 		IdempotencyKey:          r.Header.Get(idempotencyKeyHeader),
 	})
 	if err != nil {
-		writeCaseError(w, r, err)
+		caseErrors.write(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"case": created})
@@ -68,7 +67,7 @@ func (s *Server) createCase(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getCase(w http.ResponseWriter, r *http.Request) {
 	result, err := s.services.Cases.Get(r.Context(), quack.StaffFromContext(r.Context()), r.PathValue("caseRef"))
 	if err != nil {
-		writeCaseError(w, r, err)
+		caseErrors.write(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"case": result})
@@ -77,14 +76,13 @@ func (s *Server) getCase(w http.ResponseWriter, r *http.Request) {
 // voidCase marks a case invalid. The case and its history are kept.
 func (s *Server) voidCase(w http.ResponseWriter, r *http.Request) {
 	var input voidCaseRequest
-	if err := decodeJSON(r, &input); err != nil {
-		writeError(w, r, http.StatusBadRequest, codeValidation, "invalid void payload")
+	if !decode(w, r, &input, "invalid void payload") {
 		return
 	}
 	result, err := s.services.Cases.Void(r.Context(), quack.StaffFromContext(r.Context()), r.PathValue("caseRef"),
 		input.Reason, input.ReplacementCaseID)
 	if err != nil {
-		writeCaseError(w, r, err)
+		caseErrors.write(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"case": result})
@@ -94,7 +92,7 @@ func (s *Server) listUserCases(w http.ResponseWriter, r *http.Request) {
 	result, err := s.services.Cases.UserHistory(r.Context(), quack.StaffFromContext(r.Context()),
 		r.PathValue("targetDiscordUserID"), caseListInput(r))
 	if err != nil {
-		writeCaseError(w, r, err)
+		caseErrors.write(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -106,7 +104,7 @@ func (s *Server) listMemberCases(w http.ResponseWriter, r *http.Request) {
 	result, err := s.services.Cases.ListMemberCases(r.Context(), r.PathValue("guildID"),
 		sessionFrom(r.Context()).DiscordUserID, caseListInput(r))
 	if err != nil {
-		writeCaseError(w, r, err)
+		caseErrors.write(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -115,9 +113,10 @@ func (s *Server) listMemberCases(w http.ResponseWriter, r *http.Request) {
 // getMemberCase returns the member-facing view of a case, and only to its
 // target.
 func (s *Server) getMemberCase(w http.ResponseWriter, r *http.Request) {
-	result, err := s.services.Cases.GetMemberCase(r.Context(), r.PathValue("caseID"), sessionFrom(r.Context()).DiscordUserID)
+	result, err := s.services.Cases.GetMemberCase(r.Context(), r.PathValue("caseID"),
+		sessionFrom(r.Context()).DiscordUserID)
 	if err != nil {
-		writeCaseError(w, r, err)
+		caseErrors.write(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"case": result})

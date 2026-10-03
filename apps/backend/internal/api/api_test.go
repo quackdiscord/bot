@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -249,4 +250,32 @@ func casePayload(templateID, targetDiscordUserID string) string {
 		"target_discord_user_id": "` + targetDiscordUserID + `",
 		"metadata": {"source": "test"}
 	}`
+}
+
+// assertEnvelope checks the status and that the body is the error envelope
+// with trace IDs.
+func assertEnvelope(t *testing.T, response *httptest.ResponseRecorder, status int, code errorCode) {
+	t.Helper()
+	expectStatus(t, response, status)
+	var body errorResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode envelope: %v; body=%s", err, response.Body.String())
+	}
+	if e := body.Error; e.Code != code || e.Message == "" || e.RequestID == "" || e.CorrelationID == "" {
+		t.Fatalf("envelope = %+v, want code %q", e, code)
+	}
+}
+
+func TestHTTPServerUsesConfiguredBounds(t *testing.T) {
+	cfg := config.Default()
+	cfg.API.Port = "9090"
+	cfg.API.ReadHeaderTimeout = 2 * time.Second
+	cfg.API.ReadTimeout = 3 * time.Second
+	cfg.API.WriteTimeout = 4 * time.Second
+	cfg.API.IdleTimeout = 5 * time.Second
+	server := newHTTPServer(cfg, http.NotFoundHandler())
+	if server.Addr != ":9090" || server.ReadHeaderTimeout != 2*time.Second || server.ReadTimeout != 3*time.Second ||
+		server.WriteTimeout != 4*time.Second || server.IdleTimeout != 5*time.Second {
+		t.Fatalf("server = %+v", server)
+	}
 }

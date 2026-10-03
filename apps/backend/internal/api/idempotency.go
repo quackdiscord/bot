@@ -3,7 +3,6 @@ package api
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -25,6 +24,7 @@ const (
 	maxIdempotentResponseBytes = 64 << 10
 )
 
+// idempotencyState is a key's state as beginScript reports it.
 type idempotencyState string
 
 const (
@@ -52,18 +52,30 @@ type idempotencyStore struct {
 }
 
 // beginScript returns the key's state, or creates an in-progress lease if
-// the key is new. A different request fingerprint is a conflict.
+// the key is new. A different request fingerprint is a conflict. ARGV is the
+// lease token, the TTL in milliseconds, and the fingerprint; the reply is
+// state, lease token, status, body, and remaining TTL.
 var beginScript = redis.NewScript(`
 if redis.call("EXISTS", KEYS[1]) == 1 then
-  if (redis.call("HGET", KEYS[1], "fingerprint") or "") ~= ARGV[3] then return {"conflict", "", "0", "", redis.call("PTTL", KEYS[1])} end
-  return {redis.call("HGET", KEYS[1], "state"), "", redis.call("HGET", KEYS[1], "status") or "0", redis.call("HGET", KEYS[1], "body") or "", redis.call("PTTL", KEYS[1])}
+  if (redis.call("HGET", KEYS[1], "fingerprint") or "") ~= ARGV[3] then
+    return {"conflict", "", "0", "", redis.call("PTTL", KEYS[1])}
+  end
+  return {
+    redis.call("HGET", KEYS[1], "state"),
+    "",
+    redis.call("HGET", KEYS[1], "status") or "0",
+    redis.call("HGET", KEYS[1], "body") or "",
+    redis.call("PTTL", KEYS[1]),
+  }
 end
-redis.call("HSET", KEYS[1], "state", "in_progress", "token", ARGV[1], "status", "0", "body", "", "fingerprint", ARGV[3])
+redis.call("HSET", KEYS[1],
+  "state", "in_progress", "token", ARGV[1], "status", "0", "body", "", "fingerprint", ARGV[3])
 redis.call("PEXPIRE", KEYS[1], ARGV[2])
 return {"acquired", ARGV[1], "0", "", redis.call("PTTL", KEYS[1])}
 `)
 
-// completeScript stores the response only if the caller still holds the lease.
+// completeScript stores the response only if the caller still holds the
+// lease. ARGV is the lease token, status, body, and TTL in milliseconds.
 var completeScript = redis.NewScript(`
 if redis.call("EXISTS", KEYS[1]) == 0 then return -1 end
 if redis.call("HGET", KEYS[1], "token") ~= ARGV[1] then return -2 end
@@ -77,15 +89,13 @@ func newIdempotencyStore(client redis.UniversalClient) *idempotencyStore {
 	return &idempotencyStore{client: client, prefix: "http:idempotency:"}
 }
 
+// begin claims key within scope for a request with fingerprint, or reports
+// what already holds it.
 func (s *idempotencyStore) begin(ctx context.Context, scope, key string, ttl time.Duration, fingerprint string) (idempotencyResult, error) {
-	token, err := randomToken()
-	if err != nil {
-		return idempotencyResult{}, fmt.Errorf("generate idempotency lease: %w", err)
-	}
 	ttlMillis := max(ttl.Milliseconds(), 1)
-	raw, err := beginScript.Run(ctx, s.client, []string{s.key(scope, key)}, token, ttlMillis, fingerprint).Result()
+	raw, err := beginScript.Run(ctx, s.client, []string{s.key(scope, key)}, randomToken(), ttlMillis, fingerprint).Result()
 	if err != nil {
-		return idempotencyResult{}, fmt.Errorf("%w: begin idempotency: %v", errUnavailable, err)
+		return idempotencyResult{}, fmt.Errorf("%w: begin idempotency: %w", errUnavailable, err)
 	}
 	values, ok := raw.([]any)
 	if !ok || len(values) != 5 {
@@ -109,6 +119,8 @@ func (s *idempotencyStore) begin(ctx context.Context, scope, key string, ttl tim
 	}, nil
 }
 
+// complete stores the response for a key whose lease the caller holds, so
+// retries replay it until ttl passes.
 func (s *idempotencyStore) complete(ctx context.Context, scope, key, leaseToken string, status int, body []byte, ttl time.Duration) error {
 	if len(body) > maxIdempotentResponseBytes {
 		return fmt.Errorf("idempotency response exceeds %d bytes", maxIdempotentResponseBytes)
@@ -116,7 +128,7 @@ func (s *idempotencyStore) complete(ctx context.Context, scope, key, leaseToken 
 	ttlMillis := max(ttl.Milliseconds(), 1)
 	result, err := completeScript.Run(ctx, s.client, []string{s.key(scope, key)}, leaseToken, status, body, ttlMillis).Int64()
 	if err != nil {
-		return fmt.Errorf("%w: complete idempotency: %v", errUnavailable, err)
+		return fmt.Errorf("%w: complete idempotency: %w", errUnavailable, err)
 	}
 	switch result {
 	case 1:
@@ -132,14 +144,6 @@ func (s *idempotencyStore) complete(ctx context.Context, scope, key, leaseToken 
 
 func (s *idempotencyStore) key(scope, key string) string {
 	return hashedKey(s.prefix, scope+"\x00"+key)
-}
-
-func randomToken() (string, error) {
-	var body [32]byte
-	if _, err := rand.Read(body[:]); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(body[:]), nil
 }
 
 func redisString(value any) (string, error) {

@@ -8,24 +8,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/quackdiscord/bot/internal/config"
 )
-
-func TestHTTPServerUsesConfiguredBounds(t *testing.T) {
-	cfg := config.Default()
-	cfg.API.Port = "9090"
-	cfg.API.ReadHeaderTimeout = 2 * time.Second
-	cfg.API.ReadTimeout = 3 * time.Second
-	cfg.API.WriteTimeout = 4 * time.Second
-	cfg.API.IdleTimeout = 5 * time.Second
-	server := newHTTPServer(cfg, http.NotFoundHandler())
-	if server.Addr != ":9090" || server.ReadHeaderTimeout != 2*time.Second || server.ReadTimeout != 3*time.Second ||
-		server.WriteTimeout != 4*time.Second || server.IdleTimeout != 5*time.Second {
-		t.Fatalf("server = %+v", server)
-	}
-}
 
 // pipelineServer is a Server with extra test routes behind the global
 // pipeline.
@@ -210,33 +195,5 @@ func TestRecoveryHidesPanicAndRequest(t *testing.T) {
 	}
 	if !strings.Contains(logs.String(), "HTTP request completed") {
 		t.Fatal("panicking request was not logged")
-	}
-}
-
-func TestClientIPTrustsOnlyConfiguredProxies(t *testing.T) {
-	for _, test := range []struct {
-		name           string
-		trustedProxies []string
-		remoteAddr     string
-		forwardedFor   string
-		want           string
-	}{
-		{"direct client cannot spoof", nil, "192.0.2.10:1234", "198.51.100.99", "192.0.2.10"},
-		{"trusted proxy forwards client", []string{"127.0.0.1/32"}, "127.0.0.1:1234", "198.51.100.99", "198.51.100.99"},
-		{"bare proxy IP", []string{"127.0.0.1"}, "127.0.0.1:1234", "198.51.100.99", "198.51.100.99"},
-		{"rightmost untrusted hop wins", []string{"10.0.0.0/8"}, "10.0.0.1:1234", "203.0.113.5, 198.51.100.99, 10.0.0.2", "198.51.100.99"},
-		{"garbage header falls back", []string{"127.0.0.1/32"}, "127.0.0.1:1234", "not-an-ip", "127.0.0.1"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			cfg := config.Default()
-			cfg.API.TrustedProxies = test.trustedProxies
-			server := newTestServer(t, cfg, Deps{})
-			request := httptest.NewRequest(http.MethodGet, "/", nil)
-			request.RemoteAddr = test.remoteAddr
-			request.Header.Set("X-Forwarded-For", test.forwardedFor)
-			if got := server.clientIP(request); got != test.want {
-				t.Fatalf("clientIP = %q, want %q", got, test.want)
-			}
-		})
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"runtime/debug"
 	"slices"
@@ -26,6 +25,7 @@ func chain(h http.Handler, mws ...middleware) http.Handler {
 	return h
 }
 
+// contextKey keys the values the pipeline stores in a request's context.
 type contextKey int
 
 const (
@@ -71,6 +71,7 @@ type captureWriter struct {
 
 func (c *captureWriter) Header() http.Header { return c.w.Header() }
 
+// WriteHeader records the first status only, as net/http does.
 func (c *captureWriter) WriteHeader(status int) {
 	if c.status == 0 {
 		c.status = status
@@ -123,14 +124,13 @@ func (s *Server) observe(next http.Handler) http.Handler {
 			route = "unmatched"
 		}
 		level := slog.LevelInfo
-		if status >= 500 {
+		switch {
+		case status >= http.StatusInternalServerError:
 			level = slog.LevelError
-		} else if status >= 400 {
+		case status >= http.StatusBadRequest:
 			level = slog.LevelWarn
 		}
-		requestID, correlationID := quack.TraceIDsFromContext(r.Context())
 		slog.Log(r.Context(), level, "HTTP request completed",
-			"request_id", requestID, "correlation_id", correlationID,
 			"method", r.Method, "route", route, "status", status, "duration", time.Since(start))
 
 		body := captured.body.Bytes()
@@ -160,6 +160,12 @@ func securityHeaders(next http.Handler) http.Handler {
 	})
 }
 
+// corsAllowedHeaders are the request headers the dashboard may send.
+var corsAllowedHeaders = strings.Join([]string{
+	"Content-Type", "Authorization", idempotencyKeyHeader, csrfHeader,
+	requestIDHeader, correlationIDHeader, opsKeyHeader,
+}, ", ")
+
 // cors allows credentialed requests only from the exact configured origins.
 // A request from any other origin is rejected outright rather than merely
 // left without CORS headers. Every OPTIONS request is answered here.
@@ -174,7 +180,7 @@ func (s *Server) cors(next http.Handler) http.Handler {
 			h := w.Header()
 			h.Set("Access-Control-Allow-Origin", origin)
 			h.Set("Access-Control-Allow-Credentials", "true")
-			h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Idempotency-Key, X-CSRF-Token, X-Request-ID, X-Correlation-ID, X-Quack-Ops-Key")
+			h.Set("Access-Control-Allow-Headers", corsAllowedHeaders)
 			h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 			h.Set("Vary", "Origin")
 		}
@@ -194,60 +200,4 @@ func (s *Server) bodyLimit(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
-}
-
-// parseTrustedProxies accepts bare IPs and CIDRs, as config.Validate does.
-func parseTrustedProxies(proxies []string) ([]*net.IPNet, error) {
-	nets := make([]*net.IPNet, 0, len(proxies))
-	for _, proxy := range proxies {
-		if ip := net.ParseIP(proxy); ip != nil {
-			bits := 8 * net.IPv6len
-			if ip4 := ip.To4(); ip4 != nil {
-				ip, bits = ip4, 8*net.IPv4len
-			}
-			nets = append(nets, &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)})
-			continue
-		}
-		_, cidr, err := net.ParseCIDR(proxy)
-		if err != nil {
-			return nil, fmt.Errorf("invalid trusted proxy %q", proxy)
-		}
-		nets = append(nets, cidr)
-	}
-	return nets, nil
-}
-
-// clientIP returns the caller's address for per-IP rate limits. Forwarding
-// headers are believed only when the direct peer is a trusted proxy;
-// X-Forwarded-For is read right to left and the first untrusted hop wins.
-func (s *Server) clientIP(r *http.Request) string {
-	remote, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
-	if err != nil {
-		return ""
-	}
-	remoteIP := net.ParseIP(remote)
-	if remoteIP == nil {
-		return ""
-	}
-	if !s.trustedProxy(remoteIP) {
-		return remote
-	}
-	for _, header := range []string{"X-Forwarded-For", "X-Real-IP"} {
-		hops := strings.Split(r.Header.Get(header), ",")
-		for i := len(hops) - 1; i >= 0; i-- {
-			hop := strings.TrimSpace(hops[i])
-			ip := net.ParseIP(hop)
-			if ip == nil {
-				break
-			}
-			if i == 0 || !s.trustedProxy(ip) {
-				return hop
-			}
-		}
-	}
-	return remote
-}
-
-func (s *Server) trustedProxy(ip net.IP) bool {
-	return slices.ContainsFunc(s.trustedProxies, func(n *net.IPNet) bool { return n.Contains(ip) })
 }

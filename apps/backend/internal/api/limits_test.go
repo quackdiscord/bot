@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"sync"
@@ -129,5 +130,33 @@ func TestPaginationIsBounded(t *testing.T) {
 	for _, query := range []string{"limit=0", "limit=101", "limit=x", "offset=-1", "offset=100001", "cursor=" + strings.Repeat("a", 257)} {
 		response := send(t, server, http.MethodGet, "/guilds/guild-1/cases?"+query, "", "")
 		assertEnvelope(t, response, http.StatusBadRequest, codeValidation)
+	}
+}
+
+func TestClientIPTrustsOnlyConfiguredProxies(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		trustedProxies []string
+		remoteAddr     string
+		forwardedFor   string
+		want           string
+	}{
+		{"direct client cannot spoof", nil, "192.0.2.10:1234", "198.51.100.99", "192.0.2.10"},
+		{"trusted proxy forwards client", []string{"127.0.0.1/32"}, "127.0.0.1:1234", "198.51.100.99", "198.51.100.99"},
+		{"bare proxy IP", []string{"127.0.0.1"}, "127.0.0.1:1234", "198.51.100.99", "198.51.100.99"},
+		{"rightmost untrusted hop wins", []string{"10.0.0.0/8"}, "10.0.0.1:1234", "203.0.113.5, 198.51.100.99, 10.0.0.2", "198.51.100.99"},
+		{"garbage header falls back", []string{"127.0.0.1/32"}, "127.0.0.1:1234", "not-an-ip", "127.0.0.1"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := config.Default()
+			cfg.API.TrustedProxies = test.trustedProxies
+			server := newTestServer(t, cfg, Deps{})
+			request := httptest.NewRequest(http.MethodGet, "/", nil)
+			request.RemoteAddr = test.remoteAddr
+			request.Header.Set("X-Forwarded-For", test.forwardedFor)
+			if got := server.clientIP(request); got != test.want {
+				t.Fatalf("clientIP = %q, want %q", got, test.want)
+			}
+		})
 	}
 }

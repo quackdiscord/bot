@@ -18,10 +18,24 @@ const (
 	healthTimeout    = 3 * time.Second
 )
 
+// connectionStatus is one dependency in the /status report.
 type connectionStatus struct {
 	Connected bool   `json:"connected"`
 	Username  string `json:"username,omitempty"`
 	Latency   int64  `json:"latency,omitempty"`
+}
+
+// readinessCheck is one dependency in the /readyz report. Detail never
+// carries adapter error text, which can contain hostnames and credentials.
+type readinessCheck struct {
+	Ready   bool   `json:"ready"`
+	Detail  string `json:"detail,omitempty"`
+	Latency int64  `json:"latency_ms,omitempty"`
+}
+
+type readinessResponse struct {
+	Ready  bool                      `json:"ready"`
+	Checks map[string]readinessCheck `json:"checks"`
 }
 
 // status reports Discord, Redis, and database connectivity. It always
@@ -37,29 +51,10 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func ping(ctx context.Context, check func(context.Context) error) connectionStatus {
-	started := time.Now()
-	if err := check(ctx); err != nil {
-		return connectionStatus{}
-	}
-	return connectionStatus{Connected: true, Latency: time.Since(started).Milliseconds()}
-}
-
 // liveness only says the process is serving. It ignores dependencies, so an
 // outage does not make the orchestrator restart a healthy process.
 func (s *Server) liveness(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"live": true})
-}
-
-type readinessCheck struct {
-	Ready   bool   `json:"ready"`
-	Detail  string `json:"detail,omitempty"`
-	Latency int64  `json:"latency_ms,omitempty"`
-}
-
-type readinessResponse struct {
-	Ready  bool                      `json:"ready"`
-	Checks map[string]readinessCheck `json:"checks"`
 }
 
 // readiness checks everything needed to take moderation work: database,
@@ -73,13 +68,15 @@ func (s *Server) readiness(w http.ResponseWriter, r *http.Request) {
 		"redis":    timedCheck(ctx, s.store.PingRedis),
 	}
 	connected, _, latency := s.discord.Status()
-	checks["discord"] = readinessCheck{Ready: connected, Latency: latency, Detail: unreadyDetail(connected, "gateway disconnected")}
+	checks["discord"] = readinessCheck{
+		Ready:   connected,
+		Latency: latency,
+		Detail:  unreadyDetail(connected, "gateway disconnected"),
+	}
 
 	ops, err := s.services.Ops.GlobalStatus(ctx)
-	if err != nil {
-		ops = nil
-	}
-	queueReady := ops != nil && ops.Queue.Active
+	opsKnown := err == nil && ops != nil
+	queueReady := opsKnown && ops.Queue.Active
 	checks["queue"] = readinessCheck{Ready: queueReady, Detail: unreadyDetail(queueReady, "action queue inactive")}
 
 	migration := readinessCheck{Detail: "migration ledger is not current"}
@@ -88,10 +85,13 @@ func (s *Server) readiness(w http.ResponseWriter, r *http.Request) {
 	}
 	checks["migration"] = migration
 
-	actionsReady := ops != nil && !slices.ContainsFunc(ops.Actions.Capabilities, func(c quack.OpsActionCapability) bool {
+	actionsReady := opsKnown && !slices.ContainsFunc(ops.Actions.Capabilities, func(c quack.OpsActionCapability) bool {
 		return !c.Executable
 	})
-	checks["action_capabilities"] = readinessCheck{Ready: actionsReady, Detail: unreadyDetail(actionsReady, "required action unavailable")}
+	checks["action_capabilities"] = readinessCheck{
+		Ready:  actionsReady,
+		Detail: unreadyDetail(actionsReady, "required action unavailable"),
+	}
 
 	result := readinessResponse{Ready: true, Checks: checks}
 	for _, check := range checks {
@@ -102,21 +102,6 @@ func (s *Server) readiness(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusServiceUnavailable
 	}
 	writeJSON(w, status, result)
-}
-
-// timedCheck reports a dependency's latency, and only a generic detail on
-// failure; adapter errors can contain hostnames and credentials.
-func timedCheck(ctx context.Context, check func(context.Context) error) readinessCheck {
-	started := time.Now()
-	ready := check(ctx) == nil
-	return readinessCheck{Ready: ready, Latency: time.Since(started).Milliseconds(), Detail: unreadyDetail(ready, "dependency unavailable")}
-}
-
-func unreadyDetail(ready bool, detail string) string {
-	if ready {
-		return ""
-	}
-	return detail
 }
 
 // metrics serves aggregate counters in the Prometheus text format. It needs
@@ -142,20 +127,11 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 		snapshot["quack_action_queue_failures_total"] = int64(ops.Queue.FailedTotal)
 		snapshot["quack_action_retrying_current"] = ops.Actions.StatusCounts["retrying"]
 	}
-	var output strings.Builder
-	for _, key := range slices.Sorted(maps.Keys(snapshot)) {
-		fmt.Fprintf(&output, "%s %d\n", key, snapshot[key])
-	}
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(output.String()))
-}
-
-// validOpsKey reports whether the request carries the configured ops key.
-// With no key configured, nothing is valid.
-func (s *Server) validOpsKey(r *http.Request) bool {
-	configured := strings.TrimSpace(s.cfg.API.OpsToken)
-	return configured != "" && secretsEqual(configured, r.Header.Get(opsKeyHeader))
+	for _, key := range slices.Sorted(maps.Keys(snapshot)) {
+		fmt.Fprintf(w, "%s %d\n", key, snapshot[key])
+	}
 }
 
 // globalOpsStatus reports queue and action health across all guilds, for
@@ -181,13 +157,13 @@ func (s *Server) globalOpsStatus(w http.ResponseWriter, r *http.Request) {
 // ops key; anyone else goes through the normal session and guild
 // middleware and must be a guild administrator.
 func (s *Server) guildOpsStatus() http.HandlerFunc {
-	adminOnly := allow(func(r *http.Request) bool { return quack.StaffFromContext(r.Context()).IsAdmin },
-		func(w http.ResponseWriter, r *http.Request) {
-			writeError(w, r, http.StatusForbidden, codeAuthorization, "guild administrator access required")
-		})
+	isAdmin := func(r *http.Request) bool { return quack.StaffFromContext(r.Context()).IsAdmin }
+	notAdmin := func(w http.ResponseWriter, r *http.Request) {
+		writeError(w, r, http.StatusForbidden, codeAuthorization, "guild administrator access required")
+	}
 	forStaff := chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.writeGuildOps(w, r, quack.StaffFromContext(r.Context()).Guild.ID)
-	}), s.requireAuth, s.guild(""), adminOnly)
+	}), s.requireAuth, s.guild(""), allow(isAdmin, notAdmin))
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !s.validOpsKey(r) {
@@ -207,6 +183,9 @@ func (s *Server) guildOpsStatus() http.HandlerFunc {
 	}
 }
 
+// writeGuildOps writes the ops status of the guild with internal ID guildID.
+// Guild health that cannot be read is reported as degraded rather than
+// failing the whole report.
 func (s *Server) writeGuildOps(w http.ResponseWriter, r *http.Request, guildID string) {
 	status, err := s.services.Ops.GuildStatus(r.Context(), guildID)
 	if err != nil {
@@ -218,4 +197,39 @@ func (s *Server) writeGuildOps(w http.ResponseWriter, r *http.Request, guildID s
 		health = quack.GuildOperationalHealth{Degraded: true, Reasons: []string{"guild_health_unavailable"}}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"operations": status, "guild_health": health})
+}
+
+// validOpsKey reports whether the request carries the configured ops key.
+// With no key configured, nothing is valid.
+func (s *Server) validOpsKey(r *http.Request) bool {
+	configured := strings.TrimSpace(s.cfg.API.OpsToken)
+	return configured != "" && secretsEqual(configured, r.Header.Get(opsKeyHeader))
+}
+
+// ping reports whether check succeeds and how long it took.
+func ping(ctx context.Context, check func(context.Context) error) connectionStatus {
+	started := time.Now()
+	if err := check(ctx); err != nil {
+		return connectionStatus{}
+	}
+	return connectionStatus{Connected: true, Latency: time.Since(started).Milliseconds()}
+}
+
+// timedCheck runs a dependency check for /readyz and reports its latency.
+func timedCheck(ctx context.Context, check func(context.Context) error) readinessCheck {
+	started := time.Now()
+	ready := check(ctx) == nil
+	return readinessCheck{
+		Ready:   ready,
+		Latency: time.Since(started).Milliseconds(),
+		Detail:  unreadyDetail(ready, "dependency unavailable"),
+	}
+}
+
+// unreadyDetail returns detail for a failed check and nothing otherwise.
+func unreadyDetail(ready bool, detail string) string {
+	if ready {
+		return ""
+	}
+	return detail
 }

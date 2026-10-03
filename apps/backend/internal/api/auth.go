@@ -2,27 +2,25 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
-// sessionStoreTimeout bounds each session lookup, refresh, or delete.
-const sessionStoreTimeout = 5 * time.Second
-
-func withSession(ctx context.Context, session *quack.AuthSession) context.Context {
-	return context.WithValue(ctx, sessionKey, session)
-}
-
-// sessionFrom returns the session loaded by requireAuth.
-func sessionFrom(ctx context.Context) *quack.AuthSession {
-	session, _ := ctx.Value(sessionKey).(*quack.AuthSession)
-	return session
-}
+const (
+	csrfHeader = "X-CSRF-Token"
+	// sessionStoreTimeout bounds each session lookup, refresh, or delete.
+	sessionStoreTimeout = 5 * time.Second
+)
 
 // requireAuth loads the caller's session from a bearer token or the session
 // cookie. An expired session or Discord grant is deleted and answered with
@@ -30,10 +28,9 @@ func sessionFrom(ctx context.Context) *quack.AuthSession {
 // cookie session gets its CSRF cookie refreshed alongside.
 func (s *Server) requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestID, correlationID := quack.TraceIDsFromContext(r.Context())
 		sessionID := s.sessionID(r)
 		if sessionID == "" {
-			slog.Warn("authentication required", "request_id", requestID, "correlation_id", correlationID)
+			slog.WarnContext(r.Context(), "authentication required")
 			writeError(w, r, http.StatusUnauthorized, codeAuthentication, "authentication required")
 			return
 		}
@@ -42,49 +39,42 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 		defer cancel()
 		session, err := s.store.GetSession(ctx, sessionID)
 		if err != nil {
-			slog.Error("auth session dependency unavailable", "request_id", requestID, "correlation_id", correlationID)
+			slog.ErrorContext(ctx, "auth session dependency unavailable")
 			writeError(w, r, http.StatusServiceUnavailable, codeDependency, "authentication service unavailable")
 			return
 		}
 		if session == nil || session.DiscordUserID == "" {
-			slog.Warn("invalid authentication session", "request_id", requestID, "correlation_id", correlationID)
+			slog.WarnContext(ctx, "invalid authentication session")
 			s.clearAuthCookies(w)
 			writeError(w, r, http.StatusUnauthorized, codeAuthentication, "authentication required")
 			return
 		}
 
 		now := time.Now().UTC()
-		if !session.SessionExpiresAt.IsZero() && !now.Before(session.SessionExpiresAt) {
-			slog.Warn("authentication session expired", "request_id", requestID, "correlation_id", correlationID,
-				"actor_discord_user_id", session.DiscordUserID)
+		var expired, message string
+		switch {
+		case passed(session.SessionExpiresAt, now):
+			expired, message = "authentication session expired", "sign in again to continue"
+		case passed(session.TokenExpiresAt, now):
+			expired, message = "Discord authorization expired", "Discord authorization expired; sign in again"
+		}
+		if expired != "" {
+			slog.WarnContext(ctx, expired, "actor_discord_user_id", session.DiscordUserID)
 			_ = s.store.DeleteSession(ctx, sessionID)
 			s.clearAuthCookies(w)
-			writeError(w, r, http.StatusUnauthorized, codeReauthenticate, "sign in again to continue")
+			writeError(w, r, http.StatusUnauthorized, codeReauthenticate, message)
 			return
-		}
-		if !session.TokenExpiresAt.IsZero() && !now.Before(session.TokenExpiresAt) {
-			slog.Warn("Discord authorization expired", "request_id", requestID, "correlation_id", correlationID,
-				"actor_discord_user_id", session.DiscordUserID)
-			_ = s.store.DeleteSession(ctx, sessionID)
-			s.clearAuthCookies(w)
-			writeError(w, r, http.StatusUnauthorized, codeReauthenticate, "Discord authorization expired; sign in again")
-			return
-		}
-		if session.CSRFToken == "" {
-			token, err := newCSRFToken()
-			if err != nil {
-				writeError(w, r, http.StatusInternalServerError, codeInternal, "could not refresh authentication session")
-				return
-			}
-			session.CSRFToken = token
 		}
 
+		if session.CSRFToken == "" {
+			session.CSRFToken = randomToken()
+		}
 		ttl := s.cfg.Auth.SessionTTL
 		session.LastSeenAt = now
 		session.SessionExpiresAt = now.Add(ttl)
 		refreshed, err := s.store.RefreshSession(ctx, session, ttl)
 		if err != nil {
-			slog.Error("auth session refresh dependency unavailable", "request_id", requestID, "correlation_id", correlationID)
+			slog.ErrorContext(ctx, "auth session refresh dependency unavailable")
 			writeError(w, r, http.StatusServiceUnavailable, codeDependency, "authentication service unavailable")
 			return
 		}
@@ -100,6 +90,111 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 	})
 }
 
+// csrf protects cookie-authenticated writes. A write that carries the session
+// cookie must come from an allowed Origin and echo the CSRF cookie in the
+// X-CSRF-Token header (double submit). Bearer-authenticated callers are not
+// browsers and skip the check.
+func (s *Server) csrf(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := cookieValue(r, s.cfg.Auth.SessionCookieName); !ok || !isWrite(r.Method) || hasBearerCredential(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		origin := strings.TrimSpace(r.Header.Get("Origin"))
+		if origin == "" || !slices.Contains(s.cfg.API.CORSOrigins, origin) {
+			writeError(w, r, http.StatusForbidden, codeCSRF, "CSRF validation failed")
+			return
+		}
+		cookie, _ := cookieValue(r, s.cfg.Auth.CSRFCookieName)
+		header := strings.TrimSpace(r.Header.Get(csrfHeader))
+		if cookie == "" || header == "" || !secretsEqual(cookie, header) {
+			writeError(w, r, http.StatusForbidden, codeCSRF, "CSRF validation failed")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// authMe returns the signed-in user and the CSRF token the dashboard must
+// echo on writes.
+func (s *Server) authMe(w http.ResponseWriter, r *http.Request) {
+	session := sessionFrom(r.Context())
+	writeJSON(w, http.StatusOK, map[string]any{
+		"csrf_token": session.CSRFToken,
+		"user":       sessionUser(session),
+		"session": map[string]any{
+			"expires_at": session.SessionExpiresAt,
+			"last_seen":  session.LastSeenAt,
+		},
+	})
+}
+
+// logout ends the current session.
+func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), sessionStoreTimeout)
+	defer cancel()
+	if err := s.store.DeleteSession(ctx, sessionFrom(r.Context()).ID); err != nil {
+		slog.ErrorContext(ctx, "auth logout dependency unavailable")
+		writeError(w, r, http.StatusServiceUnavailable, codeDependency, "authentication service unavailable")
+		return
+	}
+	s.clearAuthCookies(w)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// logoutAll revokes every session of the user, for a compromised account.
+func (s *Server) logoutAll(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), sessionStoreTimeout)
+	defer cancel()
+	if err := s.store.RevokeUserSessions(ctx, sessionFrom(r.Context()).DiscordUserID); err != nil {
+		slog.ErrorContext(ctx, "auth compromise revocation dependency unavailable")
+		writeError(w, r, http.StatusServiceUnavailable, codeDependency, "session revocation unavailable")
+		return
+	}
+	s.clearAuthCookies(w)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// sessionUser is the dashboard's view of the signed-in Discord user. It
+// carries no credentials.
+func sessionUser(session *quack.AuthSession) map[string]any {
+	return map[string]any{
+		"id":          session.DiscordUserID,
+		"username":    session.Username,
+		"global_name": session.GlobalName,
+		"avatar":      session.Avatar,
+		"avatar_url":  discordAvatarURL(session.DiscordUserID, session.Avatar),
+	}
+}
+
+// discordAvatarURL returns the CDN URL for an avatar hash, or "" if the user
+// has none. Hashes starting with "a_" are animated.
+func discordAvatarURL(userID, avatarHash string) string {
+	if userID == "" || avatarHash == "" {
+		return ""
+	}
+	ext := "png"
+	if strings.HasPrefix(avatarHash, "a_") {
+		ext = "gif"
+	}
+	return fmt.Sprintf("https://cdn.discordapp.com/avatars/%s/%s.%s", userID, avatarHash, ext)
+}
+
+func withSession(ctx context.Context, session *quack.AuthSession) context.Context {
+	return context.WithValue(ctx, sessionKey, session)
+}
+
+// sessionFrom returns the session loaded by requireAuth.
+func sessionFrom(ctx context.Context) *quack.AuthSession {
+	session, _ := ctx.Value(sessionKey).(*quack.AuthSession)
+	return session
+}
+
+// passed reports whether a deadline is set and now is at or after it.
+func passed(deadline, now time.Time) bool {
+	return !deadline.IsZero() && !now.Before(deadline)
+}
+
 // sessionID reads the session credential: a bearer token if present,
 // otherwise the session cookie.
 func (s *Server) sessionID(r *http.Request) string {
@@ -113,6 +208,11 @@ func (s *Server) sessionID(r *http.Request) string {
 		return strings.TrimSpace(cookie)
 	}
 	return ""
+}
+
+func hasBearerCredential(r *http.Request) bool {
+	parts := strings.Fields(r.Header.Get("Authorization"))
+	return len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") && parts[1] != ""
 }
 
 // cookieValue returns the named cookie, query-unescaped as it was set.
@@ -150,12 +250,16 @@ func (s *Server) clearAuthCookies(w http.ResponseWriter) {
 	s.setAuthCookies(w, "", "", -1)
 }
 
-// oauthStateCookie is the cookie binding an OAuth state to the browser that
-// started sign-in. With secure cookies it takes the __Host- prefix, which
-// stops a sibling subdomain from planting one.
-func (s *Server) oauthStateCookie() string {
-	if s.cfg.Auth.CookieSecure {
-		return "__Host-quack_oauth_state"
-	}
-	return "quack_oauth_state"
+// randomToken returns 32 random bytes in hex. It serves as the CSRF
+// double-submit challenge, which only proves same-origin JavaScript, and as
+// an idempotency lease token.
+func randomToken() string {
+	var token [32]byte
+	_, _ = rand.Read(token[:]) // crypto/rand.Read never fails; it crashes instead.
+	return hex.EncodeToString(token[:])
+}
+
+// secretsEqual compares shared secrets in constant time.
+func secretsEqual(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }

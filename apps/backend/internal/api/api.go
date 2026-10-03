@@ -3,8 +3,11 @@
 // A request passes through one global pipeline (trace IDs, the error
 // envelope, security headers, CORS, body limit, CSRF) and is then routed.
 // Guild and member routes add, in order: the endpoint rate limit, the session,
-// live guild authorization, and for writes an Idempotency-Key. The JSON
-// contract is fixed by the dashboard and contracts/http/swagger.yaml.
+// live guild authorization, and for writes an Idempotency-Key. routes.go
+// lists every route. Handlers decode the request, call one quack service,
+// and encode the result; service errors become statuses through the tables
+// in json.go. The JSON contract is fixed by the dashboard and
+// contracts/http/swagger.yaml.
 package api
 
 import (
@@ -174,6 +177,7 @@ func serve(ctx context.Context, server *http.Server, shutdownTimeout time.Durati
 	return errors.Join(serveErr, shutdownErr)
 }
 
+// newHTTPServer applies the configured port and timeouts.
 func newHTTPServer(cfg config.Config, handler http.Handler) *http.Server {
 	return &http.Server{
 		Addr:              ":" + cfg.API.Port,

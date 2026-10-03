@@ -1,7 +1,6 @@
 package api
 
 import (
-	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -25,15 +24,19 @@ type failedActionResponse struct {
 	UpdatedAt     time.Time                   `json:"updated_at"`
 }
 
+// failedActionListResponse is one page of the recovery queue.
 type failedActionListResponse struct {
 	Executions []failedActionResponse `json:"executions"`
 	Total      int64                  `json:"total"`
 }
 
+// failedActionEnvelope wraps the action a retry or dismissal changed.
 type failedActionEnvelope struct {
 	Action failedActionResponse `json:"action"`
 }
 
+// reverseActionRequest names the execution to undo. AppealID links the
+// reversal to the appeal that prompted it, if any.
 type reverseActionRequest struct {
 	OriginalExecutionID string           `json:"original_execution_id"`
 	ActionType          quack.ActionType `json:"action_type"`
@@ -42,14 +45,10 @@ type reverseActionRequest struct {
 }
 
 func (s *Server) listFailedActions(w http.ResponseWriter, r *http.Request) {
-	limit, offset, err := pageParams(r)
-	if err != nil {
-		writeError(w, r, http.StatusBadRequest, codeValidation, "invalid pagination")
-		return
-	}
+	limit, offset := pageParams(r)
 	result, err := s.services.Actions.ListFailures(r.Context(), quack.StaffFromContext(r.Context()), limit, offset)
 	if err != nil {
-		writeCaseError(w, r, err)
+		caseErrors.write(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, newFailedActionList(result))
@@ -57,9 +56,10 @@ func (s *Server) listFailedActions(w http.ResponseWriter, r *http.Request) {
 
 // retryFailedAction requeues the same action after a live permission check.
 func (s *Server) retryFailedAction(w http.ResponseWriter, r *http.Request) {
-	result, err := s.services.Actions.Retry(r.Context(), quack.StaffFromContext(r.Context()), r.PathValue("executionID"))
+	staff := quack.StaffFromContext(r.Context())
+	result, err := s.services.Actions.Retry(r.Context(), staff, r.PathValue("executionID"))
 	if err != nil {
-		writeCaseError(w, r, err)
+		caseErrors.write(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, failedActionEnvelope{Action: newFailedAction(*result)})
@@ -67,9 +67,10 @@ func (s *Server) retryFailedAction(w http.ResponseWriter, r *http.Request) {
 
 // dismissFailedAction removes a failure from the queue; its history stays.
 func (s *Server) dismissFailedAction(w http.ResponseWriter, r *http.Request) {
-	result, err := s.services.Actions.Dismiss(r.Context(), quack.StaffFromContext(r.Context()), r.PathValue("executionID"))
+	staff := quack.StaffFromContext(r.Context())
+	result, err := s.services.Actions.Dismiss(r.Context(), staff, r.PathValue("executionID"))
 	if err != nil {
-		writeCaseError(w, r, err)
+		caseErrors.write(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, failedActionEnvelope{Action: newFailedAction(*result)})
@@ -83,10 +84,11 @@ func (s *Server) reverseCaseAction(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, codeValidation, "confirmed reversal payload is required")
 		return
 	}
-	result, err := s.services.Actions.ReverseForAppeal(r.Context(), quack.StaffFromContext(r.Context()), r.PathValue("caseRef"),
+	staff := quack.StaffFromContext(r.Context())
+	result, err := s.services.Actions.ReverseForAppeal(r.Context(), staff, r.PathValue("caseRef"),
 		input.OriginalExecutionID, input.ActionType, input.AppealID)
 	if err != nil {
-		writeCaseError(w, r, err)
+		caseErrors.write(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"action": result})
@@ -121,21 +123,16 @@ func newFailedAction(execution quack.CaseActionExecution) failedActionResponse {
 	}
 }
 
-// pageParams reads limit (default 50, at most 100) and offset (default 0).
-func pageParams(r *http.Request) (limit, offset int, err error) {
+// pageParams reads limit (default 50) and offset (default 0). The endpoint
+// policy has already rejected values that are malformed or out of range.
+func pageParams(r *http.Request) (limit, offset int) {
 	q := r.URL.Query()
 	limit = 50
-	if raw := q.Get("limit"); raw != "" {
-		limit, err = strconv.Atoi(raw)
-		if err != nil || limit < 1 || limit > 100 {
-			return 0, 0, errors.New("invalid limit")
-		}
+	if q.Has("limit") {
+		limit, _ = strconv.Atoi(q.Get("limit"))
 	}
-	if raw := q.Get("offset"); raw != "" {
-		offset, err = strconv.Atoi(raw)
-		if err != nil || offset < 0 {
-			return 0, 0, errors.New("invalid offset")
-		}
+	if q.Has("offset") {
+		offset, _ = strconv.Atoi(q.Get("offset"))
 	}
-	return limit, offset, nil
+	return limit, offset
 }

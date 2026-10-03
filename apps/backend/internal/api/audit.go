@@ -27,7 +27,7 @@ func (s *Server) listAuditLog(w http.ResponseWriter, r *http.Request) {
 		BeforeID:            q.Get("before_id"),
 	})
 	if err != nil {
-		writeAuditError(w, r, err)
+		auditErrors.write(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -39,7 +39,7 @@ func (s *Server) getStatistics(w http.ResponseWriter, r *http.Request) {
 	result, err := s.services.Statistics.Get(r.Context(), quack.StaffFromContext(r.Context()),
 		quack.StatisticsInput{From: q.Get("from"), To: q.Get("to")})
 	if err != nil {
-		writeStatisticsError(w, r, err)
+		statisticsErrors.write(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)

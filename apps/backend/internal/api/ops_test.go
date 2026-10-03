@@ -144,3 +144,21 @@ func TestGuildOpsStatus(t *testing.T) {
 			http.StatusUnauthorized, codeAuthentication)
 	})
 }
+
+func TestStatusReportsDisconnectedDependencies(t *testing.T) {
+	server := newTestServer(t, config.Default(), Deps{})
+	response := send(t, server, http.MethodGet, "/status", "", "", requestIDHeader, "req-test-1")
+	expectStatus(t, response, http.StatusOK)
+	if got := response.Header().Get(requestIDHeader); got != "req-test-1" {
+		t.Fatalf("X-Request-ID = %q, want the caller's ID echoed", got)
+	}
+	var body map[string]map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, dependency := range []string{"discord", "redis", "database"} {
+		if body[dependency]["connected"] != false {
+			t.Errorf("%s connected = %v, want false", dependency, body[dependency]["connected"])
+		}
+	}
+}

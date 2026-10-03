@@ -10,6 +10,8 @@ import (
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
+const jsonContentType = "application/json; charset=utf-8"
+
 // errorCode is the machine-readable failure class in the error envelope. The
 // dashboard branches on these values, so they never change.
 type errorCode string
@@ -29,8 +31,6 @@ const (
 	codeInternal       errorCode = "internal_error"
 )
 
-const jsonContentType = "application/json; charset=utf-8"
-
 // errorResponse is the body of every response with a status of 400 or more.
 type errorResponse struct {
 	Error errorDetail `json:"error"`
@@ -41,6 +41,100 @@ type errorDetail struct {
 	Message       string    `json:"message"`
 	RequestID     string    `json:"request_id"`
 	CorrelationID string    `json:"correlation_id"`
+}
+
+// serviceErrors maps one service's sentinel errors to responses. Handlers
+// pass every service error through one of these, so a sentinel always gets
+// the same status, and anything unrecognized becomes a 500 that names the
+// operation without leaking the cause.
+type serviceErrors struct {
+	known []knownError
+	// fallback is the message for errors that match nothing in known.
+	fallback string
+}
+
+// knownError is one sentinel's response. An empty message sends the
+// error's own text, which the services write to be shown to staff.
+type knownError struct {
+	target  error
+	status  int
+	code    errorCode
+	message string
+}
+
+var caseErrors = serviceErrors{
+	known: []knownError{
+		{quack.ErrCaseValidation, http.StatusBadRequest, codeValidation, ""},
+		{quack.ErrCasePermissionDenied, http.StatusForbidden, codeAuthorization, ""},
+		{quack.ErrAuthorizationDenied, http.StatusForbidden, codeAuthorization, ""},
+		{quack.ErrCaseTemplateNotAvailable, http.StatusNotFound, codeNotFound, ""},
+		{quack.ErrCaseNotFound, http.StatusNotFound, codeNotFound, ""},
+	},
+	fallback: "case operation failed",
+}
+
+var templateErrors = serviceErrors{
+	known: []knownError{
+		{quack.ErrTemplatePermissionDenied, http.StatusForbidden, codeAuthorization, "template access denied"},
+		{quack.ErrTemplateValidation, http.StatusBadRequest, codeValidation, ""},
+		{quack.ErrTemplateNotFound, http.StatusNotFound, codeNotFound, ""},
+	},
+	fallback: "template operation failed",
+}
+
+var settingsErrors = serviceErrors{
+	known: []knownError{
+		{quack.ErrGuildSettingsValidation, http.StatusBadRequest, codeValidation, ""},
+		{quack.ErrGuildSettingsPermissionDenied, http.StatusForbidden, codeAuthorization, ""},
+		{quack.ErrGuildSettingsNotFound, http.StatusNotFound, codeNotFound, ""},
+	},
+	fallback: "guild settings operation failed",
+}
+
+// appealErrors never sends the error's own text, and answers an ineligible
+// case exactly like a missing appeal, so members cannot probe which of
+// their cases exist or are appealable.
+var appealErrors = serviceErrors{
+	known: []knownError{
+		{quack.ErrAppealValidation, http.StatusBadRequest, codeValidation, "invalid appeal request"},
+		{quack.ErrAppealPermissionDenied, http.StatusForbidden, codeAuthorization, "appeal access denied"},
+		{quack.ErrAppealNotFound, http.StatusNotFound, codeNotFound, "appeal not found"},
+		{quack.ErrAppealCaseIneligible, http.StatusNotFound, codeNotFound, "appeal not found"},
+		{quack.ErrAppealConflict, http.StatusConflict, codeConflict, "appeal state conflict"},
+	},
+	fallback: "appeal operation failed",
+}
+
+var auditErrors = serviceErrors{
+	known: []knownError{
+		{quack.ErrAuditValidation, http.StatusBadRequest, codeValidation, ""},
+		{quack.ErrAuditPermissionDenied, http.StatusForbidden, codeAuthorization, ""},
+	},
+	fallback: "audit operation failed",
+}
+
+var statisticsErrors = serviceErrors{
+	known: []knownError{
+		{quack.ErrStatisticsValidation, http.StatusBadRequest, codeValidation, ""},
+		{quack.ErrStatisticsPermissionDenied, http.StatusForbidden, codeAuthorization, "statistics access denied"},
+	},
+	fallback: "statistics operation failed",
+}
+
+// write answers with the first known error that err matches.
+func (e serviceErrors) write(w http.ResponseWriter, r *http.Request, err error) {
+	for _, known := range e.known {
+		if !errors.Is(err, known.target) {
+			continue
+		}
+		message := known.message
+		if message == "" {
+			message = err.Error()
+		}
+		writeError(w, r, known.status, known.code, message)
+		return
+	}
+	writeError(w, r, http.StatusInternalServerError, codeInternal, e.fallback)
 }
 
 // writeJSON writes v as the response body. Like the dashboard has always
@@ -107,6 +201,16 @@ func normalizeError(ctx context.Context, status int, body []byte) []byte {
 	return normalized
 }
 
+// decode reads the request body into v, answering 400 with message and
+// returning false if it is not a valid payload.
+func decode(w http.ResponseWriter, r *http.Request, v any, message string) bool {
+	if err := decodeJSON(r, v); err != nil {
+		writeError(w, r, http.StatusBadRequest, codeValidation, message)
+		return false
+	}
+	return true
+}
+
 // decodeJSON decodes exactly one JSON value into v and rejects unknown
 // fields, so retired or misspelled fields fail loudly instead of being
 // ignored.
@@ -123,82 +227,4 @@ func decodeJSON(r *http.Request, v any) error {
 		return err
 	}
 	return nil
-}
-
-func writeCaseError(w http.ResponseWriter, r *http.Request, err error) {
-	switch {
-	case errors.Is(err, quack.ErrCaseValidation):
-		writeError(w, r, http.StatusBadRequest, codeValidation, err.Error())
-	case errors.Is(err, quack.ErrCasePermissionDenied), errors.Is(err, quack.ErrAuthorizationDenied):
-		writeError(w, r, http.StatusForbidden, codeAuthorization, err.Error())
-	case errors.Is(err, quack.ErrCaseTemplateNotAvailable), errors.Is(err, quack.ErrCaseNotFound):
-		writeError(w, r, http.StatusNotFound, codeNotFound, err.Error())
-	default:
-		writeError(w, r, http.StatusInternalServerError, codeInternal, "case operation failed")
-	}
-}
-
-func writeTemplateError(w http.ResponseWriter, r *http.Request, err error) {
-	switch {
-	case errors.Is(err, quack.ErrTemplatePermissionDenied):
-		writeError(w, r, http.StatusForbidden, codeAuthorization, "template access denied")
-	case errors.Is(err, quack.ErrTemplateValidation):
-		writeError(w, r, http.StatusBadRequest, codeValidation, err.Error())
-	case errors.Is(err, quack.ErrTemplateNotFound):
-		writeError(w, r, http.StatusNotFound, codeNotFound, err.Error())
-	default:
-		writeError(w, r, http.StatusInternalServerError, codeInternal, "template operation failed")
-	}
-}
-
-func writeSettingsError(w http.ResponseWriter, r *http.Request, err error) {
-	switch {
-	case errors.Is(err, quack.ErrGuildSettingsValidation):
-		writeError(w, r, http.StatusBadRequest, codeValidation, err.Error())
-	case errors.Is(err, quack.ErrGuildSettingsPermissionDenied):
-		writeError(w, r, http.StatusForbidden, codeAuthorization, err.Error())
-	case errors.Is(err, quack.ErrGuildSettingsNotFound):
-		writeError(w, r, http.StatusNotFound, codeNotFound, err.Error())
-	default:
-		writeError(w, r, http.StatusInternalServerError, codeInternal, "guild settings operation failed")
-	}
-}
-
-// writeAppealError hides whether an ineligible case exists: both it and a
-// missing appeal are 404s.
-func writeAppealError(w http.ResponseWriter, r *http.Request, err error) {
-	switch {
-	case errors.Is(err, quack.ErrAppealValidation):
-		writeError(w, r, http.StatusBadRequest, codeValidation, "invalid appeal request")
-	case errors.Is(err, quack.ErrAppealPermissionDenied):
-		writeError(w, r, http.StatusForbidden, codeAuthorization, "appeal access denied")
-	case errors.Is(err, quack.ErrAppealNotFound), errors.Is(err, quack.ErrAppealCaseIneligible):
-		writeError(w, r, http.StatusNotFound, codeNotFound, "appeal not found")
-	case errors.Is(err, quack.ErrAppealConflict):
-		writeError(w, r, http.StatusConflict, codeConflict, "appeal state conflict")
-	default:
-		writeError(w, r, http.StatusInternalServerError, codeInternal, "appeal operation failed")
-	}
-}
-
-func writeAuditError(w http.ResponseWriter, r *http.Request, err error) {
-	switch {
-	case errors.Is(err, quack.ErrAuditValidation):
-		writeError(w, r, http.StatusBadRequest, codeValidation, err.Error())
-	case errors.Is(err, quack.ErrAuditPermissionDenied):
-		writeError(w, r, http.StatusForbidden, codeAuthorization, err.Error())
-	default:
-		writeError(w, r, http.StatusInternalServerError, codeInternal, "audit operation failed")
-	}
-}
-
-func writeStatisticsError(w http.ResponseWriter, r *http.Request, err error) {
-	switch {
-	case errors.Is(err, quack.ErrStatisticsValidation):
-		writeError(w, r, http.StatusBadRequest, codeValidation, err.Error())
-	case errors.Is(err, quack.ErrStatisticsPermissionDenied):
-		writeError(w, r, http.StatusForbidden, codeAuthorization, "statistics access denied")
-	default:
-		writeError(w, r, http.StatusInternalServerError, codeInternal, "statistics operation failed")
-	}
 }

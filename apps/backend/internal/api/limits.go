@@ -6,8 +6,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/quackdiscord/bot/internal/config"
@@ -25,12 +28,15 @@ type rateLimiter struct {
 	prefix string
 }
 
+// rateDecision is the outcome of spending one request from a window.
 type rateDecision struct {
 	allowed    bool
 	remaining  int
 	retryAfter time.Duration
 }
 
+// rateLimitScript counts a request and starts the window on the first one,
+// returning the count and the window's remaining milliseconds.
 var rateLimitScript = redis.NewScript(`
 local current = redis.call("INCR", KEYS[1])
 if current == 1 then
@@ -49,7 +55,7 @@ func (l *rateLimiter) allow(ctx context.Context, subject string, limit config.Li
 	windowMillis := max(limit.Window.Milliseconds(), 1)
 	result, err := rateLimitScript.Run(ctx, l.client, []string{hashedKey(l.prefix, subject)}, windowMillis).Result()
 	if err != nil {
-		return rateDecision{}, fmt.Errorf("%w: rate limit: %v", errUnavailable, err)
+		return rateDecision{}, fmt.Errorf("%w: rate limit: %w", errUnavailable, err)
 	}
 	values, ok := result.([]any)
 	if !ok || len(values) != 2 {
@@ -235,14 +241,77 @@ func guildActorSubject(r *http.Request) string {
 	return staff.Guild.ID + ":" + staff.ActorDiscordUserID
 }
 
+// moduleWriteSubject scopes a module write's idempotency key to the actor
+// and exact request target.
 func moduleWriteSubject(r *http.Request) string {
 	return guildActorSubject(r) + ":" + r.Method + ":" + r.URL.EscapedPath()
 }
 
+// memberWriteSubject scopes a member write's idempotency key to the member,
+// route, and the case or appeal it names.
 func memberWriteSubject(r *http.Request) string {
 	return memberSubject(r) + ":" + routeFrom(r.Context()) + ":" + r.PathValue("caseID") + ":" + r.PathValue("appealID")
 }
 
+// staffAppealWriteSubject scopes an appeal review write's idempotency key to
+// the reviewer, route, and appeal.
 func staffAppealWriteSubject(r *http.Request) string {
 	return guildActorSubject(r) + ":" + routeFrom(r.Context()) + ":" + r.PathValue("appealID")
+}
+
+// parseTrustedProxies accepts bare IPs and CIDRs, as config.Validate does.
+func parseTrustedProxies(proxies []string) ([]*net.IPNet, error) {
+	nets := make([]*net.IPNet, 0, len(proxies))
+	for _, proxy := range proxies {
+		if ip := net.ParseIP(proxy); ip != nil {
+			bits := 8 * net.IPv6len
+			if ip4 := ip.To4(); ip4 != nil {
+				ip, bits = ip4, 8*net.IPv4len
+			}
+			nets = append(nets, &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)})
+			continue
+		}
+		_, cidr, err := net.ParseCIDR(proxy)
+		if err != nil {
+			return nil, fmt.Errorf("invalid trusted proxy %q", proxy)
+		}
+		nets = append(nets, cidr)
+	}
+	return nets, nil
+}
+
+// clientIP returns the caller's address for per-IP rate limits. Forwarding
+// headers are believed only when the direct peer is a trusted proxy;
+// X-Forwarded-For is read right to left and the first untrusted hop wins.
+func (s *Server) clientIP(r *http.Request) string {
+	remote, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
+	if err != nil {
+		return ""
+	}
+	remoteIP := net.ParseIP(remote)
+	if remoteIP == nil {
+		return ""
+	}
+	if !s.trustedProxy(remoteIP) {
+		return remote
+	}
+	for _, header := range []string{"X-Forwarded-For", "X-Real-IP"} {
+		hops := strings.Split(r.Header.Get(header), ",")
+		for i := len(hops) - 1; i >= 0; i-- {
+			hop := strings.TrimSpace(hops[i])
+			ip := net.ParseIP(hop)
+			if ip == nil {
+				break
+			}
+			if i == 0 || !s.trustedProxy(ip) {
+				return hop
+			}
+		}
+	}
+	return remote
+}
+
+// trustedProxy reports whether ip is in api.trusted_proxies.
+func (s *Server) trustedProxy(ip net.IP) bool {
+	return slices.ContainsFunc(s.trustedProxies, func(n *net.IPNet) bool { return n.Contains(ip) })
 }
