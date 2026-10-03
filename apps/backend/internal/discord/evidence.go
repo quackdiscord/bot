@@ -178,7 +178,7 @@ func (b *Bot) PreserveEvidenceAttachment(
 	if err := b.ValidateStaffChannel(ctx, guildID, channelID); err != nil {
 		return nil, err
 	}
-	sent, err := b.Session.ChannelFileSend(channelID, item.Filename, bytes.NewReader(content), rest(ctx)...)
+	sent, err := b.Session.ChannelFileSend(channelID, spoilerName(item.Filename), bytes.NewReader(content), rest(ctx)...)
 	if err != nil {
 		return nil, classify("evidence_upload", err, false)
 	}
@@ -191,6 +191,18 @@ func (b *Bot) PreserveEvidenceAttachment(
 		AttachmentID: sent.Attachments[0].ID,
 		URL:          messageLink(guildID, channelID, sent.ID),
 	}, nil
+}
+
+// spoilerName marks an evidence copy as a spoiler, so Discord blurs images
+// and video in the evidence channel until a moderator chooses to look.
+func spoilerName(filename string) string {
+	if filename == "" {
+		filename = "evidence"
+	}
+	if strings.HasPrefix(strings.ToUpper(filename), "SPOILER_") {
+		return filename
+	}
+	return "SPOILER_" + filename
 }
 
 // attachmentURL reports whether raw points at Discord's attachment CDN.

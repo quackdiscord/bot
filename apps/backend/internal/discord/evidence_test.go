@@ -89,6 +89,7 @@ func TestEvidenceChecksModeratorAccessBeforeBotRead(t *testing.T) {
 // whose size differs from the metadata, as Discord's converted images do,
 // and links the copy by its message, which outlives signed CDN URLs.
 func TestEvidenceCopyKeepsConvertedFileAndReturnsJumpLink(t *testing.T) {
+	var uploaded string
 	bot := testBot(t, func(request *http.Request) (*http.Response, error) {
 		switch path := request.URL.Path; {
 		case strings.HasSuffix(path, "/channels/evidence") && request.Method == http.MethodGet:
@@ -97,6 +98,8 @@ func TestEvidenceCopyKeepsConvertedFileAndReturnsJumpLink(t *testing.T) {
 		case strings.HasSuffix(path, "/guilds/guild"):
 			return jsonResponse(request, &discordgo.Guild{ID: "guild", Roles: []*discordgo.Role{{ID: "guild"}}}), nil
 		case strings.HasSuffix(path, "/channels/evidence/messages"):
+			body, _ := io.ReadAll(request.Body)
+			uploaded = string(body)
 			return jsonResponse(request, &discordgo.Message{ID: "copy", Attachments: []*discordgo.MessageAttachment{{ID: "file", URL: "https://cdn.discordapp.com/attachments/signed"}}}), nil
 		}
 		t.Fatalf("unexpected request %s %s", request.Method, request.URL.Path)
@@ -112,6 +115,22 @@ func TestEvidenceCopyKeepsConvertedFileAndReturnsJumpLink(t *testing.T) {
 	}
 	if copied.URL != "https://discord.com/channels/guild/evidence/copy" || copied.MessageID != "copy" {
 		t.Fatalf("copy = %+v", copied)
+	}
+	if !strings.Contains(uploaded, `filename="SPOILER_a.png"`) {
+		t.Fatalf("evidence copy was not uploaded as a spoiler: %q", uploaded)
+	}
+}
+
+func TestSpoilerName(t *testing.T) {
+	for in, want := range map[string]string{
+		"a.png":         "SPOILER_a.png",
+		"SPOILER_a.png": "SPOILER_a.png",
+		"spoiler_a.png": "spoiler_a.png",
+		"":              "SPOILER_evidence",
+	} {
+		if got := spoilerName(in); got != want {
+			t.Errorf("spoilerName(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 
