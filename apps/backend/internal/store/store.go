@@ -296,20 +296,21 @@ func (l dbLogger) Error(ctx context.Context, _ string, _ ...any) {
 	}
 }
 
-// Trace logs failed and slow queries by operation and duration. Successful
-// queries only show at debug level.
+// Trace logs failed and slow queries by operation and duration. Fast,
+// successful queries are not logged at all: the background pollers run
+// several every second and would drown out everything else.
 func (l dbLogger) Trace(ctx context.Context, begin time.Time, query func() (string, int64), err error) {
 	if l.level == logger.Silent || errors.Is(err, gorm.ErrRecordNotFound) {
 		return
 	}
 	elapsed := time.Since(begin)
-	level := slog.LevelDebug
+	var level slog.Level
 	switch {
 	case err != nil && l.level >= logger.Error:
 		level = slog.LevelError
 	case elapsed >= 200*time.Millisecond && l.level >= logger.Warn:
 		level = slog.LevelWarn
-	case l.level < logger.Info:
+	default:
 		return
 	}
 	if !slog.Default().Enabled(ctx, level) {
