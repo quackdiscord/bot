@@ -31,6 +31,10 @@ import (
 // before another worker may treat it as abandoned.
 const leaseDuration = 2 * time.Minute
 
+// errNoRedis is returned by Redis-backed methods on a Store built without
+// Redis.
+var errNoRedis = errors.New("redis not connected")
+
 // Store implements every quack storage port. It is safe for concurrent use.
 type Store struct {
 	db    *gorm.DB
@@ -58,8 +62,8 @@ var (
 )
 
 // New returns a Store over db and redis. redis may be nil for tools that only
-// touch MySQL, such as migrations and the v4 importer; session and cache
-// methods then fail.
+// touch MySQL, such as migrations and the v4 importer; the session methods
+// and PingRedis then fail.
 func New(db *gorm.DB, redis *redis.Client) *Store {
 	installAuditImmutability(db)
 	return &Store{db: db, redis: redis}
@@ -139,23 +143,6 @@ func (s *Store) PingRedis(ctx context.Context) error {
 	return s.redis.Ping(ctx).Err()
 }
 
-// HashGet reads one field of a Redis hash. The Discord command registry uses
-// it to skip re-registering unchanged commands.
-func (s *Store) HashGet(ctx context.Context, key, field string) ([]byte, error) {
-	if s.redis == nil {
-		return nil, errNoRedis
-	}
-	return s.redis.HGet(ctx, key, field).Bytes()
-}
-
-// HashSet writes one field of a Redis hash.
-func (s *Store) HashSet(ctx context.Context, key, field string, value []byte) error {
-	if s.redis == nil {
-		return errNoRedis
-	}
-	return s.redis.HSet(ctx, key, field, value).Err()
-}
-
 // WithGuildCaseLock runs fn in a transaction that holds the guild row lock.
 // Case numbering and escalation counts read and write under it, so two cases
 // for one guild never race.
@@ -176,14 +163,11 @@ func (s *Store) WithGuildCaseLock(ctx context.Context, guildID string, fn func(q
 	})
 }
 
-// errNoRedis is returned by Redis-backed methods on a Store built without
-// Redis.
-var errNoRedis = errors.New("redis not connected")
-
 // Missing rows follow one pattern. Lookups go through first, which reports a
-// missing row as found == false rather than an error. Port methods return
-// (nil, nil) for a missing row. A transaction that finds its target missing
-// returns errNotFound, which notFoundIsNil turns back into (nil, nil).
+// missing row as found == false rather than an error, or findOne, which
+// returns nil for it. Port methods return (nil, nil) for a missing row. A
+// transaction that finds its target missing returns errNotFound, which
+// notFoundIsNil turns back into (nil, nil).
 
 // errNotFound aborts a transaction whose target row is missing.
 var errNotFound = errors.New("not found")
@@ -193,6 +177,43 @@ var errNotFound = errors.New("not found")
 func first(query *gorm.DB, dest any) (bool, error) {
 	result := query.Limit(1).Find(dest)
 	return result.RowsAffected > 0, result.Error
+}
+
+// findOne loads the first row of query and maps it with model, or returns
+// nil when there is none. op names the lookup in the error.
+func findOne[R, M any](query *gorm.DB, op string, model func(R) M) (*M, error) {
+	var record R
+	found, err := first(query, &record)
+	if err != nil || !found {
+		return nil, wrap(op, err)
+	}
+	m := model(record)
+	return &m, nil
+}
+
+// modelsOf maps records to domain values with model.
+func modelsOf[R, M any](records []R, model func(R) M) []M {
+	out := make([]M, len(records))
+	for i, r := range records {
+		out[i] = model(r)
+	}
+	return out
+}
+
+// ulid rebuilds the domain identity block from a record's columns.
+func ulid(id string, createdAt, updatedAt time.Time) quack.ULIDModel {
+	return quack.ULIDModel{ID: id, CreatedAt: createdAt, UpdatedAt: updatedAt}
+}
+
+// stamp gives a new row its ID and timestamps, keeping any the caller set.
+func stamp(m *quack.ULIDModel, now time.Time) {
+	if m.ID == "" {
+		m.ID = quack.NewID()
+	}
+	if m.CreatedAt.IsZero() {
+		m.CreatedAt = now
+	}
+	m.UpdatedAt = now
 }
 
 // notFoundIsNil turns errNotFound into a nil error.
@@ -246,16 +267,6 @@ func jsonObject(value any) string {
 		return "{}"
 	}
 	return string(body)
-}
-
-// firstNonEmpty returns the first non-empty value.
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if value != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 // dbLogger sends GORM diagnostics to slog without SQL text, bound values, or

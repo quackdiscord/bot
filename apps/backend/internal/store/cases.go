@@ -172,7 +172,10 @@ func (s *Store) VoidCase(ctx context.Context, params quack.VoidCaseParams) (*qua
 			ActorType:          "staff",
 			Visibility:         quack.EventVisibilityPublic,
 			Body:               "Case voided",
-			MetadataJSON:       jsonObject(map[string]any{"reason": params.Reason, "replacement_case_id": params.ReplacementCaseID}),
+			MetadataJSON: jsonObject(map[string]any{
+				"reason":              params.Reason,
+				"replacement_case_id": params.ReplacementCaseID,
+			}),
 		}
 		if err := appendCaseEvent(tx, &event, now); err != nil {
 			return err
@@ -196,14 +199,16 @@ var errCaseNotValid = errors.New("case is no longer valid")
 // because their Discord requests may already have happened. Both case voids
 // and accepted appeals go through here.
 func voidCase(tx *gorm.DB, c *caseRecord, reason, actorID string, replacementID *string, now time.Time) error {
-	result := tx.Model(&caseRecord{}).Where("id = ? AND validity = ?", c.ID, quack.CaseValidityValid).Updates(map[string]any{
-		"validity":                  quack.CaseValidityVoided,
-		"voided_reason":             reason,
-		"voided_by_discord_user_id": actorID,
-		"voided_at":                 now,
-		"replacement_case_id":       replacementID,
-		"updated_at":                now,
-	})
+	result := tx.Model(&caseRecord{}).
+		Where("id = ? AND validity = ?", c.ID, quack.CaseValidityValid).
+		Updates(map[string]any{
+			"validity":                  quack.CaseValidityVoided,
+			"voided_reason":             reason,
+			"voided_by_discord_user_id": actorID,
+			"voided_at":                 now,
+			"replacement_case_id":       replacementID,
+			"updated_at":                now,
+		})
 	if result.Error != nil {
 		return fmt.Errorf("void case: %w", result.Error)
 	}
@@ -218,25 +223,29 @@ func voidCase(tx *gorm.DB, c *caseRecord, reason, actorID string, replacementID 
 	c.UpdatedAt = now
 
 	unstarted := []quack.ActionExecutionStatus{quack.ActionExecutionPending, quack.ActionExecutionRetrying}
-	if err := tx.Model(&executionRecord{}).Where("case_id = ? AND status IN ?", c.ID, unstarted).Updates(map[string]any{
-		"status":          quack.ActionExecutionCancelled,
-		"last_error_code": "case_voided",
-		"last_error":      "case was voided before enforcement",
-		"finished_at":     now,
-		"next_retry_at":   nil,
-		"updated_at":      now,
-	}).Error; err != nil {
+	if err := tx.Model(&executionRecord{}).
+		Where("case_id = ? AND status IN ?", c.ID, unstarted).
+		Updates(map[string]any{
+			"status":          quack.ActionExecutionCancelled,
+			"last_error_code": "case_voided",
+			"last_error":      "case was voided before enforcement",
+			"finished_at":     now,
+			"next_retry_at":   nil,
+			"updated_at":      now,
+		}).Error; err != nil {
 		return fmt.Errorf("cancel voided case actions: %w", err)
 	}
 	unsent := []quack.NotificationStatus{quack.NotificationPending, quack.NotificationPrepared, quack.NotificationClaimed}
-	if err := tx.Model(&caseNotificationRecord{}).Where("case_id = ? AND status IN ?", c.ID, unsent).Updates(map[string]any{
-		"status":           quack.NotificationFailed,
-		"last_error_code":  "case_voided",
-		"last_error":       "case was voided before notification",
-		"lease_token":      "",
-		"lease_expires_at": nil,
-		"updated_at":       now,
-	}).Error; err != nil {
+	if err := tx.Model(&caseNotificationRecord{}).
+		Where("case_id = ? AND status IN ?", c.ID, unsent).
+		Updates(map[string]any{
+			"status":           quack.NotificationFailed,
+			"last_error_code":  "case_voided",
+			"last_error":       "case was voided before notification",
+			"lease_token":      "",
+			"lease_expires_at": nil,
+			"updated_at":       now,
+		}).Error; err != nil {
 		return fmt.Errorf("cancel voided case notification: %w", err)
 	}
 	return nil

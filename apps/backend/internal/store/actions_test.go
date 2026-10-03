@@ -43,7 +43,8 @@ func TestClaimAndCompleteInOrder(t *testing.T) {
 		t.Fatalf("attempts = %+v, %v", attempts, err)
 	}
 	audits, err := s.ListAuditLogEntries(ctx, guildID)
-	if err != nil || len(audits) != 2 || audits[0].Action != string(quack.AuditActionActionAttempt) || audits[1].Action != "case_action.failed" {
+	if err != nil || len(audits) != 2 ||
+		audits[0].Action != string(quack.AuditActionActionAttempt) || audits[1].Action != "case_action.failed" {
 		t.Fatalf("audits = %+v, %v", audits, err)
 	}
 	if next := claim(t, s, created.Case.ID); next == nil || next.Execution.Position != 2 {

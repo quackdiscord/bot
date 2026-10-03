@@ -23,9 +23,16 @@ func TestGuildSettingsUpdateAndChannelRepair(t *testing.T) {
 	settings.AuditMirrorChannelDiscordID = "shared-channel"
 	settings.ManagedEvidenceChannelDiscordID = "shared-channel"
 	settings.StarterPolicyTemplateID = "ignored"
-	updated, err := s.UpdateGuildSettings(ctx, quack.UpdateGuildSettingsParams{Settings: settings, Audit: &quack.AuditLogEntry{
-		GuildID: guildID, Source: quack.AuditSourceAPI, Action: "guild_settings.update", ResourceType: "guild_settings", Result: quack.AuditResultSuccess,
-	}})
+	updated, err := s.UpdateGuildSettings(ctx, quack.UpdateGuildSettingsParams{
+		Settings: settings,
+		Audit: &quack.AuditLogEntry{
+			GuildID:      guildID,
+			Source:       quack.AuditSourceAPI,
+			Action:       "guild_settings.update",
+			ResourceType: "guild_settings",
+			Result:       quack.AuditResultSuccess,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

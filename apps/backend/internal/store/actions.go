@@ -1,6 +1,7 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -92,8 +93,12 @@ func (s *Store) ClaimNextCaseAction(ctx context.Context, params quack.ClaimCaseA
 			ResourceType:  "case_action_execution",
 			ResourceID:    e.ID,
 			Result:        quack.AuditResultSuccess,
-			CorrelationID: firstNonEmpty(e.CorrelationID, c.CorrelationID),
-			MetadataJSON:  jsonObject(map[string]any{"case_id": c.ID, "attempt_number": attempt.AttemptNumber, "status": attempt.Status}),
+			CorrelationID: cmp.Or(e.CorrelationID, c.CorrelationID),
+			MetadataJSON: jsonObject(map[string]any{
+				"case_id":        c.ID,
+				"attempt_number": attempt.AttemptNumber,
+				"status":         attempt.Status,
+			}),
 		}, now); err != nil {
 			return err
 		}
@@ -151,8 +156,12 @@ func failExpiredAction(tx *gorm.DB, c caseRecord, e *executionRecord, now time.T
 		ResourceID:    e.ID,
 		Result:        quack.AuditResultFailure,
 		FailureReason: e.LastErrorCode,
-		CorrelationID: firstNonEmpty(e.CorrelationID, c.CorrelationID),
-		MetadataJSON:  jsonObject(map[string]any{"case_id": c.ID, "attempt_number": e.AttemptCount, "recovery": "staff_review_required"}),
+		CorrelationID: cmp.Or(e.CorrelationID, c.CorrelationID),
+		MetadataJSON: jsonObject(map[string]any{
+			"case_id":        c.ID,
+			"attempt_number": e.AttemptCount,
+			"recovery":       "staff_review_required",
+		}),
 	}, now)
 }
 
@@ -184,12 +193,10 @@ func (s *Store) CompleteCaseAction(ctx context.Context, params quack.CompleteCas
 			return fmt.Errorf("get case for action result: case %s not found", e.CaseID)
 		}
 
-		attemptNumber := params.AttemptNumber
-		if attemptNumber == 0 {
-			attemptNumber = e.AttemptCount
-		}
+		attemptNumber := cmp.Or(params.AttemptNumber, e.AttemptCount)
 		var attempt attemptRecord
-		found, err = first(forUpdate(tx).Where("execution_id = ? AND attempt_number = ?", e.ID, attemptNumber), &attempt)
+		found, err = first(forUpdate(tx).
+			Where("execution_id = ? AND attempt_number = ?", e.ID, attemptNumber), &attempt)
 		if err != nil {
 			return fmt.Errorf("get action attempt: %w", err)
 		}
@@ -198,16 +205,22 @@ func (s *Store) CompleteCaseAction(ctx context.Context, params quack.CompleteCas
 			if e.StartedAt != nil {
 				startedAt = *e.StartedAt
 			}
-			attempt = attemptRecord{ID: quack.NewID(), CreatedAt: now, ExecutionID: e.ID,
-				AttemptNumber: attemptNumber, StartedAt: startedAt, WorkerID: params.WorkerID}
+			attempt = attemptRecord{
+				ID:            quack.NewID(),
+				CreatedAt:     now,
+				ExecutionID:   e.ID,
+				AttemptNumber: attemptNumber,
+				StartedAt:     startedAt,
+				WorkerID:      params.WorkerID,
+			}
 		}
 		attempt.Status = params.AttemptStatus
 		attempt.FinishedAt = &now
 		attempt.DurationMS = now.Sub(attempt.StartedAt).Milliseconds()
 		attempt.ErrorCode = params.ErrorCode
 		attempt.ErrorMessage = params.ErrorMessage
-		attempt.RequestPayloadJSON = firstNonEmpty(params.RequestPayloadJSON, "{}")
-		attempt.ResponsePayloadJSON = firstNonEmpty(params.ResponsePayloadJSON, "{}")
+		attempt.RequestPayloadJSON = cmp.Or(params.RequestPayloadJSON, "{}")
+		attempt.ResponsePayloadJSON = cmp.Or(params.ResponsePayloadJSON, "{}")
 		attempt.UpdatedAt = now
 		if err := tx.Save(&attempt).Error; err != nil {
 			return fmt.Errorf("complete action attempt: %w", err)
@@ -256,7 +269,7 @@ func (s *Store) CompleteCaseAction(ctx context.Context, params quack.CompleteCas
 			ResourceID:    e.ID,
 			Result:        result,
 			FailureReason: params.ErrorMessage,
-			CorrelationID: firstNonEmpty(params.CorrelationID, e.CorrelationID, c.CorrelationID),
+			CorrelationID: cmp.Or(params.CorrelationID, e.CorrelationID, c.CorrelationID),
 			RequestID:     params.RequestID,
 			MetadataJSON: jsonObject(map[string]any{
 				"case_id":        c.ID,
@@ -400,14 +413,6 @@ func (r executionRecord) model() quack.CaseActionExecution {
 		ReversalOfExecutionID:    r.ReversalOfExecutionID,
 		ReversalAppealID:         r.ReversalAppealID,
 	}
-}
-
-func executionModels(records []executionRecord) []quack.CaseActionExecution {
-	executions := make([]quack.CaseActionExecution, len(records))
-	for i, r := range records {
-		executions[i] = r.model()
-	}
-	return executions
 }
 
 func (r attemptRecord) model() quack.CaseActionAttempt {

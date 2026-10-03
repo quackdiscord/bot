@@ -13,6 +13,14 @@ import (
 	"gorm.io/gorm"
 )
 
+// appealStep is what every appeal change writes besides the appeal itself:
+// a timeline event, the notification it triggers, and an audit entry.
+type appealStep struct {
+	event        quack.AppealEvent
+	notification quack.AppealNotification
+	audit        quack.AuditLogEntry
+}
+
 // CreateAppeal saves a member's appeal with its first appeal event, a public
 // case event, an audit entry, and the staff notification. A case takes one
 // appeal; the unique case_id makes a concurrent second one fail with
@@ -54,7 +62,8 @@ func (s *Store) CreateAppeal(ctx context.Context, params quack.CreateAppealParam
 		if err := appendCaseEvent(tx, &caseEvent, now); err != nil {
 			return err
 		}
-		return appendAppealEvent(tx, appeal, appealStep{params.Event, params.Notification, params.Audit}, now)
+		step := appealStep{event: params.Event, notification: params.Notification, audit: params.Audit}
+		return appendAppealEvent(tx, appeal, step, now)
 	})
 	if err != nil {
 		return nil, err
@@ -64,22 +73,12 @@ func (s *Store) CreateAppeal(ctx context.Context, params quack.CreateAppealParam
 
 // GetAppealByID returns an appeal, or nil. Callers authorize access.
 func (s *Store) GetAppealByID(ctx context.Context, appealID string) (*quack.Appeal, error) {
-	return getAppeal(s.db.WithContext(ctx).Where("id = ?", appealID))
+	return findOne(s.db.WithContext(ctx).Where("id = ?", appealID), "get appeal", appealRecord.model)
 }
 
 // GetAppealByCaseID returns a case's appeal, or nil.
 func (s *Store) GetAppealByCaseID(ctx context.Context, caseID string) (*quack.Appeal, error) {
-	return getAppeal(s.db.WithContext(ctx).Where("case_id = ?", caseID))
-}
-
-func getAppeal(query *gorm.DB) (*quack.Appeal, error) {
-	var record appealRecord
-	found, err := first(query, &record)
-	if err != nil || !found {
-		return nil, wrap("get appeal", err)
-	}
-	appeal := record.model()
-	return &appeal, nil
+	return findOne(s.db.WithContext(ctx).Where("case_id = ?", caseID), "get appeal", appealRecord.model)
 }
 
 // ListAppeals returns a page of a guild's appeals, newest first, optionally
@@ -98,24 +97,17 @@ func (s *Store) ListAppeals(ctx context.Context, params quack.AppealListParams) 
 	if err := query.Order("created_at DESC, id DESC").Limit(limit).Offset(offset).Find(&records).Error; err != nil {
 		return nil, fmt.Errorf("list appeals: %w", err)
 	}
-	appeals := make([]quack.Appeal, len(records))
-	for i, r := range records {
-		appeals[i] = r.model()
-	}
-	return &quack.AppealListResult{Appeals: appeals, Total: total}, nil
+	return &quack.AppealListResult{Appeals: modelsOf(records, appealRecord.model), Total: total}, nil
 }
 
 // ListAppealEvents returns an appeal's timeline, oldest first.
 func (s *Store) ListAppealEvents(ctx context.Context, appealID string) ([]quack.AppealEvent, error) {
 	var records []appealEventRecord
-	if err := s.db.WithContext(ctx).Where("appeal_id = ?", appealID).Order("created_at ASC, id ASC").Find(&records).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("appeal_id = ?", appealID).
+		Order("created_at ASC, id ASC").Find(&records).Error; err != nil {
 		return nil, fmt.Errorf("list appeal events: %w", err)
 	}
-	events := make([]quack.AppealEvent, len(records))
-	for i, r := range records {
-		events[i] = r.model()
-	}
-	return events, nil
+	return modelsOf(records, appealEventRecord.model), nil
 }
 
 // AppendAppealInformation records the member's answer to a request for more
@@ -189,18 +181,10 @@ func voidAppealedCase(tx *gorm.DB, a *appealRecord, params quack.TransitionAppea
 	return writeAudit(tx, params.CaseAudit, c.ID, now)
 }
 
-// appealStep is what every appeal change writes besides the appeal itself.
-type appealStep struct {
-	event        quack.AppealEvent
-	notification quack.AppealNotification
-	audit        quack.AuditLogEntry
-}
-
 // transitionAppeal locks the appeal matching match (a condition and its
 // arguments), lets change update it, and saves it under its optimistic
 // version together with step. A missing appeal is a state conflict.
-func (s *Store) transitionAppeal(ctx context.Context, match []any, step appealStep,
-	change func(*gorm.DB, *appealRecord, time.Time) error) (*quack.Appeal, error) {
+func (s *Store) transitionAppeal(ctx context.Context, match []any, step appealStep, change func(*gorm.DB, *appealRecord, time.Time) error) (*quack.Appeal, error) {
 	now := time.Now().UTC()
 	var record appealRecord
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -216,14 +200,16 @@ func (s *Store) transitionAppeal(ctx context.Context, match []any, step appealSt
 		}
 		record.Version++
 		record.UpdatedAt = now
-		result := tx.Model(&appealRecord{}).Where("id = ? AND version = ?", record.ID, record.Version-1).Updates(map[string]any{
-			"status":                      record.Status,
-			"decision_reason":             record.DecisionReason,
-			"reviewed_by_discord_user_id": record.ReviewedByDiscordUserID,
-			"reviewed_at":                 record.ReviewedAt,
-			"version":                     record.Version,
-			"updated_at":                  now,
-		})
+		result := tx.Model(&appealRecord{}).
+			Where("id = ? AND version = ?", record.ID, record.Version-1).
+			Updates(map[string]any{
+				"status":                      record.Status,
+				"decision_reason":             record.DecisionReason,
+				"reviewed_by_discord_user_id": record.ReviewedByDiscordUserID,
+				"reviewed_at":                 record.ReviewedAt,
+				"version":                     record.Version,
+				"updated_at":                  now,
+			})
 		if result.Error != nil {
 			return fmt.Errorf("save appeal: %w", result.Error)
 		}

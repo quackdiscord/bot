@@ -1,6 +1,7 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -24,10 +25,11 @@ func (s *Store) CreateAuditLogEntry(ctx context.Context, entry *quack.AuditLogEn
 // ListAuditLogEntries returns a guild's whole audit log, oldest first.
 func (s *Store) ListAuditLogEntries(ctx context.Context, guildID string) ([]quack.AuditLogEntry, error) {
 	var records []auditRecord
-	if err := s.db.WithContext(ctx).Where("guild_id = ?", guildID).Order("created_at ASC, id ASC").Find(&records).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("guild_id = ?", guildID).
+		Order("created_at ASC, id ASC").Find(&records).Error; err != nil {
 		return nil, fmt.Errorf("list audit log entries: %w", err)
 	}
-	return auditModels(records), nil
+	return modelsOf(records, auditRecord.model), nil
 }
 
 // ListAuditLogEntriesFiltered returns a page of a guild's audit log, newest
@@ -55,7 +57,7 @@ func (s *Store) ListAuditLogEntriesFiltered(ctx context.Context, params quack.Li
 	if err := query.Order("created_at DESC, id DESC").Limit(limit).Offset(offset).Find(&records).Error; err != nil {
 		return nil, fmt.Errorf("list audit log entries: %w", err)
 	}
-	return &quack.ListAuditLogEntriesResult{Entries: auditModels(records), Total: total}, nil
+	return &quack.ListAuditLogEntriesResult{Entries: modelsOf(records, auditRecord.model), Total: total}, nil
 }
 
 // filterAudit applies the non-empty filters in params. Case and member
@@ -115,7 +117,7 @@ func (s *Store) ListPendingAuditMirrorEntries(ctx context.Context, limit int) ([
 	if err != nil {
 		return nil, fmt.Errorf("list pending audit mirror entries: %w", err)
 	}
-	return auditModels(records), nil
+	return modelsOf(records, auditRecord.model), nil
 }
 
 // createAuditLogEntry appends entry inside db, which may be a transaction. It
@@ -125,13 +127,8 @@ func createAuditLogEntry(db *gorm.DB, entry *quack.AuditLogEntry, now time.Time)
 	if entry == nil {
 		return nil
 	}
-	if entry.ResourceID == "" {
-		entry.ResourceID = "unknown"
-	}
-	if entry.MetadataJSON == "" {
-		entry.MetadataJSON = "{}"
-	}
-	entry.MetadataJSON = quack.RedactAuditMetadata(entry.MetadataJSON)
+	entry.ResourceID = cmp.Or(entry.ResourceID, "unknown")
+	entry.MetadataJSON = quack.RedactAuditMetadata(cmp.Or(entry.MetadataJSON, "{}"))
 	entry.FailureReason = redactFailureReason(entry.FailureReason)
 	stamp(&entry.ULIDModel, now)
 	record := newAuditRecord(*entry)
@@ -186,6 +183,7 @@ func installAuditImmutability(db *gorm.DB) {
 	}
 }
 
+// rejectAuditMutation fails the statement when it targets the audit table.
 func rejectAuditMutation(db *gorm.DB) {
 	if db.Statement != nil && db.Statement.Table == "audit_log_entries" {
 		_ = db.AddError(ErrAuditImmutable)
@@ -228,12 +226,4 @@ func (r auditRecord) model() quack.AuditLogEntry {
 		RequestID:           r.RequestID,
 		MetadataJSON:        r.MetadataJSON,
 	}
-}
-
-func auditModels(records []auditRecord) []quack.AuditLogEntry {
-	entries := make([]quack.AuditLogEntry, len(records))
-	for i, r := range records {
-		entries[i] = r.model()
-	}
-	return entries
 }

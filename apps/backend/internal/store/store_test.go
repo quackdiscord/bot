@@ -64,7 +64,7 @@ func TestRedisMethodsFailWithoutRedis(t *testing.T) {
 		"RevokeUserSessions": s.RevokeUserSessions(ctx, "user"),
 	}
 	_, checks["GetSession"] = s.GetSession(ctx, "id")
-	_, checks["HashGet"] = s.HashGet(ctx, "key", "field")
+	_, checks["RefreshSession"] = s.RefreshSession(ctx, &quack.AuthSession{ID: "id", DiscordUserID: "user"}, time.Minute)
 	for name, err := range checks {
 		if err == nil {
 			t.Errorf("%s without Redis succeeded", name)

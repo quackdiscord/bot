@@ -29,7 +29,7 @@ func (s *Store) ListFailedCaseActions(ctx context.Context, filter quack.FailedCa
 	if err := query.Order("updated_at DESC, id DESC").Limit(limit).Offset(offset).Find(&records).Error; err != nil {
 		return nil, fmt.Errorf("list failed case actions: %w", err)
 	}
-	return &quack.FailedCaseActionResult{Executions: executionModels(records), Total: total}, nil
+	return &quack.FailedCaseActionResult{Executions: modelsOf(records, executionRecord.model), Total: total}, nil
 }
 
 // RetryCaseAction requeues a failed execution after staff confirmed it is
@@ -53,7 +53,8 @@ func (s *Store) RetryCaseAction(ctx context.Context, params quack.RetryCaseActio
 		e.DismissedByDiscordUserID = ""
 		e.LastErrorCode = ""
 		e.LastError = ""
-		return reviewed(tx, e, quack.CaseEventActionRetried, "Action retry requested", params.ActorDiscordUserID, params.Audit, now)
+		return saveReview(tx, e, quack.CaseEventActionRetried, "Action retry requested",
+			params.ActorDiscordUserID, params.Audit, now)
 	})
 }
 
@@ -70,14 +71,14 @@ func (s *Store) DismissCaseAction(ctx context.Context, params quack.DismissCaseA
 		}
 		e.DismissedAt = &now
 		e.DismissedByDiscordUserID = params.ActorDiscordUserID
-		return reviewed(tx, e, quack.CaseEventActionDismissed, "Action failure dismissed", params.ActorDiscordUserID, params.Audit, now)
+		return saveReview(tx, e, quack.CaseEventActionDismissed, "Action failure dismissed",
+			params.ActorDiscordUserID, params.Audit, now)
 	})
 }
 
 // reviewCaseAction locks one of a guild's executions and applies a staff
 // review decision to it.
-func (s *Store) reviewCaseAction(ctx context.Context, guildID, executionID string,
-	decide func(*gorm.DB, *executionRecord, time.Time) error) (*quack.CaseActionExecution, error) {
+func (s *Store) reviewCaseAction(ctx context.Context, guildID, executionID string, decide func(*gorm.DB, *executionRecord, time.Time) error) (*quack.CaseActionExecution, error) {
 	now := time.Now().UTC()
 	var record executionRecord
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -98,10 +99,9 @@ func (s *Store) reviewCaseAction(ctx context.Context, guildID, executionID strin
 	return &execution, nil
 }
 
-// reviewed saves a staff review decision with its staff-only timeline event
+// saveReview saves a staff review decision with its staff-only timeline event
 // and audit entry.
-func reviewed(tx *gorm.DB, e *executionRecord, eventType quack.CaseEventType, body, actorID string,
-	audit *quack.AuditLogEntry, now time.Time) error {
+func saveReview(tx *gorm.DB, e *executionRecord, eventType quack.CaseEventType, body, actorID string, audit *quack.AuditLogEntry, now time.Time) error {
 	e.UpdatedAt = now
 	if err := tx.Save(e).Error; err != nil {
 		return fmt.Errorf("save case action execution: %w", err)
@@ -176,7 +176,10 @@ func (s *Store) QueueCaseReversal(ctx context.Context, params quack.QueueCaseRev
 			ActorType:          "staff",
 			Visibility:         quack.EventVisibilityStaff,
 			Body:               "Action reversal queued",
-			MetadataJSON:       jsonObject(map[string]any{"original_execution_id": original.ID, "reversal_execution_id": reversal.ID}),
+			MetadataJSON: jsonObject(map[string]any{
+				"original_execution_id": original.ID,
+				"reversal_execution_id": reversal.ID,
+			}),
 		}, now); err != nil {
 			return err
 		}

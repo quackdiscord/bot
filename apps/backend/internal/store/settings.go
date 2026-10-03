@@ -11,13 +11,8 @@ import (
 
 // GetGuildSettings returns a guild's settings, or nil before bootstrap.
 func (s *Store) GetGuildSettings(ctx context.Context, guildID string) (*quack.GuildSettings, error) {
-	var record guildSettingsRecord
-	found, err := first(s.db.WithContext(ctx).Where("guild_id = ?", guildID), &record)
-	if err != nil || !found {
-		return nil, wrap("get guild settings", err)
-	}
-	settings := record.model()
-	return &settings, nil
+	query := s.db.WithContext(ctx).Where("guild_id = ?", guildID)
+	return findOne(query, "get guild settings", guildSettingsRecord.model)
 }
 
 // UpdateGuildSettings replaces a guild's editable settings. The starter
@@ -87,13 +82,8 @@ func (s *Store) updateSettings(ctx context.Context, guildID string, audit *quack
 // GetGuildAppealSettings returns a guild's appeal form, or nil when the guild
 // uses the default form.
 func (s *Store) GetGuildAppealSettings(ctx context.Context, guildID string) (*quack.GuildAppealSettings, error) {
-	var record appealSettingsRecord
-	found, err := first(s.db.WithContext(ctx).Where("guild_id = ?", guildID), &record)
-	if err != nil || !found {
-		return nil, wrap("get appeal settings", err)
-	}
-	settings := record.model()
-	return &settings, nil
+	query := s.db.WithContext(ctx).Where("guild_id = ?", guildID)
+	return findOne(query, "get appeal settings", appealSettingsRecord.model)
 }
 
 // UpdateGuildAppealSettings replaces the form future appeals use. Existing

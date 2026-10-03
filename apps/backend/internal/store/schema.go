@@ -9,11 +9,16 @@ import (
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
-// This file is the database schema: one record struct per table. Records
-// never leave the package; each concept file maps them to and from the quack
-// domain types. Index names are prefixed with their table because SQLite
-// index names share one namespace across the whole database.
+// This file is the database schema: one record struct per table, and tables
+// listing them for the baseline migration in migrate.go. Records never leave
+// the package. Each concept file maps its records to and from the quack
+// domain types with a newXRecord constructor and a model method.
+//
+// IDs are ULIDs and timestamps are UTC. Index names are prefixed with their
+// table because SQLite index names share one namespace across the database.
 
+// guildRecord is a Discord server Quack is or was installed in. Leaving a
+// guild only clears IsActive; its history stays.
 type guildRecord struct {
 	ID                 string    `gorm:"type:char(26);primaryKey"`
 	CreatedAt          time.Time `gorm:"not null"`
@@ -45,6 +50,8 @@ type guildSettingsRecord struct {
 
 func (guildSettingsRecord) TableName() string { return "guild_settings" }
 
+// staffMemberRecord caches what Quack last saw of a moderator: permissions,
+// display name, and when they were last active.
 type staffMemberRecord struct {
 	ID                     string    `gorm:"type:char(26);primaryKey"`
 	CreatedAt              time.Time `gorm:"not null"`
@@ -58,6 +65,8 @@ type staffMemberRecord struct {
 
 func (staffMemberRecord) TableName() string { return "staff_members" }
 
+// templateRecord is a case template. Version counts policy edits; cases keep
+// a snapshot of the version they were created under.
 type templateRecord struct {
 	ID                     string    `gorm:"type:char(26);primaryKey"`
 	CreatedAt              time.Time `gorm:"not null"`
@@ -76,6 +85,7 @@ type templateRecord struct {
 
 func (templateRecord) TableName() string { return "case_templates" }
 
+// contextFieldRecord is an extra input a template asks moderators for.
 type contextFieldRecord struct {
 	ID         string                 `gorm:"type:char(26);primaryKey"`
 	CreatedAt  time.Time              `gorm:"not null"`
@@ -120,6 +130,8 @@ type levelActionRecord struct {
 
 func (levelActionRecord) TableName() string { return "case_template_level_actions" }
 
+// caseRecord is a moderation case. Cases are numbered per guild and never
+// deleted; voiding one keeps it but stops it counting toward escalation.
 type caseRecord struct {
 	ID                      string             `gorm:"type:char(26);primaryKey"`
 	CreatedAt               time.Time          `gorm:"not null;index:idx_cases_guild_target,priority:3;index:idx_cases_guild_created,priority:2"`
@@ -150,6 +162,8 @@ type caseRecord struct {
 
 func (caseRecord) TableName() string { return "cases" }
 
+// executionRecord is one Discord action a case enforces, run in Position
+// order by the worker that holds LeaseToken until LeaseExpiresAt.
 type executionRecord struct {
 	ID                       string                      `gorm:"type:char(26);primaryKey"`
 	CreatedAt                time.Time                   `gorm:"not null;index"`
@@ -183,6 +197,7 @@ type executionRecord struct {
 
 func (executionRecord) TableName() string { return "case_action_executions" }
 
+// attemptRecord is one try at an execution, kept as history.
 type attemptRecord struct {
 	ID                  string                    `gorm:"type:char(26);primaryKey"`
 	CreatedAt           time.Time                 `gorm:"not null"`
@@ -202,6 +217,8 @@ type attemptRecord struct {
 
 func (attemptRecord) TableName() string { return "case_action_attempts" }
 
+// evidenceRecord is a Discord message captured with a case, as it was when
+// the case was created.
 type evidenceRecord struct {
 	ID                  string    `gorm:"type:char(26);primaryKey"`
 	CreatedAt           time.Time `gorm:"not null"`
@@ -222,6 +239,8 @@ type evidenceRecord struct {
 
 func (evidenceRecord) TableName() string { return "case_evidence_snapshots" }
 
+// attachmentRecord is a file on captured evidence, with where Quack
+// re-uploaded it so it outlives the original message.
 type attachmentRecord struct {
 	ID                           string    `gorm:"type:char(26);primaryKey"`
 	CreatedAt                    time.Time `gorm:"not null"`
@@ -261,6 +280,8 @@ type caseNotificationRecord struct {
 
 func (caseNotificationRecord) TableName() string { return "case_notifications" }
 
+// caseEventRecord is one entry in a case's timeline. Visibility decides
+// whether the member sees it.
 type caseEventRecord struct {
 	ID                 string                `gorm:"type:char(26);primaryKey"`
 	CreatedAt          time.Time             `gorm:"not null;index:idx_case_events_case_created,priority:2"`
@@ -300,6 +321,7 @@ type appealRecord struct {
 
 func (appealRecord) TableName() string { return "appeals" }
 
+// appealEventRecord is one entry in an appeal's timeline.
 type appealEventRecord struct {
 	ID                 string    `gorm:"type:char(26);primaryKey"`
 	CreatedAt          time.Time `gorm:"not null"`
@@ -315,6 +337,8 @@ type appealEventRecord struct {
 
 func (appealEventRecord) TableName() string { return "appeal_events" }
 
+// appealSettingsRecord is a guild's custom appeal form. Guilds without one
+// use the default questions.
 type appealSettingsRecord struct {
 	ID                     string    `gorm:"type:char(26);primaryKey"`
 	CreatedAt              time.Time `gorm:"not null"`
@@ -401,9 +425,9 @@ type v4SourceRecord struct {
 
 func (v4SourceRecord) TableName() string { return "v4_import_sources" }
 
-// models lists every table the baseline creates, parents before children, so
-// dropping them in reverse order is always safe.
-func models() []any {
+// tables lists every table the baseline creates, the modules' included,
+// parents before children, so dropping them in reverse order is always safe.
+func tables() []any {
 	core := []any{
 		&guildRecord{},
 		&guildSettingsRecord{},
@@ -430,20 +454,4 @@ func models() []any {
 	core = append(core, modules.Models()...)
 	core = append(core, tickets.Models()...)
 	return append(core, honeypot.Models()...)
-}
-
-// ulid rebuilds the domain identity block from a record's columns.
-func ulid(id string, createdAt, updatedAt time.Time) quack.ULIDModel {
-	return quack.ULIDModel{ID: id, CreatedAt: createdAt, UpdatedAt: updatedAt}
-}
-
-// stamp gives a new record its ID and timestamps, keeping any the caller set.
-func stamp(m *quack.ULIDModel, now time.Time) {
-	if m.ID == "" {
-		m.ID = quack.NewID()
-	}
-	if m.CreatedAt.IsZero() {
-		m.CreatedAt = now
-	}
-	m.UpdatedAt = now
 }

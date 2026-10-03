@@ -17,22 +17,13 @@ const staffActivityInterval = 5 * time.Minute
 
 // GetGuildByDiscordID returns the guild with a Discord ID, or nil.
 func (s *Store) GetGuildByDiscordID(ctx context.Context, discordGuildID string) (*quack.Guild, error) {
-	return s.getGuild(ctx, "discord_guild_id = ?", discordGuildID)
+	query := s.db.WithContext(ctx).Where("discord_guild_id = ?", discordGuildID)
+	return findOne(query, "get guild", guildRecord.model)
 }
 
 // GetGuildByID returns the guild with an internal ID, or nil.
 func (s *Store) GetGuildByID(ctx context.Context, guildID string) (*quack.Guild, error) {
-	return s.getGuild(ctx, "id = ?", guildID)
-}
-
-func (s *Store) getGuild(ctx context.Context, where string, arg string) (*quack.Guild, error) {
-	var record guildRecord
-	found, err := first(s.db.WithContext(ctx).Where(where, arg), &record)
-	if err != nil || !found {
-		return nil, wrap("get guild", err)
-	}
-	guild := record.model()
-	return &guild, nil
+	return findOne(s.db.WithContext(ctx).Where("id = ?", guildID), "get guild", guildRecord.model)
 }
 
 // UpsertGuild refreshes a guild's Discord metadata and marks it active,
@@ -53,11 +44,7 @@ func (s *Store) UpsertGuild(ctx context.Context, params quack.UpsertGuildParams)
 	if !found {
 		record = guildRecord{ID: quack.NewID(), CreatedAt: now, DiscordGuildID: params.DiscordGuildID}
 	}
-	record.Name = params.Name
-	record.IconURL = params.IconURL
-	record.OwnerDiscordUserID = params.OwnerDiscordUserID
-	record.IsActive = true
-	record.UpdatedAt = now
+	record.refresh(params.Name, params.IconURL, params.OwnerDiscordUserID, now)
 	if err := db.Save(&record).Error; err != nil {
 		return nil, fmt.Errorf("save guild: %w", err)
 	}
@@ -67,14 +54,8 @@ func (s *Store) UpsertGuild(ctx context.Context, params quack.UpsertGuildParams)
 
 // GetStaffMember returns a staff member's cached attribution, or nil.
 func (s *Store) GetStaffMember(ctx context.Context, guildID, discordUserID string) (*quack.StaffMember, error) {
-	var record staffMemberRecord
 	query := s.db.WithContext(ctx).Where("guild_id = ? AND discord_user_id = ?", guildID, discordUserID)
-	found, err := first(query, &record)
-	if err != nil || !found {
-		return nil, wrap("get staff member", err)
-	}
-	staff := record.model()
-	return &staff, nil
+	return findOne(query, "get staff member", staffMemberRecord.model)
 }
 
 // UpsertStaffMember refreshes a staff member's cached permissions, display
@@ -99,7 +80,12 @@ func (s *Store) UpsertStaffMember(ctx context.Context, params quack.UpsertStaffM
 		return &staff, nil
 	}
 	if !found {
-		record = staffMemberRecord{ID: quack.NewID(), CreatedAt: now, GuildID: params.GuildID, DiscordUserID: params.DiscordUserID}
+		record = staffMemberRecord{
+			ID:            quack.NewID(),
+			CreatedAt:     now,
+			GuildID:       params.GuildID,
+			DiscordUserID: params.DiscordUserID,
+		}
 	}
 	record.LastSeenPermissionBits = params.LastSeenPermissionBits
 	record.LastKnownDisplayName = params.LastKnownDisplayName
@@ -131,11 +117,7 @@ func (s *Store) BootstrapGuild(ctx context.Context, params quack.BootstrapGuildP
 			guild = guildRecord{ID: quack.NewID(), CreatedAt: now, DiscordGuildID: params.DiscordGuildID}
 			result.GuildCreated = true
 		}
-		guild.Name = params.Name
-		guild.IconURL = params.IconURL
-		guild.OwnerDiscordUserID = params.OwnerDiscordUserID
-		guild.IsActive = true
-		guild.UpdatedAt = now
+		guild.refresh(params.Name, params.IconURL, params.OwnerDiscordUserID, now)
 		if err := tx.Save(&guild).Error; err != nil {
 			return fmt.Errorf("save bootstrap guild: %w", err)
 		}
@@ -146,7 +128,12 @@ func (s *Store) BootstrapGuild(ctx context.Context, params quack.BootstrapGuildP
 			return fmt.Errorf("get bootstrap settings: %w", err)
 		}
 		if !found {
-			settings = guildSettingsRecord{ID: quack.NewID(), CreatedAt: now, GuildID: guild.ID, StarterPolicyNoticePending: true}
+			settings = guildSettingsRecord{
+				ID:                         quack.NewID(),
+				CreatedAt:                  now,
+				GuildID:                    guild.ID,
+				StarterPolicyNoticePending: true,
+			}
 		}
 
 		if settings.StarterPolicyTemplateID == "" {
@@ -159,7 +146,8 @@ func (s *Store) BootstrapGuild(ctx context.Context, params quack.BootstrapGuildP
 			result.StarterTemplate = *starter
 			result.StarterTemplateCreated = created
 			if created {
-				if err := systemAudit(tx, guild.ID, "case_template.bootstrap", "case_template", starter.Template.ID, now); err != nil {
+				err := systemAudit(tx, guild.ID, "case_template.bootstrap", "case_template", starter.Template.ID, now)
+				if err != nil {
 					return err
 				}
 			}
@@ -192,7 +180,9 @@ func (s *Store) BootstrapGuild(ctx context.Context, params quack.BootstrapGuildP
 			return fmt.Errorf("save bootstrap settings: %w", err)
 		}
 		if repaired {
-			if err := systemAudit(tx, guild.ID, "guild_settings.channel_references.repaired", "guild_settings", settings.ID, now); err != nil {
+			err := systemAudit(tx, guild.ID, "guild_settings.channel_references.repaired",
+				"guild_settings", settings.ID, now)
+			if err != nil {
 				return err
 			}
 		}
@@ -286,6 +276,16 @@ func systemAudit(tx *gorm.DB, guildID, action, resourceType, resourceID string, 
 		ResourceID:         resourceID,
 		Result:             quack.AuditResultSuccess,
 	}, now)
+}
+
+// refresh copies Discord's current name, icon, and owner onto r and marks
+// the guild active.
+func (r *guildRecord) refresh(name, iconURL, ownerID string, now time.Time) {
+	r.Name = name
+	r.IconURL = iconURL
+	r.OwnerDiscordUserID = ownerID
+	r.IsActive = true
+	r.UpdatedAt = now
 }
 
 func (r guildRecord) model() quack.Guild {

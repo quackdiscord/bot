@@ -189,7 +189,8 @@ func migrate(args []string, stderr io.Writer) error {
 		}
 		err := s.Rollback(*dropAll)
 		if errors.Is(err, store.ErrBaselineRollback) {
-			fmt.Fprintln(stderr, "quack migrate: the newest migration is the baseline; rolling it back drops every table and all data.\nRerun with -drop-all to do that.")
+			fmt.Fprint(stderr, "quack migrate: the newest migration is the baseline; "+
+				"rolling it back drops every table and all data.\nRerun with -drop-all to do that.\n")
 			return errReported
 		}
 		if err != nil {

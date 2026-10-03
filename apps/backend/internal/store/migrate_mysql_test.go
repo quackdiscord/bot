@@ -62,7 +62,11 @@ func TestMySQL(t *testing.T) {
 			t.Fatalf("summary = %+v, %v", summary, err)
 		}
 		now := time.Now().UTC()
-		stats, err := s.DeriveStaffStatistics(ctx, quack.StaffStatisticsParams{GuildID: guildID, From: now.Add(-time.Hour), To: now.Add(time.Hour)})
+		stats, err := s.DeriveStaffStatistics(ctx, quack.StaffStatisticsParams{
+			GuildID: guildID,
+			From:    now.Add(-time.Hour),
+			To:      now.Add(time.Hour),
+		})
 		if err != nil || stats.CaseTotal != 2 || len(stats.CasesByDay) == 0 || stats.CasesByDay[0].Key != now.Format(time.DateOnly) {
 			t.Fatalf("stats = %+v, %v", stats, err)
 		}

@@ -21,8 +21,19 @@ func TestAppealLifecycleAndAtomicAcceptance(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := createAppealableCase(t, s, guildID, true,
-		quack.CaseActionExecution{Position: 0, ActionType: quack.ActionBanUser, Status: quack.ActionExecutionSucceeded, ConfigSnapshotJSON: "{}"},
-		quack.CaseActionExecution{Position: 1, ActionType: quack.ActionTimeoutUser, Status: quack.ActionExecutionPending, ConfigSnapshotJSON: "{}", SafeForRetry: true},
+		quack.CaseActionExecution{
+			Position:           0,
+			ActionType:         quack.ActionBanUser,
+			Status:             quack.ActionExecutionSucceeded,
+			ConfigSnapshotJSON: "{}",
+		},
+		quack.CaseActionExecution{
+			Position:           1,
+			ActionType:         quack.ActionTimeoutUser,
+			Status:             quack.ActionExecutionPending,
+			ConfigSnapshotJSON: "{}",
+			SafeForRetry:       true,
+		},
 	)
 	service := quack.NewAppealService(s)
 
@@ -39,7 +50,10 @@ func TestAppealLifecycleAndAtomicAcceptance(t *testing.T) {
 	if configured, err := service.UpdateSettings(ctx, manager, questions); err != nil || configured.Default || len(configured.Questions) != 2 {
 		t.Fatalf("configure appeal form: %+v err=%v", configured, err)
 	}
-	answers := []quack.AppealAnswer{{QuestionID: "explanation", Value: "The decision should be reconsidered."}, {QuestionID: "contact", Value: true}}
+	answers := []quack.AppealAnswer{
+		{QuestionID: "explanation", Value: "The decision should be reconsidered."},
+		{QuestionID: "contact", Value: true},
+	}
 	appeal, err := service.Submit(ctx, c.ID, "target", quack.AppealSubmissionInput{Answers: answers})
 	if err != nil {
 		t.Fatalf("submit appeal: %v", err)
@@ -63,7 +77,8 @@ func TestAppealLifecycleAndAtomicAcceptance(t *testing.T) {
 
 	moderator := &quack.GuildStaffContext{Guild: guild, Staff: &quack.StaffMember{GuildID: guildID, DiscordUserID: "moderator"},
 		ActorDiscordUserID: "moderator", Permissions: map[quack.PermissionAction]bool{quack.PermissionActionAppealReview: true}}
-	if requested, err := service.RequestInformation(ctx, moderator, appeal.ID, "Please clarify."); err != nil || requested.Status != quack.AppealStatusNeedsInformation {
+	requested, err := service.RequestInformation(ctx, moderator, appeal.ID, "Please clarify.")
+	if err != nil || requested.Status != quack.AppealStatusNeedsInformation {
 		t.Fatalf("request information: %+v err=%v", requested, err)
 	}
 	memberView, err := service.GetMember(ctx, appeal.ID, "target")
@@ -87,7 +102,8 @@ func TestAppealLifecycleAndAtomicAcceptance(t *testing.T) {
 	// Acceptance voids the case and cancels unstarted work, but queues no
 	// reversal on its own.
 	executions, err := s.ListCaseActionExecutions(ctx, c.ID)
-	if err != nil || len(executions) != 2 || executions[1].Status != quack.ActionExecutionCancelled || executions[1].LastErrorCode != "case_voided" {
+	if err != nil || len(executions) != 2 ||
+		executions[1].Status != quack.ActionExecutionCancelled || executions[1].LastErrorCode != "case_voided" {
 		t.Fatalf("executions after acceptance: %+v err=%v", executions, err)
 	}
 	if n, err := s.GetCaseNotification(ctx, c.ID); err != nil || n.Status != quack.NotificationFailed || n.LastErrorCode != "case_voided" {
@@ -206,7 +222,8 @@ func TestAppealRejectReopenClose(t *testing.T) {
 	if got, err := service.Reject(ctx, moderator, appeal.ID, "Insufficient context."); err != nil || got.Status != quack.AppealStatusRejected {
 		t.Fatalf("reject: %+v err=%v", got, err)
 	}
-	if got, err := service.Reopen(ctx, moderator, appeal.ID, "One more question."); err != nil || got.Status != quack.AppealStatusNeedsInformation {
+	got, err := service.Reopen(ctx, moderator, appeal.ID, "One more question.")
+	if err != nil || got.Status != quack.AppealStatusNeedsInformation {
 		t.Fatalf("reopen: %+v err=%v", got, err)
 	}
 	if _, err := service.SubmitInformation(ctx, appeal.ID, "target", quack.AppealInformationInput{Body: "Answer."}); err != nil {
@@ -219,8 +236,9 @@ func TestAppealRejectReopenClose(t *testing.T) {
 	if got, err := s.GetCaseByID(ctx, c.ID); err != nil || got.Validity != quack.CaseValidityValid {
 		t.Fatalf("non-accepting decisions changed the case: %+v err=%v", got, err)
 	}
-	if got, err := s.ListAppeals(ctx, quack.AppealListParams{GuildID: guildID, Status: quack.AppealStatusClosed}); err != nil || got.Total != 1 {
-		t.Fatalf("ListAppeals(closed) = %+v, %v", got, err)
+	listed, err := s.ListAppeals(ctx, quack.AppealListParams{GuildID: guildID, Status: quack.AppealStatusClosed})
+	if err != nil || listed.Total != 1 {
+		t.Fatalf("ListAppeals(closed) = %+v, %v", listed, err)
 	}
 }
 
@@ -243,12 +261,17 @@ func TestAppealNotificationLeaseFencing(t *testing.T) {
 	if err != nil || len(second) != 1 || second[0].ID != first[0].ID || second[0].LeaseToken == first[0].LeaseToken {
 		t.Fatalf("reclaim: %+v err=%v", second, err)
 	}
-	stale := quack.CompleteAppealNotificationParams{NotificationID: first[0].ID, LeaseToken: first[0].LeaseToken, Status: quack.AppealNotificationSent}
-	if err := s.CompleteAppealNotification(ctx, stale); !errors.Is(err, quack.ErrAppealStateConflict) {
+	sent := func(n quack.AppealNotification) quack.CompleteAppealNotificationParams {
+		return quack.CompleteAppealNotificationParams{
+			NotificationID: n.ID,
+			LeaseToken:     n.LeaseToken,
+			Status:         quack.AppealNotificationSent,
+		}
+	}
+	if err := s.CompleteAppealNotification(ctx, sent(first[0])); !errors.Is(err, quack.ErrAppealStateConflict) {
 		t.Fatalf("stale completion = %v, want ErrAppealStateConflict", err)
 	}
-	current := quack.CompleteAppealNotificationParams{NotificationID: second[0].ID, LeaseToken: second[0].LeaseToken, Status: quack.AppealNotificationSent}
-	if err := s.CompleteAppealNotification(ctx, current); err != nil {
+	if err := s.CompleteAppealNotification(ctx, sent(second[0])); err != nil {
 		t.Fatalf("current completion: %v", err)
 	}
 }

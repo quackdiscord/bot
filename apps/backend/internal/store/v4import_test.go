@@ -18,10 +18,7 @@ import (
 func TestV4ImportIsHistoricalIdempotentAndReversible(t *testing.T) {
 	ctx := context.Background()
 	s, guildID := importStore(t)
-	fixture, err := os.ReadFile("../v4import/testdata/historical_cases.jsonl")
-	if err != nil {
-		t.Fatal(err)
-	}
+	fixture := historicalFixture(t)
 	importer := v4import.New(s)
 	run := func(input []byte, dryRun bool) (*v4import.Report, error) {
 		return importer.Import(ctx, "fixture", guildID, "operator", bytes.NewReader(input), dryRun)
@@ -44,7 +41,8 @@ func TestV4ImportIsHistoricalIdempotentAndReversible(t *testing.T) {
 		t.Fatalf("cases = %d, %v", len(cases), err)
 	}
 	for _, c := range cases {
-		if c.Source != quack.CaseSourceV4Import || c.TemplateID != nil || c.TemplateVersion != 0 || !strings.Contains(c.MetadataJSON, `"historical":true`) {
+		if c.Source != quack.CaseSourceV4Import || c.TemplateID != nil || c.TemplateVersion != 0 ||
+			!strings.Contains(c.MetadataJSON, `"historical":true`) {
 			t.Fatalf("imported case is not historical: %+v", c)
 		}
 		executions, _ := s.ListCaseActionExecutions(ctx, c.ID)
@@ -53,7 +51,8 @@ func TestV4ImportIsHistoricalIdempotentAndReversible(t *testing.T) {
 			t.Fatalf("import queued work for case %s", c.ID)
 		}
 	}
-	if member, err := s.ListCasesFiltered(ctx, quack.ListCasesParams{GuildID: guildID, TargetDiscordUserID: "member-departed"}); err != nil || member.Total != 1 {
+	member, err := s.ListCasesFiltered(ctx, quack.ListCasesParams{GuildID: guildID, TargetDiscordUserID: "member-departed"})
+	if err != nil || member.Total != 1 {
 		t.Fatalf("member history = %+v, %v", member, err)
 	}
 
@@ -63,7 +62,8 @@ func TestV4ImportIsHistoricalIdempotentAndReversible(t *testing.T) {
 	}
 	for i, decision := range repeat.Decisions {
 		if decision.TargetCaseNumber != report.Decisions[i].TargetCaseNumber {
-			t.Fatalf("repeat decision %d maps to case %d, first import to %d", i, decision.TargetCaseNumber, report.Decisions[i].TargetCaseNumber)
+			t.Fatalf("repeat decision %d maps to case %d, first import to %d",
+				i, decision.TargetCaseNumber, report.Decisions[i].TargetCaseNumber)
 		}
 	}
 	changed := bytes.Replace(fixture, []byte("Historical warning"), []byte("Changed warning"), 1)
@@ -87,10 +87,7 @@ func TestV4ImportRemapsTakenCaseNumbers(t *testing.T) {
 	ctx := context.Background()
 	s, guildID := importStore(t)
 	createCase(t, s, guildID, nil, nil)
-	fixture, err := os.ReadFile("../v4import/testdata/historical_cases.jsonl")
-	if err != nil {
-		t.Fatal(err)
-	}
+	fixture := historicalFixture(t)
 	report, err := v4import.New(s).Import(ctx, "fixture", guildID, "operator", bytes.NewReader(fixture), false)
 	if err != nil {
 		t.Fatal(err)
@@ -107,10 +104,7 @@ func TestV4ImportRemapsTakenCaseNumbers(t *testing.T) {
 func TestV4RollbackRefusesTouchedCases(t *testing.T) {
 	ctx := context.Background()
 	s, guildID := importStore(t)
-	fixture, err := os.ReadFile("../v4import/testdata/historical_cases.jsonl")
-	if err != nil {
-		t.Fatal(err)
-	}
+	fixture := historicalFixture(t)
 	importer := v4import.New(s)
 	report, err := importer.Import(ctx, "fixture", guildID, "operator", bytes.NewReader(fixture), false)
 	if err != nil {
@@ -125,6 +119,17 @@ func TestV4RollbackRefusesTouchedCases(t *testing.T) {
 	}
 }
 
+// historicalFixture reads the sample v4 export: four cases for importStore's
+// guild.
+func historicalFixture(t *testing.T) []byte {
+	t.Helper()
+	fixture, err := os.ReadFile("../v4import/testdata/historical_cases.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fixture
+}
+
 // importStore returns a store with the guild the v4 fixture belongs to.
 func importStore(t *testing.T) (*store.Store, string) {
 	t.Helper()
@@ -132,8 +137,11 @@ func importStore(t *testing.T) (*store.Store, string) {
 	const guildID = "01J40000000000000000000001"
 	now := time.Now().UTC()
 	guild := quack.Guild{
-		ULIDModel:      quack.ULIDModel{ID: guildID, CreatedAt: now, UpdatedAt: now},
-		DiscordGuildID: "discord-import-guild", Name: "Import guild", OwnerDiscordUserID: "owner", IsActive: true,
+		ULIDModel:          quack.ULIDModel{ID: guildID, CreatedAt: now, UpdatedAt: now},
+		DiscordGuildID:     "discord-import-guild",
+		Name:               "Import guild",
+		OwnerDiscordUserID: "owner",
+		IsActive:           true,
 	}
 	if err := s.DB().Create(&guild).Error; err != nil {
 		t.Fatal(err)

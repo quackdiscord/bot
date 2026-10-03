@@ -64,7 +64,9 @@ func TestMigrateCreatesSchemaOnce(t *testing.T) {
 
 func TestMigrateRefusesUnknownLedger(t *testing.T) {
 	db := testutil.NewSQLiteDB(t)
-	if err := db.Exec("INSERT INTO quack_schema_migrations (version, name, applied_at) VALUES (2, 'from_the_future', CURRENT_TIMESTAMP)").Error; err != nil {
+	future := "INSERT INTO quack_schema_migrations (version, name, applied_at) " +
+		"VALUES (2, 'from_the_future', CURRENT_TIMESTAMP)"
+	if err := db.Exec(future).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := store.New(db, nil).Migrate(); err == nil {
@@ -148,7 +150,8 @@ func TestSchemaConstraints(t *testing.T) {
 		if err == nil {
 			t.Fatal("duplicate slug in one guild succeeded")
 		}
-		if _, err := s.CreateCaseTemplate(ctx, quack.CreateCaseTemplateParams{Template: newTemplate(otherGuildID, "spam"), Levels: newLevels()}); err != nil {
+		params := quack.CreateCaseTemplateParams{Template: newTemplate(otherGuildID, "spam"), Levels: newLevels()}
+		if _, err := s.CreateCaseTemplate(ctx, params); err != nil {
 			t.Fatalf("same slug in another guild: %v", err)
 		}
 	})

@@ -50,7 +50,8 @@ func (s *Store) ClaimCaseNotification(ctx context.Context, params quack.ClaimCas
 		}
 		var record caseNotificationRecord
 		found, err := first(forUpdate(tx).Where("case_id = ?", params.CaseID).
-			Where(claimableNotification, quack.NotificationPending, quack.NotificationPrepared, quack.NotificationClaimed, now), &record)
+			Where(claimableNotification,
+				quack.NotificationPending, quack.NotificationPrepared, quack.NotificationClaimed, now), &record)
 		if err != nil || !found {
 			return wrap("claim case notification", err)
 		}
@@ -196,11 +197,7 @@ func (s *Store) ClaimPendingAppealNotifications(ctx context.Context, limit int) 
 	if err != nil {
 		return nil, err
 	}
-	items := make([]quack.AppealNotification, len(records))
-	for i, r := range records {
-		items[i] = r.model()
-	}
-	return items, nil
+	return modelsOf(records, appealNotificationRecord.model), nil
 }
 
 // CompleteAppealNotification records a delivery outcome for a notification
@@ -210,7 +207,8 @@ func (s *Store) CompleteAppealNotification(ctx context.Context, params quack.Com
 		return errors.New("appeal notification completion status is invalid")
 	}
 	result := s.db.WithContext(ctx).Model(&appealNotificationRecord{}).
-		Where("id = ? AND status = ? AND lease_token = ?", params.NotificationID, quack.AppealNotificationClaimed, params.LeaseToken).
+		Where("id = ? AND status = ? AND lease_token = ?",
+			params.NotificationID, quack.AppealNotificationClaimed, params.LeaseToken).
 		Updates(map[string]any{
 			"status":              params.Status,
 			"delivery_message_id": params.DeliveryMessageID,

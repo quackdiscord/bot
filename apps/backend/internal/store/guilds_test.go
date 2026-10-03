@@ -113,7 +113,8 @@ func TestGuildLeaveAndRejoinKeepsSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rejoined.Guild.ID != bootstrap.Guild.ID || !rejoined.Guild.IsActive || rejoined.Guild.Name != "After" || rejoined.StarterTemplateCreated {
+	if rejoined.Guild.ID != bootstrap.Guild.ID || !rejoined.Guild.IsActive ||
+		rejoined.Guild.Name != "After" || rejoined.StarterTemplateCreated {
 		t.Fatalf("rejoin did not reuse the guild: %+v", rejoined)
 	}
 	if rejoined.Settings.AuditMirrorChannelDiscordID != "audit-channel" || rejoined.Settings.ManagedEvidenceChannelDiscordID != "" {

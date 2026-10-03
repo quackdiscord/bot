@@ -105,8 +105,11 @@ func (s *Store) ApplyV4Import(ctx context.Context, batch v4import.Batch, rows []
 			ResourceID:         batch.ID,
 			Result:             quack.AuditResultSuccess,
 			MetadataJSON: jsonObject(map[string]any{
-				"checksum": batch.Checksum, "records": batch.RecordCount,
-				"created": created, "already_imported": already, "warnings": warnings,
+				"checksum":         batch.Checksum,
+				"records":          batch.RecordCount,
+				"created":          created,
+				"already_imported": already,
+				"warnings":         warnings,
 			}),
 		}, now)
 	})
@@ -166,7 +169,8 @@ func createImportedCase(tx *gorm.DB, batch v4import.Batch, row v4import.Prepared
 // needs up front rather than querying per row.
 func inspectV4Rows(db *gorm.DB, batch v4import.Batch, rows []v4import.PreparedCase) ([]v4import.Decision, error) {
 	var numbers []uint64
-	if err := db.Model(&caseRecord{}).Where("guild_id = ?", batch.GuildID).Pluck("case_number", &numbers).Error; err != nil {
+	if err := db.Model(&caseRecord{}).Where("guild_id = ?", batch.GuildID).
+		Pluck("case_number", &numbers).Error; err != nil {
 		return nil, fmt.Errorf("list guild case numbers: %w", err)
 	}
 	used := make(map[uint64]bool, len(numbers))
@@ -310,6 +314,10 @@ func (s *Store) RecordV4ImportFailure(ctx context.Context, batch v4import.Batch,
 		ResourceID:         batch.ID,
 		Result:             quack.AuditResultFailure,
 		FailureReason:      code,
-		MetadataJSON:       jsonObject(map[string]any{"checksum": batch.Checksum, "records": batch.RecordCount, "failures": failures}),
+		MetadataJSON: jsonObject(map[string]any{
+			"checksum": batch.Checksum,
+			"records":  batch.RecordCount,
+			"failures": failures,
+		}),
 	}, time.Now().UTC())
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"gorm.io/gorm"
@@ -33,7 +34,8 @@ var ErrIrreversible = errors.New("migration cannot be rolled back")
 // table and all data, without the caller confirming that.
 var ErrBaselineRollback = errors.New("rolling back the baseline drops every table")
 
-// ledgerRecord is one applied migration.
+// ledgerRecord is one applied migration. The ledger is not in tables(): it
+// must exist before the baseline and outlive rolling it back.
 type ledgerRecord struct {
 	Version   uint64    `gorm:"primaryKey;autoIncrement:false"`
 	Name      string    `gorm:"size:191;not null"`
@@ -122,7 +124,8 @@ func appliedMigrations(db *gorm.DB) ([]ledgerRecord, error) {
 	}
 	for i, entry := range applied {
 		if m := migrations[i]; entry.Version != m.version || entry.Name != m.name {
-			return nil, fmt.Errorf("migration ledger entry %d %q does not match %d %q", entry.Version, entry.Name, m.version, m.name)
+			return nil, fmt.Errorf("migration ledger entry %d %q does not match %d %q",
+				entry.Version, entry.Name, m.version, m.name)
 		}
 	}
 	return applied, nil
@@ -131,7 +134,7 @@ func appliedMigrations(db *gorm.DB) ([]ledgerRecord, error) {
 // createBaseline creates every table, then the constraints struct tags cannot
 // express.
 func createBaseline(db *gorm.DB) error {
-	if err := withTableOptions(db).AutoMigrate(models()...); err != nil {
+	if err := withTableOptions(db).AutoMigrate(tables()...); err != nil {
 		return err
 	}
 	return oneDefaultLevel(db)
@@ -159,9 +162,8 @@ func oneDefaultLevel(db *gorm.DB) error {
 
 // dropBaseline drops every table, children first.
 func dropBaseline(db *gorm.DB) error {
-	tables := models()
-	for i := len(tables) - 1; i >= 0; i-- {
-		if err := db.Migrator().DropTable(tables[i]); err != nil {
+	for _, table := range slices.Backward(tables()) {
+		if err := db.Migrator().DropTable(table); err != nil {
 			return err
 		}
 	}

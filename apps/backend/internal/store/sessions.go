@@ -168,8 +168,8 @@ func (s *Store) RevokeUserSessions(ctx context.Context, discordUserID string) er
 	if discordUserID == "" {
 		return errors.New("discord user id is required")
 	}
-	err := revokeUserSessionsScript.Run(ctx, s.redis, []string{userSessionKeyPrefix + discordUserID}, sessionKeyPrefix).Err()
-	if err != nil {
+	keys := []string{userSessionKeyPrefix + discordUserID}
+	if err := revokeUserSessionsScript.Run(ctx, s.redis, keys, sessionKeyPrefix).Err(); err != nil {
 		return fmt.Errorf("revoke user sessions: %w", err)
 	}
 	return nil

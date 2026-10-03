@@ -28,10 +28,11 @@ func (s *Store) CountTemplateCasesForTarget(ctx context.Context, params quack.Co
 // ListCases returns every case in a guild in case-number order.
 func (s *Store) ListCases(ctx context.Context, guildID string) ([]quack.Case, error) {
 	var records []caseRecord
-	if err := s.db.WithContext(ctx).Where("guild_id = ?", guildID).Order("case_number ASC").Find(&records).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("guild_id = ?", guildID).
+		Order("case_number ASC").Find(&records).Error; err != nil {
 		return nil, fmt.Errorf("list cases: %w", err)
 	}
-	return caseModels(records), nil
+	return modelsOf(records, caseRecord.model), nil
 }
 
 // ListCasesFiltered returns a page of a guild's cases, newest first, and the
@@ -48,7 +49,7 @@ func (s *Store) ListCasesFiltered(ctx context.Context, params quack.ListCasesPar
 		Order("case_number DESC").Limit(limit).Offset(offset).Find(&records).Error; err != nil {
 		return nil, fmt.Errorf("list cases: %w", err)
 	}
-	return &quack.ListCasesResult{Cases: caseModels(records), Total: total}, nil
+	return &quack.ListCasesResult{Cases: modelsOf(records, caseRecord.model), Total: total}, nil
 }
 
 // filterCases applies the non-empty filters in params.
@@ -82,29 +83,20 @@ func (s *Store) GetCaseByIDOrNumber(ctx context.Context, guildID, ref string) (*
 	} else {
 		query = query.Where("id = ?", ref)
 	}
-	return getCase(query)
+	return findOne(query, "get case", caseRecord.model)
 }
 
 // GetCaseByID returns a case in any guild, or nil. Callers authorize access
 // themselves, for example by checking the case's target member.
 func (s *Store) GetCaseByID(ctx context.Context, caseID string) (*quack.Case, error) {
-	return getCase(s.db.WithContext(ctx).Where("id = ?", caseID))
+	return findOne(s.db.WithContext(ctx).Where("id = ?", caseID), "get case", caseRecord.model)
 }
 
 // GetCaseByIdempotencyKey returns the case an earlier request with the same
 // Idempotency-Key created, or nil.
 func (s *Store) GetCaseByIdempotencyKey(ctx context.Context, guildID, key string) (*quack.Case, error) {
-	return getCase(s.db.WithContext(ctx).Where("guild_id = ? AND idempotency_key = ?", guildID, key))
-}
-
-func getCase(query *gorm.DB) (*quack.Case, error) {
-	var record caseRecord
-	found, err := first(query, &record)
-	if err != nil || !found {
-		return nil, wrap("get case", err)
-	}
-	c := record.model()
-	return &c, nil
+	query := s.db.WithContext(ctx).Where("guild_id = ? AND idempotency_key = ?", guildID, key)
+	return findOne(query, "get case", caseRecord.model)
 }
 
 // TargetCaseSummary counts all of a member's cases in a guild, in total, by
@@ -114,12 +106,16 @@ func (s *Store) TargetCaseSummary(ctx context.Context, guildID, targetDiscordUse
 		return s.db.WithContext(ctx).Model(&caseRecord{}).
 			Where("guild_id = ? AND target_discord_user_id = ?", guildID, targetDiscordUserID)
 	}
-	summary := &quack.TargetCaseSummary{ByValidity: map[quack.CaseValidity]int64{}, ByTemplate: map[string]int64{}}
+	summary := &quack.TargetCaseSummary{
+		ByValidity: map[quack.CaseValidity]int64{},
+		ByTemplate: map[string]int64{},
+	}
 	var rows []struct {
 		Bucket string
 		Count  int64
 	}
-	if err := cases().Select("validity AS bucket, COUNT(*) AS count").Group("validity").Scan(&rows).Error; err != nil {
+	if err := cases().Select("validity AS bucket, COUNT(*) AS count").
+		Group("validity").Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("count target cases by validity: %w", err)
 	}
 	for _, row := range rows {
@@ -127,7 +123,8 @@ func (s *Store) TargetCaseSummary(ctx context.Context, guildID, targetDiscordUse
 		summary.Total += row.Count
 	}
 	rows = nil
-	if err := cases().Select("COALESCE(template_id, '') AS bucket, COUNT(*) AS count").Group("template_id").Scan(&rows).Error; err != nil {
+	if err := cases().Select("COALESCE(template_id, '') AS bucket, COUNT(*) AS count").
+		Group("template_id").Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("count target cases by template: %w", err)
 	}
 	for _, row := range rows {
@@ -140,14 +137,11 @@ func (s *Store) TargetCaseSummary(ctx context.Context, guildID, targetDiscordUse
 // the case first.
 func (s *Store) ListCaseEvents(ctx context.Context, caseID string) ([]quack.CaseEvent, error) {
 	var records []caseEventRecord
-	if err := s.db.WithContext(ctx).Where("case_id = ?", caseID).Order("created_at ASC, id ASC").Find(&records).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("case_id = ?", caseID).
+		Order("created_at ASC, id ASC").Find(&records).Error; err != nil {
 		return nil, fmt.Errorf("list case events: %w", err)
 	}
-	events := make([]quack.CaseEvent, len(records))
-	for i, r := range records {
-		events[i] = r.model()
-	}
-	return events, nil
+	return modelsOf(records, caseEventRecord.model), nil
 }
 
 // ListCaseActionExecutions returns a case's executions in run order.
@@ -166,7 +160,7 @@ func (s *Store) ListCaseActionsForCases(ctx context.Context, caseIDs []string) (
 		Order("case_id ASC, position ASC, id ASC").Find(&records).Error; err != nil {
 		return nil, fmt.Errorf("list case action executions: %w", err)
 	}
-	return executionModels(records), nil
+	return modelsOf(records, executionRecord.model), nil
 }
 
 // ListCaseActionAttempts returns the attempts of authorized executions in
@@ -180,23 +174,14 @@ func (s *Store) ListCaseActionAttempts(ctx context.Context, executionIDs []strin
 		Order("execution_id ASC, attempt_number ASC").Find(&records).Error; err != nil {
 		return nil, fmt.Errorf("list case action attempts: %w", err)
 	}
-	attempts := make([]quack.CaseActionAttempt, len(records))
-	for i, r := range records {
-		attempts[i] = r.model()
-	}
-	return attempts, nil
+	return modelsOf(records, attemptRecord.model), nil
 }
 
 // GetCaseActionExecution returns one of a guild's executions, or nil.
 func (s *Store) GetCaseActionExecution(ctx context.Context, guildID, executionID string) (*quack.CaseActionExecution, error) {
-	var record executionRecord
-	query := s.db.WithContext(ctx).Where("id = ? AND case_id IN (SELECT id FROM cases WHERE guild_id = ?)", executionID, guildID)
-	found, err := first(query, &record)
-	if err != nil || !found {
-		return nil, wrap("get case action execution", err)
-	}
-	execution := record.model()
-	return &execution, nil
+	query := s.db.WithContext(ctx).
+		Where("id = ? AND case_id IN (SELECT id FROM cases WHERE guild_id = ?)", executionID, guildID)
+	return findOne(query, "get case action execution", executionRecord.model)
 }
 
 // ListCaseEvidence returns a case's evidence snapshots and their
@@ -207,42 +192,24 @@ func (s *Store) ListCaseEvidence(ctx context.Context, caseID string) ([]quack.Ca
 	if err := db.Where("case_id = ?", caseID).Order("created_at ASC, id ASC").Find(&snapshots).Error; err != nil {
 		return nil, nil, fmt.Errorf("list case evidence: %w", err)
 	}
-	evidence := make([]quack.CaseEvidenceSnapshot, len(snapshots))
+	evidence := modelsOf(snapshots, evidenceRecord.model)
+	if len(snapshots) == 0 {
+		return evidence, nil, nil
+	}
 	ids := make([]string, len(snapshots))
 	for i, r := range snapshots {
-		evidence[i] = r.model()
 		ids[i] = r.ID
-	}
-	if len(ids) == 0 {
-		return evidence, nil, nil
 	}
 	var records []attachmentRecord
 	if err := db.Where("evidence_id IN ?", ids).Order("created_at ASC, id ASC").Find(&records).Error; err != nil {
 		return nil, nil, fmt.Errorf("list evidence attachments: %w", err)
 	}
-	attachments := make([]quack.CaseEvidenceAttachment, len(records))
-	for i, r := range records {
-		attachments[i] = r.model()
-	}
-	return evidence, attachments, nil
+	return evidence, modelsOf(records, attachmentRecord.model), nil
 }
 
 // GetCaseNotification returns a case's member notification, or nil when the
 // selected level does not notify.
 func (s *Store) GetCaseNotification(ctx context.Context, caseID string) (*quack.CaseNotification, error) {
-	var record caseNotificationRecord
-	found, err := first(s.db.WithContext(ctx).Where("case_id = ?", caseID), &record)
-	if err != nil || !found {
-		return nil, wrap("get case notification", err)
-	}
-	notification := record.model()
-	return &notification, nil
-}
-
-func caseModels(records []caseRecord) []quack.Case {
-	cases := make([]quack.Case, len(records))
-	for i, r := range records {
-		cases[i] = r.model()
-	}
-	return cases
+	query := s.db.WithContext(ctx).Where("case_id = ?", caseID)
+	return findOne(query, "get case notification", caseNotificationRecord.model)
 }

@@ -98,10 +98,13 @@ func TestUpdateTemplateReplacesChildrenAndBumpsVersion(t *testing.T) {
 		t.Fatalf("levels = %+v", updated.Levels)
 	}
 	var orphans int64
-	if err := s.DB().Table("case_template_level_actions").Where("level_id NOT IN (SELECT id FROM case_template_levels)").Count(&orphans).Error; err != nil || orphans != 0 {
+	err = s.DB().Table("case_template_level_actions").
+		Where("level_id NOT IN (SELECT id FROM case_template_levels)").Count(&orphans).Error
+	if err != nil || orphans != 0 {
 		t.Fatalf("update left %d orphaned actions (%v)", orphans, err)
 	}
-	if err := notFound(s.UpdateCaseTemplate(ctx, quack.UpdateCaseTemplateParams{GuildID: guildID, TemplateID: "missing", Template: update})); err != nil {
+	missing := quack.UpdateCaseTemplateParams{GuildID: guildID, TemplateID: "missing", Template: update}
+	if err := notFound(s.UpdateCaseTemplate(ctx, missing)); err != nil {
 		t.Errorf("update of missing template: %v", err)
 	}
 }

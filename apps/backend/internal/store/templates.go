@@ -47,13 +47,8 @@ func (s *Store) GetCaseTemplateExpanded(ctx context.Context, guildID, templateID
 
 // GetCaseTemplateBySlug returns a guild's template by slug, or nil.
 func (s *Store) GetCaseTemplateBySlug(ctx context.Context, guildID, slug string) (*quack.CaseTemplate, error) {
-	var record templateRecord
-	found, err := first(s.db.WithContext(ctx).Where("guild_id = ? AND slug = ?", guildID, slug), &record)
-	if err != nil || !found {
-		return nil, wrap("get case template by slug", err)
-	}
-	template := record.model()
-	return &template, nil
+	query := s.db.WithContext(ctx).Where("guild_id = ? AND slug = ?", guildID, slug)
+	return findOne(query, "get case template by slug", templateRecord.model)
 }
 
 // UpdateCaseTemplate replaces a template's policy, including all of its
@@ -115,8 +110,7 @@ func (s *Store) RestoreCaseTemplate(ctx context.Context, guildID, templateID str
 
 // changeTemplate locks a guild's template, applies change, saves it, and
 // audits it, all in one transaction. A missing template is errNotFound.
-func (s *Store) changeTemplate(ctx context.Context, guildID, templateID string, audit *quack.AuditLogEntry,
-	change func(*gorm.DB, *templateRecord, time.Time) error) error {
+func (s *Store) changeTemplate(ctx context.Context, guildID, templateID string, audit *quack.AuditLogEntry, change func(*gorm.DB, *templateRecord, time.Time) error) error {
 	now := time.Now().UTC()
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var record templateRecord
@@ -140,8 +134,7 @@ func (s *Store) changeTemplate(ctx context.Context, guildID, templateID string, 
 
 // createTemplate inserts a version 1 template and its children and returns
 // its ID.
-func createTemplate(tx *gorm.DB, template quack.CaseTemplate, fields []quack.CaseTemplateContextField,
-	levels []quack.ExpandedCaseTemplateLevel, now time.Time) (string, error) {
+func createTemplate(tx *gorm.DB, template quack.CaseTemplate, fields []quack.CaseTemplateContextField, levels []quack.ExpandedCaseTemplateLevel, now time.Time) (string, error) {
 	stamp(&template.ULIDModel, now)
 	template.Version = 1
 	record := newTemplateRecord(template)
@@ -152,8 +145,7 @@ func createTemplate(tx *gorm.DB, template quack.CaseTemplate, fields []quack.Cas
 }
 
 // createTemplateChildren inserts a template's fields, levels, and actions.
-func createTemplateChildren(tx *gorm.DB, templateID string, fields []quack.CaseTemplateContextField,
-	levels []quack.ExpandedCaseTemplateLevel, now time.Time) error {
+func createTemplateChildren(tx *gorm.DB, templateID string, fields []quack.CaseTemplateContextField, levels []quack.ExpandedCaseTemplateLevel, now time.Time) error {
 	fieldRecords := make([]contextFieldRecord, 0, len(fields))
 	for _, field := range fields {
 		field.TemplateID = templateID
