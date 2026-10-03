@@ -241,9 +241,9 @@ func TestAppealQueueDecisionRequiresReason(t *testing.T) {
 	}
 }
 
-// TestStatementBrowsingRechecksPermissions opens shared queue pages
-// publicly, turns private copies in place, and shows nothing of the appeal
-// to a moderator who lost access.
+// TestStatementBrowsingRechecksPermissions opens a private page from the
+// shared queue post, turns private copies in place, and shows nothing of the
+// appeal to a moderator who lost access.
 func TestStatementBrowsingRechecksPermissions(t *testing.T) {
 	h := newAppealHarness(t, 0)
 	appeal := h.appeal(t, "Please reconsider.")
@@ -256,16 +256,13 @@ func TestStatementBrowsingRechecksPermissions(t *testing.T) {
 		if private != (result.Response.Type == discordgo.InteractionResponseDeferredMessageUpdate) {
 			t.Fatalf("private=%v acknowledged with %d", private, result.Response.Type)
 		}
-		if !private && (result.Response.Type != discordgo.InteractionResponseDeferredChannelMessageWithSource || result.Response.Data != nil) {
-			t.Fatal("shared queue browsing was hidden")
+		if !private && (result.Response.Type != discordgo.InteractionResponseDeferredChannelMessageWithSource ||
+			result.Response.Data == nil || result.Response.Data.Flags&discordgo.MessageFlagsEphemeral == 0) {
+			t.Fatal("browsing the shared queue post did not open a private page")
 		}
 		responder := run(t, result)
-		if private {
-			if !responder.edit.PrivateError || !strings.Contains(*responder.edit.Content, "Moderate Members") || len(*responder.edit.Components) != 0 {
-				t.Fatalf("private page kept the appeal: %+v", responder.edit)
-			}
-		} else if !responder.deleted || !responder.followup.Ephemeral || !strings.Contains(responder.followup.Content, "Moderate Members") {
-			t.Fatalf("public placeholder not replaced by a private error: %+v", responder)
+		if !responder.edit.PrivateError || !strings.Contains(*responder.edit.Content, "Moderate Members") || len(*responder.edit.Components) != 0 {
+			t.Fatalf("page kept the appeal: %+v", responder.edit)
 		}
 		if strings.Contains(responder.content(), "Please reconsider") || message.Content != "PRIVATE STATEMENT" {
 			t.Fatal("statement leaked or the queue post changed")

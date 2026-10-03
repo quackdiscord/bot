@@ -105,3 +105,32 @@ func TestTextPagesKeepsEvidenceLinksClickable(t *testing.T) {
 		t.Fatalf("evidence link was split: %q", pages)
 	}
 }
+
+// TestSpacerSitsAboveButtonRows checks the invisible spacer line is added
+// once, only when a message has buttons, for the bot that owns the emoji.
+func TestSpacerSitsAboveButtonRows(t *testing.T) {
+	const beta = "819019613371236432"
+	row := []discordgo.MessageComponent{Row(Button("case:view:v1:1", "View", discordgo.SecondaryButton, false))}
+	tests := []struct {
+		name       string
+		message    Message
+		wantSuffix bool
+	}{
+		{name: "buttons", message: Message{Content: "Case #1", Components: row}, wantSuffix: true},
+		{name: "no buttons", message: Message{Content: "Case #1"}},
+		{name: "buttons without text", message: Message{Components: row}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			once := test.message.ForApplication(beta)
+			twice := once.ForApplication(beta)
+			spacer := "\n<:spacer:1556028157168193646>"
+			if got := strings.HasSuffix(once.Content, spacer); got != test.wantSuffix {
+				t.Fatalf("content = %q, want spacer suffix %v", once.Content, test.wantSuffix)
+			}
+			if strings.Count(twice.Content, "spacer") > 1 {
+				t.Fatalf("spacer added twice: %q", twice.Content)
+			}
+		})
+	}
+}

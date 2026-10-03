@@ -200,7 +200,7 @@ func (a appeals) statementPage(delta int) Handler {
 		if ephemeralSource(i) {
 			return Async(DeferUpdate(), task)
 		}
-		return AsyncPublic(task)
+		return Async(DeferEphemeral(), task)
 	}
 }
 
@@ -283,7 +283,7 @@ func appealReversal(services *quack.Services) Handler {
 		if actionType != quack.ActionRemoveTimeout && actionType != quack.ActionUnbanUser {
 			return Immediate(Error("Only bans and timeouts can be removed here."))
 		}
-		return AsyncPublic(func(ctx context.Context, responder Responder) error {
+		return Async(DeferEphemeral(), func(ctx context.Context, responder Responder) error {
 			staff, err := liveStaff(ctx, services, i)
 			if err != nil {
 				_, _ = responder.EditOriginal(ErrorEdit("I couldn’t check your Discord permissions. Try again in a moment."))

@@ -42,8 +42,9 @@ func TestAppealReversalRejectsInvalidControls(t *testing.T) {
 	}
 	valid := componentInteraction("interaction-1", "appeal:reverse:v1:appeal,exec,unban_user")
 	valid.Member = member
-	if result := handler(context.Background(), valid); result.Task == nil || result.Response.Data != nil {
-		t.Fatalf("valid control was not deferred publicly: %+v", result)
+	if result := handler(context.Background(), valid); result.Task == nil || result.Response.Data == nil ||
+		result.Response.Data.Flags&discordgo.MessageFlagsEphemeral == 0 {
+		t.Fatalf("valid control was not deferred privately: %+v", result)
 	}
 }
 

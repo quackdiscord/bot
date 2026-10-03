@@ -45,6 +45,7 @@ var applicationIcons = map[string]map[string]string{
 		"settings":  "<:quack_settings:1546623863654449163>",
 		"spark":     "<:quack_spark:1546623897183461499>",
 		"duck":      "<:quack_duck:1546622747277394010>",
+		"spacer":    "<:spacer:1556027541435981944>",
 	},
 	"819019613371236432": {
 		"warn":      "<:quack_warn:1546626717848969397>",
@@ -87,5 +88,6 @@ var applicationIcons = map[string]map[string]string{
 		"settings":  "<:quack_settings:1546626307532787803>",
 		"spark":     "<:quack_spark:1546626350390055003>",
 		"duck":      "<:quack_duck:1546625315936280776>",
+		"spacer":    "<:spacer:1556028157168193646>",
 	},
 }

@@ -471,3 +471,24 @@ func TestRedisDeduperClaimsOnceSurvivesRestartAndFailsClosed(t *testing.T) {
 		t.Fatal("unavailable Redis did not fail closed")
 	}
 }
+
+// TestButtonsThatOpenViewsAnswerPrivately keeps a moderator's lookups out of
+// the channel: a button that opens a new view always defers ephemerally.
+func TestButtonsThatOpenViewsAnswerPrivately(t *testing.T) {
+	c := &cases{}
+	for name, handler := range map[string]Handler{
+		"case:view:v1:case-1":        c.viewButton,
+		"case:evidence:v1:case-1":    c.evidenceButton,
+		"case:user_detail:v1:member": c.historyButton,
+		"case:retry:v1:execution-1":  c.actionControl(retryControl),
+	} {
+		t.Run(name, func(t *testing.T) {
+			result := handler(context.Background(), componentInteraction("interaction-1", name))
+			response := result.Response
+			if result.Task == nil || response == nil || response.Type != discordgo.InteractionResponseDeferredChannelMessageWithSource ||
+				response.Data == nil || response.Data.Flags&discordgo.MessageFlagsEphemeral == 0 {
+				t.Fatalf("got %+v, want a private deferred reply", response)
+			}
+		})
+	}
+}

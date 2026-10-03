@@ -187,7 +187,15 @@ resolve both for the sending application just before Discord sees them
 the same text without icons. Content too long for one message keeps its
 leading paragraphs and attaches the rest as `message.txt`. Mentions are
 suppressed unless a message allows them, link previews are hidden, and
-ephemeral flags are dropped in DMs, where Discord rejects them.
+ephemeral flags are dropped in DMs, where Discord rejects them. A message with
+buttons ends with the invisible `spacer` icon on its own line, so the buttons
+don't sit tight against the text.
+
+Slash commands answer in the channel. Buttons that open something new (View
+case, View evidence, History, statement pages on the appeal queue post) and
+the forms they open (Edit context, Void, Reverse), plus Retry and Dismiss on
+shared messages and appeal reversals, answer privately. Paging buttons edit
+the message they sit on.
 
 ## Escalation
 

@@ -66,7 +66,7 @@ func (c *cases) editContextModal(_ context.Context, i *discordgo.InteractionCrea
 		return Immediate(Error("That context form is invalid."))
 	}
 	text := ModalValue(data, "context")
-	return Async(DeferPublic(), func(ctx context.Context, responder Responder) error {
+	return Async(DeferEphemeral(), func(ctx context.Context, responder Responder) error {
 		staff, err := c.staff(ctx, i)
 		if err != nil {
 			return err
@@ -93,7 +93,7 @@ func (c *cases) viewButton(_ context.Context, i *discordgo.InteractionCreate) Re
 	if err != nil {
 		return Immediate(Error("That case button is invalid."))
 	}
-	return Async(DeferPublic(), func(ctx context.Context, responder Responder) error {
+	return Async(DeferEphemeral(), func(ctx context.Context, responder Responder) error {
 		staff, err := c.staff(ctx, i)
 		if err != nil {
 			return err
@@ -143,7 +143,7 @@ func (c *cases) evidenceButton(_ context.Context, i *discordgo.InteractionCreate
 	if err != nil {
 		return Immediate(Error("That case button is invalid."))
 	}
-	return Async(DeferPublic(), func(ctx context.Context, responder Responder) error {
+	return Async(DeferEphemeral(), func(ctx context.Context, responder Responder) error {
 		staff, err := c.staff(ctx, i)
 		if err != nil {
 			return err
@@ -215,7 +215,7 @@ func (c *cases) historyButton(_ context.Context, i *discordgo.InteractionCreate)
 	if err != nil {
 		return Immediate(Error("That user button is invalid."))
 	}
-	return Async(DeferPublic(), func(ctx context.Context, responder Responder) error {
+	return Async(DeferEphemeral(), func(ctx context.Context, responder Responder) error {
 		staff, err := c.staff(ctx, i)
 		if err != nil {
 			return err

@@ -524,6 +524,16 @@
         "968198214450831370": "1546622747277394010",
         "819019613371236432": "1546625315936280776"
       }
+    },
+    {
+      "key": "spacer",
+      "name": "spacer",
+      "label": "Spacer",
+      "use": "An invisible line that separates message text from its buttons.",
+      "emojiIds": {
+        "968198214450831370": "1556027541435981944",
+        "819019613371236432": "1556028157168193646"
+      }
     }
   ],
   "style": "Soft rounded, single color, transparent details",

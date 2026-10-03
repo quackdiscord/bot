@@ -199,8 +199,8 @@ const (
 // actionControl handles the Retry and Dismiss buttons, whose payload is the
 // execution ID. On a private view, such as a failure queue a moderator
 // paged through, the view refreshes in place; anywhere else, such as a case
-// detail or an audit mirror entry, the result is posted in the channel and
-// the source message is left alone.
+// detail or an audit mirror entry, the result goes privately to the moderator
+// who pressed it and the source message is left alone.
 func (c *cases) actionControl(operation actionOperation) Handler {
 	return func(_ context.Context, i *discordgo.InteractionCreate) Result {
 		id, err := DecodeCustomID(i.MessageComponentData().CustomID)
@@ -208,7 +208,7 @@ func (c *cases) actionControl(operation actionOperation) Handler {
 			return Immediate(Error("That action control is invalid."))
 		}
 		private := i.Message != nil && i.Message.Flags&discordgo.MessageFlagsEphemeral != 0
-		acknowledgement := DeferPublic()
+		acknowledgement := DeferEphemeral()
 		if private {
 			acknowledgement = DeferUpdate()
 		}
@@ -272,7 +272,7 @@ func (c *cases) voidModal(_ context.Context, i *discordgo.InteractionCreate) Res
 		return Immediate(Error("That case control is invalid."))
 	}
 	reason := ModalValue(data, "reason")
-	return AsyncPublic(func(ctx context.Context, responder Responder) error {
+	return Async(DeferEphemeral(), func(ctx context.Context, responder Responder) error {
 		staff, err := c.staff(ctx, i)
 		if err != nil {
 			return err
@@ -311,7 +311,7 @@ func (c *cases) reverseModal(_ context.Context, i *discordgo.InteractionCreate) 
 	if err != nil || len(parts) != 3 || ModalValue(data, "confirm") != "REVERSE" {
 		return Immediate(Error("Reversal confirmation did not match."))
 	}
-	return AsyncPublic(func(ctx context.Context, responder Responder) error {
+	return Async(DeferEphemeral(), func(ctx context.Context, responder Responder) error {
 		staff, err := c.staff(ctx, i)
 		if err != nil {
 			return err

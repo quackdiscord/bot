@@ -122,6 +122,7 @@ func EditMessage(m Message) Edit {
 // paragraphs inline and attaches the full text as message.txt, so a long
 // staff record is never cut off. m itself is not changed.
 func (m Message) ForApplication(applicationID string) Message {
+	m.Content = withSpacer(m.Content, len(m.Components) > 0, applicationID)
 	m.Content = ResolveCommandMentions(discordtext.Resolve(m.Content, applicationID), applicationID)
 	if utf16Len(m.Content) <= contentLimit {
 		return m
@@ -149,13 +150,30 @@ func (m Message) ForApplication(applicationID string) Message {
 	return m
 }
 
+// withSpacer ends content with an invisible spacer line when the message has
+// button rows, so the buttons don't sit tight against the last line of text.
+// Applying it twice is harmless.
+func withSpacer(content string, hasRows bool, applicationID string) string {
+	spacer := discordtext.Icon("spacer")
+	resolved := discordtext.Resolve(spacer, applicationID)
+	if !hasRows || strings.TrimSpace(content) == "" || strings.HasSuffix(content, spacer) ||
+		(resolved != "" && strings.HasSuffix(content, resolved)) {
+		return content
+	}
+	return content + "\n" + spacer
+}
+
 // ForApplication resolves an edit's content like Message.ForApplication,
 // without changing which fields it replaces.
 func (e Edit) ForApplication(applicationID string) Edit {
 	if e.Content == nil {
 		return e
 	}
-	m := Message{Content: *e.Content, Files: e.Files}.ForApplication(applicationID)
+	m := Message{Content: *e.Content, Files: e.Files}
+	if e.Components != nil {
+		m.Components = *e.Components
+	}
+	m = m.ForApplication(applicationID)
 	e.Content, e.Files = &m.Content, m.Files
 	return e
 }
@@ -172,7 +190,7 @@ func PrepareResponse(response *discordgo.InteractionResponse, applicationID stri
 		return response
 	}
 	result, data := *response, *response.Data
-	m := Message{Content: data.Content, Files: data.Files}.ForApplication(applicationID)
+	m := Message{Content: data.Content, Files: data.Files, Components: data.Components}.ForApplication(applicationID)
 	data.Content, data.Files = m.Content, m.Files
 	if len(data.Embeds) == 0 {
 		data.Flags |= discordgo.MessageFlagsSuppressEmbeds
