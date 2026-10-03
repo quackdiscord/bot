@@ -25,9 +25,11 @@ func ticketPermissionOverwrites(guildID, ownerID, botID string, staffRoleIDs []s
 	return overwrites
 }
 
-// validateStaffOnlyACL requires an explicit everyone denial and, when supplied,
-// explicit visibility for every configured staff role.
-func validateStaffOnlyACL(channel *discordgo.Channel, guildID string, staffRoleIDs []string) error {
+// validateTicketACL checks a ticket channel's overwrites: @everyone denied,
+// and the owner, the bot, and every configured staff role allowed. A ticket
+// channel is not a staff-only channel, since its owner is a member, so it
+// does not use discord.Bot.ValidateStaffChannel.
+func validateTicketACL(channel *discordgo.Channel, guildID, ownerID, botID string, staffRoleIDs []string) error {
 	if channel == nil || channel.GuildID != guildID {
 		return errors.New("channel is outside the configured guild")
 	}
@@ -53,14 +55,6 @@ func validateStaffOnlyACL(channel *discordgo.Channel, guildID string, staffRoleI
 		if !allowedRoles[roleID] {
 			return fmt.Errorf("staff role %s cannot view ticket channel", roleID)
 		}
-	}
-	return nil
-}
-
-// validateTicketACL additionally requires explicit owner visibility.
-func validateTicketACL(channel *discordgo.Channel, guildID, ownerID, botID string, staffRoleIDs []string) error {
-	if err := validateStaffOnlyACL(channel, guildID, staffRoleIDs); err != nil {
-		return err
 	}
 	ownerVisible := false
 	botVisible := false

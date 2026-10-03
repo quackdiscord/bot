@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/quackdiscord/bot/internal/discordbot/interactions"
-	"github.com/quackdiscord/bot/internal/discordbot/ui"
+	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/internal/discord"
 	"github.com/quackdiscord/bot/internal/modules"
 	"github.com/quackdiscord/bot/internal/modules/tickets"
 	"gorm.io/driver/sqlite"
@@ -261,16 +261,27 @@ func TestEnabledTicketsRequireStaffRole(t *testing.T) {
 	}
 }
 
+// routeRecorder records the routes a registrar installs.
+type routeRecorder map[string]bool
+
+func (r routeRecorder) HandleComponent(namespace, action string, _ discord.Handler) {
+	r[namespace+":"+action] = true
+}
+
 func TestComponentRegistrarAndControls(t *testing.T) {
-	registry := interactions.NewComponentRegistry()
-	handler := func(ui.Context) ui.HandlerResult { return ui.Immediate(ui.Error("ok")) }
-	if err := tickets.RegisterComponents(registry, tickets.ComponentHandlers{Open: handler, Queue: handler, View: handler, Reply: handler, Close: handler}); err != nil {
+	routes := routeRecorder{}
+	handler := func(context.Context, *discordgo.InteractionCreate) discord.Result {
+		return discord.Immediate(discord.Error("ok"))
+	}
+	if err := tickets.RegisterComponents(routes, tickets.ComponentHandlers{Open: handler, Queue: handler, View: handler}); err == nil || len(routes) != 0 {
+		t.Fatalf("incomplete handlers were registered: %v", routes)
+	}
+	if err := tickets.RegisterComponents(routes, tickets.ComponentHandlers{Open: handler, Queue: handler, View: handler, Reply: handler, Close: handler}); err != nil {
 		t.Fatal(err)
 	}
 	for _, action := range []string{"open", "queue", "view", "reply", "close"} {
-		customID := ui.MustCustomID(ui.CustomID{Namespace: "ticket", Action: action, Version: "v1", Payload: "ticket-id"})
-		if _, ok, err := registry.LookupComponent(customID); err != nil || !ok {
-			t.Fatalf("action %s ok=%v err=%v", action, ok, err)
+		if !routes["ticket:"+action] {
+			t.Fatalf("action %s not routed", action)
 		}
 	}
 	if len(tickets.EntryComponents()) != 1 || len(tickets.TicketComponents("ticket-id")) != 1 {

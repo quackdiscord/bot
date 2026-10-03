@@ -8,8 +8,7 @@ import (
 
 	"github.com/quackdiscord/bot/internal/api"
 	"github.com/quackdiscord/bot/internal/config"
-	"github.com/quackdiscord/bot/internal/discordbot"
-	"github.com/quackdiscord/bot/internal/discordbot/commands"
+	"github.com/quackdiscord/bot/internal/discord"
 	"github.com/quackdiscord/bot/internal/moduleintegration"
 	"github.com/quackdiscord/bot/internal/quack"
 	"github.com/quackdiscord/bot/internal/store"
@@ -43,7 +42,7 @@ func Run(ctx context.Context, cfg config.Config) (runErr error) {
 	}
 	slog.InfoContext(ctx, "Storage ready")
 
-	bot, err := discordbot.New(cfg.Discord.Token)
+	bot, err := discord.New(cfg.Discord.Token)
 	if err != nil {
 		return fmt.Errorf("create Discord bot: %w", err)
 	}
@@ -77,7 +76,7 @@ func Run(ctx context.Context, cfg config.Config) (runErr error) {
 		Scheduler:        queue,
 		DashboardBaseURL: quack.DashboardBaseURL(cfg.API.CORSOrigins),
 	})
-	moduleRuntime, err = moduleintegration.New(ctx, repositories, bot.Session, services, bot)
+	moduleRuntime, err = moduleintegration.New(ctx, repositories, bot, services)
 	if err != nil {
 		return fmt.Errorf("compose optional modules: %w", err)
 	}
@@ -86,20 +85,21 @@ func Run(ctx context.Context, cfg config.Config) (runErr error) {
 		return fmt.Errorf("derive optional module gateway intents: %w", err)
 	}
 	bot.Session.Identify.Intents = intents
-	if err := discordbot.RegisterGuildLifecycle(bot.Session, services); err != nil {
-		return fmt.Errorf("register Discord guild lifecycle: %w", err)
-	}
+	discord.HandleGuildLifecycle(bot, services)
 	if err := moduleRuntime.RegisterGatewayHandlers(bot.Session); err != nil {
 		return fmt.Errorf("register optional module gateway handlers: %w", err)
 	}
-	commandOptions := commands.Options{
+	router := discord.NewRouter(bot, services, discord.NewRedisDeduper(redis))
+	if err := moduleRuntime.RegisterComponents(router); err != nil {
+		return fmt.Errorf("register Discord components: %w", err)
+	}
+	syncOptions := discord.SyncOptions{
 		AppID:   cfg.Discord.AppID,
 		GuildID: cfg.Discord.CommandGuildID,
 		Prune:   cfg.Discord.CommandPrune,
-		Store:   repositories,
 	}
-	if err := commands.Register(bot.Session, services, commandOptions, moduleRuntime.RegisterComponents); err != nil {
-		return fmt.Errorf("register Discord commands and components: %w", err)
+	if err := discord.SyncCommands(ctx, bot, redis, syncOptions); err != nil {
+		return fmt.Errorf("sync Discord commands: %w", err)
 	}
 	if err := bot.Open(); err != nil {
 		return fmt.Errorf("connect Discord bot: %w", err)
@@ -124,7 +124,7 @@ func Run(ctx context.Context, cfg config.Config) (runErr error) {
 }
 
 // closeDiscord bounds adapter close even if an upstream websocket library stalls.
-func closeDiscord(ctx context.Context, bot *discordbot.Bot) error {
+func closeDiscord(ctx context.Context, bot *discord.Bot) error {
 	done := make(chan error, 1)
 	go func() { done <- bot.Close() }()
 	select {

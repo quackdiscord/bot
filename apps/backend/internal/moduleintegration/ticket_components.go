@@ -7,17 +7,17 @@ import (
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/quackdiscord/bot/internal/discordbot/ui"
+	"github.com/quackdiscord/bot/internal/discord"
 	"github.com/quackdiscord/bot/internal/modules/tickets"
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
 // ticketActor resolves the current Discord member into module authority.
-func (r *Runtime) ticketActor(ctx ui.Context) (tickets.Actor, error) {
-	if ctx.Interaction == nil || ctx.Interaction.Interaction == nil || ctx.Interaction.GuildID == "" {
+func (r *Runtime) ticketActor(ctx context.Context, interaction *discordgo.InteractionCreate) (tickets.Actor, error) {
+	if interaction.GuildID == "" {
 		return tickets.Actor{}, errors.New("ticket interactions require a guild")
 	}
-	userID := interactionUserID(ctx.Interaction)
+	userID := interactionUserID(interaction)
 	if userID == "" {
 		return tickets.Actor{}, errors.New("ticket interaction user is unavailable")
 	}
@@ -25,7 +25,7 @@ func (r *Runtime) ticketActor(ctx ui.Context) (tickets.Actor, error) {
 		return tickets.Actor{}, errors.New("live ticket authorization is unavailable")
 	}
 	guildContext, err := r.services.Guilds.ResolveDiscordStaffContext(ctx, quack.DiscordStaffContextInput{
-		DiscordGuildID: ctx.Interaction.GuildID, DiscordUserID: userID,
+		DiscordGuildID: interaction.GuildID, DiscordUserID: userID,
 	})
 	if err != nil || guildContext == nil || !guildContext.Live.Actor.Present {
 		return tickets.Actor{}, quack.ErrAuthorizationDenied
@@ -38,26 +38,26 @@ func (r *Runtime) ticketActor(ctx ui.Context) (tickets.Actor, error) {
 }
 
 // openTicketComponent acknowledges quickly, then provisions the private ticket.
-func (r *Runtime) openTicketComponent(ctx ui.Context) ui.HandlerResult {
-	return r.ticketTask(ctx, func(taskCtx context.Context, responder ui.Responder, actor tickets.Actor) error {
+func (r *Runtime) openTicketComponent(_ context.Context, interaction *discordgo.InteractionCreate) discord.Result {
+	return r.ticketTask(interaction, func(taskCtx context.Context, responder discord.Responder, actor tickets.Actor) error {
 		ticket, err := r.TicketDiscord.Open(taskCtx, actor)
 		if err != nil {
-			_, _ = responder.EditOriginal(ui.ErrorEdit(ticketErrorMessage(err)))
+			_, _ = responder.EditOriginal(discord.ErrorEdit(ticketErrorMessage(err)))
 			return nil
 		}
-		message := ui.Content("Ticket opened: <#"+ticket.ThreadDiscordChannelID+">", true)
+		message := discord.Content("Ticket opened: <#"+ticket.ThreadDiscordChannelID+">", true)
 		message.Components = ticketControls(ticket.ID, actor.CanManage)
-		_, err = responder.EditOriginal(ui.EditMessage(message))
+		_, err = responder.EditOriginal(discord.EditMessage(message))
 		return err
 	})
 }
 
 // ticketQueueComponent returns a bounded staff queue without transcript content.
-func (r *Runtime) ticketQueueComponent(ctx ui.Context) ui.HandlerResult {
-	return r.ticketTask(ctx, func(taskCtx context.Context, responder ui.Responder, actor tickets.Actor) error {
+func (r *Runtime) ticketQueueComponent(_ context.Context, interaction *discordgo.InteractionCreate) discord.Result {
+	return r.ticketTask(interaction, func(taskCtx context.Context, responder discord.Responder, actor tickets.Actor) error {
 		queue, err := r.Tickets.Queue(taskCtx, actor, tickets.StatusOpen, 25)
 		if err != nil {
-			_, _ = responder.EditOriginal(ui.ErrorEdit(ticketErrorMessage(err)))
+			_, _ = responder.EditOriginal(discord.ErrorEdit(ticketErrorMessage(err)))
 			return nil
 		}
 		lines := []string{"Open tickets:"}
@@ -67,46 +67,46 @@ func (r *Runtime) ticketQueueComponent(ctx ui.Context) ui.HandlerResult {
 		if len(queue) == 0 {
 			lines = append(lines, "No open tickets.")
 		}
-		_, err = responder.EditOriginal(ui.EditMessage(ui.Content(strings.Join(lines, "\n"), true)))
+		_, err = responder.EditOriginal(discord.EditMessage(discord.Content(strings.Join(lines, "\n"), true)))
 		return err
 	})
 }
 
 // viewTicketComponent returns private ticket state and its immutable timeline.
-func (r *Runtime) viewTicketComponent(ctx ui.Context) ui.HandlerResult {
-	ticketID, err := ticketComponentID(ctx)
+func (r *Runtime) viewTicketComponent(_ context.Context, interaction *discordgo.InteractionCreate) discord.Result {
+	ticketID, err := ticketComponentID(interaction)
 	if err != nil {
-		return ui.Immediate(ui.Error("That ticket is unavailable."))
+		return discord.Immediate(discord.Error("That ticket is unavailable."))
 	}
-	return r.ticketTask(ctx, func(taskCtx context.Context, responder ui.Responder, actor tickets.Actor) error {
+	return r.ticketTask(interaction, func(taskCtx context.Context, responder discord.Responder, actor tickets.Actor) error {
 		ticket, events, err := r.Tickets.Detail(taskCtx, actor, ticketID)
 		if err != nil {
-			_, _ = responder.EditOriginal(ui.ErrorEdit(ticketErrorMessage(err)))
+			_, _ = responder.EditOriginal(discord.ErrorEdit(ticketErrorMessage(err)))
 			return nil
 		}
 		lines := []string{fmt.Sprintf("Ticket `%s` is **%s**.", ticket.ID, ticket.Status)}
 		for _, event := range events {
-			lines = append(lines, fmt.Sprintf("• %s — %s", event.Type, ui.TruncateRunes(event.Body, 240)))
+			lines = append(lines, fmt.Sprintf("• %s — %s", event.Type, discord.Truncate(event.Body, 240)))
 		}
-		message := ui.Content(strings.Join(lines, "\n"), true)
+		message := discord.Content(strings.Join(lines, "\n"), true)
 		message.Components = ticketControls(ticket.ID, actor.CanManage)
-		_, err = responder.EditOriginal(ui.EditMessage(message))
+		_, err = responder.EditOriginal(discord.EditMessage(message))
 		return err
 	})
 }
 
 // repairTicketComponent restores the configured private ACL for current managers.
-func (r *Runtime) repairTicketComponent(ctx ui.Context) ui.HandlerResult {
-	ticketID, err := ticketComponentID(ctx)
+func (r *Runtime) repairTicketComponent(_ context.Context, interaction *discordgo.InteractionCreate) discord.Result {
+	ticketID, err := ticketComponentID(interaction)
 	if err != nil {
-		return ui.Immediate(ui.Error("That ticket is unavailable."))
+		return discord.Immediate(discord.Error("That ticket is unavailable."))
 	}
-	return r.ticketTask(ctx, func(taskCtx context.Context, responder ui.Responder, actor tickets.Actor) error {
+	return r.ticketTask(interaction, func(taskCtx context.Context, responder discord.Responder, actor tickets.Actor) error {
 		if err := r.TicketDiscord.RepairPermissions(taskCtx, actor, ticketID); err != nil {
-			_, _ = responder.EditOriginal(ui.ErrorEdit(ticketErrorMessage(err)))
+			_, _ = responder.EditOriginal(discord.ErrorEdit(ticketErrorMessage(err)))
 			return nil
 		}
-		_, err := responder.EditOriginal(ui.EditMessage(ui.Content("Ticket permissions repaired.", true)))
+		_, err := responder.EditOriginal(discord.EditMessage(discord.Content("Ticket permissions repaired.", true)))
 		return err
 	})
 }
@@ -121,66 +121,66 @@ func ticketControls(ticketID string, includeRepair bool) []discordgo.MessageComp
 	if !ok {
 		return components
 	}
-	repairID := ui.MustCustomID(ui.CustomID{Namespace: "ticket", Action: "repair", Version: "v1", Payload: ticketID})
-	row.Components = append(row.Components, ui.Button(repairID, "Repair permissions", discordgo.SecondaryButton, false))
+	repairID := discord.MustCustomID(discord.CustomID{Namespace: "ticket", Action: "repair", Version: "v1", Payload: ticketID})
+	row.Components = append(row.Components, discord.Button(repairID, "Repair permissions", discordgo.SecondaryButton, false))
 	components[0] = row
 	return components
 }
 
 // replyTicketComponent opens a modal so reply content never enters a custom ID.
-func (r *Runtime) replyTicketComponent(ctx ui.Context) ui.HandlerResult {
-	ticketID, err := ticketComponentID(ctx)
+func (r *Runtime) replyTicketComponent(_ context.Context, interaction *discordgo.InteractionCreate) discord.Result {
+	ticketID, err := ticketComponentID(interaction)
 	if err != nil {
-		return ui.Immediate(ui.Error("That ticket is unavailable."))
+		return discord.Immediate(discord.Error("That ticket is unavailable."))
 	}
-	customID := ui.MustCustomID(ui.CustomID{Namespace: "ticket", Action: "reply-submit", Version: "v1", Payload: ticketID})
+	customID := discord.MustCustomID(discord.CustomID{Namespace: "ticket", Action: "reply-submit", Version: "v1", Payload: ticketID})
 	components := []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{
 		discordgo.TextInput{CustomID: "body", Label: "Reply", Style: discordgo.TextInputParagraph, Required: true, MinLength: 1, MaxLength: 4000},
 	}}}
-	return ui.Immediate(ui.Modal("Reply to ticket", customID, components))
+	return discord.Immediate(discord.Modal("Reply to ticket", customID, components))
 }
 
 // submitTicketReplyModal validates the modal and sends through the private adapter.
-func (r *Runtime) submitTicketReplyModal(ctx ui.Context) ui.HandlerResult {
-	data := ctx.Interaction.ModalSubmitData()
-	customID, err := ui.DecodeCustomID(data.CustomID)
+func (r *Runtime) submitTicketReplyModal(_ context.Context, interaction *discordgo.InteractionCreate) discord.Result {
+	data := interaction.ModalSubmitData()
+	customID, err := discord.DecodeCustomID(data.CustomID)
 	if err != nil || customID.Payload == "" {
-		return ui.Immediate(ui.Error("That ticket reply is invalid."))
+		return discord.Immediate(discord.Error("That ticket reply is invalid."))
 	}
-	body := modalText(data.Components, "body")
-	return r.ticketTask(ctx, func(taskCtx context.Context, responder ui.Responder, actor tickets.Actor) error {
+	body := strings.TrimSpace(discord.ModalValue(data, "body"))
+	return r.ticketTask(interaction, func(taskCtx context.Context, responder discord.Responder, actor tickets.Actor) error {
 		if err := r.TicketDiscord.Reply(taskCtx, actor, customID.Payload, body); err != nil {
-			_, _ = responder.EditOriginal(ui.ErrorEdit(ticketErrorMessage(err)))
+			_, _ = responder.EditOriginal(discord.ErrorEdit(ticketErrorMessage(err)))
 			return nil
 		}
-		_, err := responder.EditOriginal(ui.EditMessage(ui.Content("Reply sent.", true)))
+		_, err := responder.EditOriginal(discord.EditMessage(discord.Content("Reply sent.", true)))
 		return err
 	})
 }
 
 // closeTicketComponent captures the transcript and resolves the ticket.
-func (r *Runtime) closeTicketComponent(ctx ui.Context) ui.HandlerResult {
-	ticketID, err := ticketComponentID(ctx)
+func (r *Runtime) closeTicketComponent(_ context.Context, interaction *discordgo.InteractionCreate) discord.Result {
+	ticketID, err := ticketComponentID(interaction)
 	if err != nil {
-		return ui.Immediate(ui.Error("That ticket is unavailable."))
+		return discord.Immediate(discord.Error("That ticket is unavailable."))
 	}
-	return r.ticketTask(ctx, func(taskCtx context.Context, responder ui.Responder, actor tickets.Actor) error {
+	return r.ticketTask(interaction, func(taskCtx context.Context, responder discord.Responder, actor tickets.Actor) error {
 		if _, err := r.TicketDiscord.Close(taskCtx, actor, ticketID); err != nil {
-			_, _ = responder.EditOriginal(ui.ErrorEdit(ticketErrorMessage(err)))
+			_, _ = responder.EditOriginal(discord.ErrorEdit(ticketErrorMessage(err)))
 			return nil
 		}
-		_, err := responder.EditOriginal(ui.EditMessage(ui.Content("Ticket closed and transcript captured.", true)))
+		_, err := responder.EditOriginal(discord.EditMessage(discord.Content("Ticket closed and transcript captured.", true)))
 		return err
 	})
 }
 
 // ticketComponentID extracts only the opaque identity; ticketTask checks live
 // membership and the service verifies ownership before any content is read.
-func ticketComponentID(ctx ui.Context) (string, error) {
-	if ctx.Interaction == nil || ctx.Interaction.Interaction == nil || ctx.Interaction.GuildID == "" {
+func ticketComponentID(interaction *discordgo.InteractionCreate) (string, error) {
+	if interaction.GuildID == "" {
 		return "", errors.New("ticket interactions require a guild")
 	}
-	customID, err := ui.DecodeCustomID(ctx.Interaction.MessageComponentData().CustomID)
+	customID, err := discord.DecodeCustomID(interaction.MessageComponentData().CustomID)
 	if err != nil || customID.Payload == "" {
 		return "", errors.New("ticket id is required")
 	}
@@ -189,14 +189,12 @@ func ticketComponentID(ctx ui.Context) (string, error) {
 
 // ticketTask acknowledges before making fresh Discord authorization requests.
 // Gateway cache and channel-level overrides never grant guild staff authority.
-func (r *Runtime) ticketTask(ctx ui.Context, task func(context.Context, ui.Responder, tickets.Actor) error) ui.HandlerResult {
-	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
+func (r *Runtime) ticketTask(interaction *discordgo.InteractionCreate, task func(context.Context, discord.Responder, tickets.Actor) error) discord.Result {
+	return discord.Async(discord.DeferEphemeral(), func(taskCtx context.Context, responder discord.Responder) error {
 		taskCtx = quack.ContextWithAuditSource(taskCtx, quack.AuditSourceDiscord)
-		current := ctx
-		current.Context = taskCtx
-		actor, err := r.ticketActor(current)
+		actor, err := r.ticketActor(taskCtx, interaction)
 		if err != nil {
-			_, _ = responder.EditOriginal(ui.ErrorEdit("Quack could not verify your ticket access."))
+			_, _ = responder.EditOriginal(discord.ErrorEdit("Quack could not verify your ticket access."))
 			return nil
 		}
 		return task(taskCtx, responder, actor)
@@ -210,30 +208,6 @@ func interactionUserID(interaction *discordgo.InteractionCreate) string {
 	}
 	if interaction.User != nil {
 		return interaction.User.ID
-	}
-	return ""
-}
-
-// modalText extracts one expected text input from Discord's component tree.
-func modalText(components []discordgo.MessageComponent, customID string) string {
-	for _, component := range components {
-		row, ok := component.(*discordgo.ActionsRow)
-		if !ok {
-			if value, valueOK := component.(discordgo.ActionsRow); valueOK {
-				row = &value
-			} else {
-				continue
-			}
-		}
-		for _, child := range row.Components {
-			input, ok := child.(*discordgo.TextInput)
-			if ok && input.CustomID == customID {
-				return strings.TrimSpace(input.Value)
-			}
-			if value, valueOK := child.(discordgo.TextInput); valueOK && value.CustomID == customID {
-				return strings.TrimSpace(value.Value)
-			}
-		}
 	}
 	return ""
 }

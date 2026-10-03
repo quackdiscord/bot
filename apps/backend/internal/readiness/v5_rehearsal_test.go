@@ -10,9 +10,9 @@ import (
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
-	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/api"
 	"github.com/quackdiscord/bot/internal/config"
+	"github.com/quackdiscord/bot/internal/discord"
 	"github.com/quackdiscord/bot/internal/moduleintegration"
 	"github.com/quackdiscord/bot/internal/quack"
 	"github.com/quackdiscord/bot/internal/store"
@@ -42,13 +42,13 @@ func TestCleanInstallComposesEveryAcceptedV5Surface(t *testing.T) {
 	cfg := config.Default()
 	cfg.Discord.AppID = "123456789012345678"
 	services := quack.New(quack.Deps{Store: repository})
-	session, err := discordgo.New("Bot readiness-test-token")
+	bot, err := discord.New("Bot readiness-test-token")
 	if err != nil {
 		t.Fatalf("construct offline Discord session: %v", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	modules, err := moduleintegration.New(ctx, repository, session, services)
+	modules, err := moduleintegration.New(ctx, repository, bot, services)
 	if err != nil {
 		t.Fatalf("compose optional modules: %v", err)
 	}

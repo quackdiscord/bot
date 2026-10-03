@@ -14,6 +14,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/api"
 	"github.com/quackdiscord/bot/internal/config"
+	"github.com/quackdiscord/bot/internal/discord"
 	"github.com/quackdiscord/bot/internal/modules"
 	"github.com/quackdiscord/bot/internal/modules/generallogging"
 	"github.com/quackdiscord/bot/internal/modules/honeypot"
@@ -349,11 +350,11 @@ func TestRuntimeWorkerShutdownIsIdempotent(t *testing.T) {
 	if err := repository.Migrate(); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	session, err := discordgo.New("Bot integration-test")
+	bot, err := discord.New("Bot integration-test")
 	if err != nil {
-		t.Fatalf("new Discord session: %v", err)
+		t.Fatalf("new Discord bot: %v", err)
 	}
-	runtime, err := New(context.Background(), repository, session, quack.New(quack.Deps{Store: repository}))
+	runtime, err := New(context.Background(), repository, bot, quack.New(quack.Deps{Store: repository}))
 	if err != nil {
 		t.Fatalf("new module runtime: %v", err)
 	}

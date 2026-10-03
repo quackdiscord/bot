@@ -1,0 +1,270 @@
+{
+  "autocomplete_all": {
+    "type": 8,
+    "data": {
+      "tts": false,
+      "content": "",
+      "components": null,
+      "embeds": null,
+      "choices": [
+        {
+          "name": "Many Fields - Lots",
+          "value": "TEMPLATE_MANY"
+        },
+        {
+          "name": "Spam - Unwanted repeated messages",
+          "value": "TEMPLATE_SPAM"
+        }
+      ]
+    }
+  },
+  "context_continue": {
+    "type": 4,
+    "data": {
+      "tts": false,
+      "content": "Saved context page 1. Continue to page 2.",
+      "components": [
+        {
+          "components": [
+            {
+              "label": "Continue context",
+              "style": 1,
+              "disabled": false,
+              "custom_id": "case:context_next:v1:interaction-many",
+              "type": 2
+            }
+          ],
+          "type": 1
+        }
+      ],
+      "embeds": null,
+      "allowed_mentions": {
+        "parse": null,
+        "replied_user": false
+      },
+      "flags": 64
+    }
+  },
+  "context_missing_required": {
+    "type": 4,
+    "data": {
+      "tts": false,
+      "content": "",
+      "components": null,
+      "embeds": [
+        {
+          "title": "Error",
+          "description": "Field 6 is required",
+          "color": 15548997
+        }
+      ],
+      "allowed_mentions": {
+        "parse": null,
+        "replied_user": false
+      },
+      "flags": 64
+    }
+  },
+  "context_modal_first": {
+    "type": 9,
+    "data": {
+      "tts": false,
+      "content": "",
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "context_field_1",
+              "label": "Field 1",
+              "style": 1,
+              "placeholder": "Enter a value",
+              "required": false,
+              "max_length": 1000,
+              "type": 4
+            }
+          ],
+          "type": 1
+        },
+        {
+          "components": [
+            {
+              "custom_id": "context_field_2",
+              "label": "Field 2",
+              "style": 2,
+              "placeholder": "Enter a value",
+              "required": true,
+              "max_length": 4000,
+              "type": 4
+            }
+          ],
+          "type": 1
+        },
+        {
+          "components": [
+            {
+              "custom_id": "context_field_3",
+              "label": "Field 3",
+              "style": 1,
+              "placeholder": "true or false",
+              "required": false,
+              "max_length": 1000,
+              "type": 4
+            }
+          ],
+          "type": 1
+        },
+        {
+          "components": [
+            {
+              "custom_id": "context_field_4",
+              "label": "Field 4",
+              "style": 1,
+              "placeholder": "Enter a value",
+              "required": true,
+              "max_length": 1000,
+              "type": 4
+            }
+          ],
+          "type": 1
+        },
+        {
+          "components": [
+            {
+              "custom_id": "context_field_5",
+              "label": "Field 5",
+              "style": 1,
+              "placeholder": "Enter a value",
+              "required": false,
+              "max_length": 1000,
+              "type": 4
+            }
+          ],
+          "type": 1
+        }
+      ],
+      "embeds": null,
+      "custom_id": "case:context_submit:v1:interaction-many",
+      "title": "Case context (1/2)"
+    }
+  },
+  "context_modal_next": {
+    "type": 9,
+    "data": {
+      "tts": false,
+      "content": "",
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "context_field_6",
+              "label": "Field 6",
+              "style": 1,
+              "placeholder": "Enter a value",
+              "required": true,
+              "max_length": 1000,
+              "type": 4
+            }
+          ],
+          "type": 1
+        }
+      ],
+      "embeds": null,
+      "custom_id": "case:context_submit:v1:interaction-many",
+      "title": "Case context (2/2)"
+    }
+  },
+  "message_select": {
+    "type": 4,
+    "data": {
+      "tts": false,
+      "content": "Choose the template that matches this message.",
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "case:message_template:v1:target-1|channel-1|message-1",
+              "placeholder": "Choose an active case template",
+              "min_values": 1,
+              "max_values": 1,
+              "options": [
+                {
+                  "label": "Many Fields - Lots",
+                  "value": "TEMPLATE_MANY",
+                  "description": "",
+                  "default": false
+                },
+                {
+                  "label": "Spam - Unwanted repeated messages",
+                  "value": "TEMPLATE_SPAM",
+                  "description": "",
+                  "default": false
+                }
+              ],
+              "disabled": false,
+              "type": 3
+            }
+          ],
+          "type": 1
+        }
+      ],
+      "embeds": null,
+      "allowed_mentions": {
+        "parse": null,
+        "replied_user": false
+      },
+      "flags": 64
+    }
+  },
+  "reverse_button": {
+    "type": 9,
+    "data": {
+      "tts": false,
+      "content": "",
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "confirm",
+              "label": "Type REVERSE to confirm",
+              "style": 1,
+              "required": true,
+              "min_length": 7,
+              "max_length": 7,
+              "type": 4
+            }
+          ],
+          "type": 1
+        }
+      ],
+      "embeds": null,
+      "custom_id": "case:reverse_submit:v1:case-1|exec-1|unban_user",
+      "title": "Confirm reversal"
+    }
+  },
+  "void_button": {
+    "type": 9,
+    "data": {
+      "tts": false,
+      "content": "",
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "reason",
+              "label": "Required correction reason",
+              "style": 2,
+              "required": true,
+              "min_length": 3,
+              "max_length": 500,
+              "type": 4
+            }
+          ],
+          "type": 1
+        }
+      ],
+      "embeds": null,
+      "custom_id": "case:void_submit:v1:case-1",
+      "title": "Void case"
+    }
+  }
+}

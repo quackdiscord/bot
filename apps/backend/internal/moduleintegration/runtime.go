@@ -11,7 +11,7 @@ import (
 	"log/slog"
 
 	"github.com/bwmarrin/discordgo"
-	discordadapter "github.com/quackdiscord/bot/internal/discordbot"
+	"github.com/quackdiscord/bot/internal/discord"
 	"github.com/quackdiscord/bot/internal/modules"
 	"github.com/quackdiscord/bot/internal/modules/generallogging"
 	"github.com/quackdiscord/bot/internal/modules/honeypot"
@@ -72,17 +72,16 @@ type bulkDeleteEvent struct {
 }
 
 // New constructs the shared registry, immutable audit adapter, module stores,
-// Discord adapters, and bounded general-logging delivery workers.
-func New(ctx context.Context, repositories *store.Store, session *discordgo.Session, services *quack.Services, auditSenders ...quack.AuditMirrorSender) (*Runtime, error) {
+// Discord adapters, and bounded general-logging delivery workers. bot sends
+// the audit mirror and appeal notifications.
+func New(ctx context.Context, repositories *store.Store, bot *discord.Bot, services *quack.Services) (*Runtime, error) {
 	if repositories == nil || repositories.DB() == nil {
 		return nil, errors.New("optional module database is not configured")
-	}
-	if session == nil {
-		return nil, errors.New("optional module Discord session is not configured")
 	}
 	if services == nil || services.Cases == nil || services.Appeals == nil {
 		return nil, errors.New("optional module core services are not configured")
 	}
+	session := bot.Session
 
 	registry, err := modules.NewRegistry(
 		modules.NewSQLSettingsStore(repositories.DB()),
@@ -97,20 +96,17 @@ func New(ctx context.Context, repositories *store.Store, session *discordgo.Sess
 	ticketService := tickets.NewService(registry, tickets.NewStore(repositories.DB()), auditor)
 	resolver := guildResolver{db: repositories.DB()}
 	ticketClient := ticketDiscordClient{session: session, resolver: resolver}
-	loggingClient := loggingDiscordClient{session: session, resolver: resolver}
+	loggingClient := loggingDiscordClient{bot: bot, resolver: resolver}
 	loggingService := generallogging.NewService(registry, auditor, loggingClient, nil)
 	honeypotTemplates := honeypotTemplateValidator{repository: repositories}
 	honeypotChannels := honeypotChannelValidator{session: session, resolver: resolver}
 	honeypotService := honeypot.NewService(registry, honeypot.NewStore(repositories.DB()), auditor, honeypotChannels, honeypotTemplates, honeypotCaseApplier{cases: services.Cases})
 	honeypotDiscord := honeypot.NewDiscordAdapter(honeypotService)
 	appeals := services.Appeals
-	appealAdapter := &discordadapter.AppealNotificationAdapter{Session: session, Resolver: appealStaffChannelResolver{repository: repositories, validator: &discordadapter.Bot{Session: session}}}
-	appealDispatcher := quack.NewAppealNotificationDispatcher(repositories, appealAdapter)
+	appealNotifier := discord.NewAppealNotifier(bot, appealStaffChannelResolver{repository: repositories, validator: bot})
+	appealDispatcher := quack.NewAppealNotificationDispatcher(repositories, appealNotifier)
 	workerCtx, cancel := context.WithCancel(ctx)
-	var auditMirror *quack.AuditMirrorWorker
-	if len(auditSenders) > 0 && auditSenders[0] != nil {
-		auditMirror = quack.NewAuditMirrorWorker(repositories, auditSenders[0], 0)
-	}
+	auditMirror := quack.NewAuditMirrorWorker(repositories, bot, 0)
 
 	runtime := &Runtime{
 		Tickets:          ticketService,

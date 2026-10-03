@@ -5,12 +5,13 @@ import (
 	"errors"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/internal/discord"
 )
 
-// loggingDiscordClient sends already-redacted payloads only to channels whose
-// everyone role is denied visibility.
+// loggingDiscordClient sends already-redacted payloads only to channels that
+// pass the core staff-only check.
 type loggingDiscordClient struct {
-	session  *discordgo.Session
+	bot      *discord.Bot
 	resolver guildResolver
 }
 
@@ -19,13 +20,14 @@ func (c loggingDiscordClient) SendStaffLog(ctx context.Context, guildID, channel
 	if err := c.ValidateStaffOnlyChannel(ctx, guildID, channelID); err != nil {
 		return err
 	}
-	_, err := c.session.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
+	_, err := c.bot.Session.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
 		Content: payload, AllowedMentions: &discordgo.MessageAllowedMentions{},
 	}, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 	return err
 }
 
-// ValidateStaffOnlyChannel rejects missing, cross-guild, or publicly visible destinations.
+// ValidateStaffOnlyChannel applies discord.Bot.ValidateStaffChannel to the
+// guild with internal ID guildID, then checks that the bot can post there.
 func (c loggingDiscordClient) ValidateStaffOnlyChannel(ctx context.Context, guildID, channelID string) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -34,56 +36,20 @@ func (c loggingDiscordClient) ValidateStaffOnlyChannel(ctx context.Context, guil
 	if err != nil {
 		return err
 	}
-	channel, err := c.session.Channel(channelID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
-	if err != nil {
+	if err := c.bot.ValidateStaffChannel(ctx, discordGuildID, channelID); err != nil {
 		return err
 	}
-	if channel.GuildID != discordGuildID {
-		return errors.New("logging destination belongs to another guild")
-	}
-	return c.validateLoggingACL(channel)
+	return c.checkBotDelivery(channelID)
 }
 
-// validateLoggingACL permits visibility only through current staff-capable
-// roles (plus the bot itself) and requires the bot to send successfully.
-func (c loggingDiscordClient) validateLoggingACL(channel *discordgo.Channel) error {
-	if err := validateStaffOnlyACL(channel, channel.GuildID, nil); err != nil {
-		return err
-	}
-	roles, err := c.session.GuildRoles(channel.GuildID)
-	if err != nil {
-		return err
-	}
-	staffRoles := make(map[string]bool, len(roles))
-	for _, role := range roles {
-		if role == nil {
-			continue
-		}
-		staffRoles[role.ID] = role.Permissions&(discordgo.PermissionAdministrator|discordgo.PermissionManageServer|discordgo.PermissionModerateMembers) != 0
-	}
-	botID := ""
-	if c.session.State != nil && c.session.State.User != nil {
-		botID = c.session.State.User.ID
-	}
-	for _, overwrite := range channel.PermissionOverwrites {
-		if overwrite.Allow&discordgo.PermissionViewChannel == 0 {
-			continue
-		}
-		switch overwrite.Type {
-		case discordgo.PermissionOverwriteTypeRole:
-			if overwrite.ID != channel.GuildID && !staffRoles[overwrite.ID] {
-				return errors.New("logging destination grants a non-staff role visibility")
-			}
-		case discordgo.PermissionOverwriteTypeMember:
-			if overwrite.ID != botID {
-				return errors.New("logging destination grants a non-bot member visibility")
-			}
-		}
-	}
-	if botID == "" {
+// checkBotDelivery rejects a destination the bot cannot view or post in, so
+// logging settings fail at save time instead of on every event.
+func (c loggingDiscordClient) checkBotDelivery(channelID string) error {
+	session := c.bot.Session
+	if session.State == nil || session.State.User == nil {
 		return errors.New("Discord bot identity is unavailable")
 	}
-	permissions, err := c.session.UserChannelPermissions(botID, channel.ID)
+	permissions, err := session.UserChannelPermissions(session.State.User.ID, channelID)
 	if err != nil {
 		return err
 	}

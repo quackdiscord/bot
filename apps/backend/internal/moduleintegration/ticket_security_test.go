@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/modules/tickets"
 	"github.com/quackdiscord/bot/internal/quack"
 	"gorm.io/driver/sqlite"
@@ -46,11 +45,11 @@ func (d *ticketAuthorityDiscord) GuildAuthorization(context.Context, string, str
 func TestTicketActorUsesLiveGuildAuthority(t *testing.T) {
 	discord := &ticketAuthorityDiscord{}
 	r := &Runtime{services: &quack.Services{Guilds: quack.NewGuildService(ticketAuthorityStore{}, discord)}}
-	actor, err := r.ticketActor(ui.Context{Context: context.Background(), Interaction: &discordgo.InteractionCreate{
+	actor, err := r.ticketActor(context.Background(), &discordgo.InteractionCreate{
 		Interaction: &discordgo.Interaction{GuildID: "guild", Member: &discordgo.Member{
 			User: &discordgo.User{ID: "member"}, Permissions: discordgo.PermissionAdministrator,
 		}},
-	}})
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

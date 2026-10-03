@@ -1,0 +1,369 @@
+{
+  "appeal_entry": {
+    "Content": "This case is eligible for appeal.",
+    "Embeds": null,
+    "Components": [
+      {
+        "components": [
+          {
+            "label": "Open appeal",
+            "style": 5,
+            "disabled": false,
+            "url": "https://dash.example/base/guilds/guild/cases/case%25201/appeal",
+            "type": 2
+          }
+        ],
+        "type": 1
+      }
+    ],
+    "Files": null,
+    "Ephemeral": false,
+    "AllowedMentions": null
+  },
+  "appeal_staff": {
+    "Content": "",
+    "Embeds": [
+      {
+        "title": "Appeal Review",
+        "color": 5793266,
+        "footer": {
+          "text": "Appeal ID: appeal"
+        },
+        "fields": [
+          {
+            "name": "Case",
+            "value": "case",
+            "inline": true
+          },
+          {
+            "name": "Member",
+            "value": "\u003c@target\u003e",
+            "inline": true
+          },
+          {
+            "name": "Status",
+            "value": "accepted",
+            "inline": true
+          },
+          {
+            "name": "submitted",
+            "value": "member \u003c@target\u003e: please"
+          }
+        ]
+      }
+    ],
+    "Components": [
+      {
+        "components": [
+          {
+            "label": "Confirm unban",
+            "style": 4,
+            "disabled": false,
+            "custom_id": "appeal:reverse:v1:appeal,execution,unban_user",
+            "type": 2
+          }
+        ],
+        "type": 1
+      }
+    ],
+    "Files": null,
+    "Ephemeral": false,
+    "AllowedMentions": null
+  },
+  "case_created": {
+    "Content": "**Case #7 created** · \u003c@target\u003e\n**Template:** spam\n**Level:** Level 2\n**Action:** Timeout · Queued, Ban · Completed",
+    "Embeds": null,
+    "Components": null,
+    "Files": null,
+    "Ephemeral": false,
+    "AllowedMentions": null
+  },
+  "case_created_nil": {
+    "Content": "Created case.",
+    "Embeds": null,
+    "Components": null,
+    "Files": null,
+    "Ephemeral": false,
+    "AllowedMentions": null
+  },
+  "case_detail": {
+    "Content": "",
+    "Embeds": [
+      {
+        "title": "Case #7",
+        "description": "Official reason",
+        "color": 5793266,
+        "fields": [
+          {
+            "name": "Target",
+            "value": "\u003c@target\u003e",
+            "inline": true
+          },
+          {
+            "name": "Validity",
+            "value": "valid",
+            "inline": true
+          },
+          {
+            "name": "Source",
+            "value": "discord",
+            "inline": true
+          },
+          {
+            "name": "Selected outcome",
+            "value": "Timeout",
+            "inline": true
+          },
+          {
+            "name": "Enforcement",
+            "value": "Ban · Completed · 2 attempt(s) · permission denied"
+          },
+          {
+            "name": "Visible context",
+            "value": "**Details:** Visible context"
+          },
+          {
+            "name": "Evidence",
+            "value": "https://discord.com/channels/1/2/3\n[a.png](https://cdn/a.png) · copied\ndeleted"
+          },
+          {
+            "name": "History",
+            "value": "case_created · Case created"
+          }
+        ]
+      }
+    ],
+    "Components": [
+      {
+        "components": [
+          {
+            "label": "Void case",
+            "style": 4,
+            "disabled": false,
+            "custom_id": "case:void:v1:case-1",
+            "type": 2
+          },
+          {
+            "label": "Reverse action",
+            "style": 2,
+            "disabled": false,
+            "custom_id": "case:reverse:v1:case-1|action-1|unban_user",
+            "type": 2
+          }
+        ],
+        "type": 1
+      }
+    ],
+    "Files": null,
+    "Ephemeral": false,
+    "AllowedMentions": null
+  },
+  "case_detail_nil": {
+    "Content": "",
+    "Embeds": [
+      {
+        "title": "Case",
+        "description": "Case not found.",
+        "color": 16705372
+      }
+    ],
+    "Components": null,
+    "Files": null,
+    "Ephemeral": true,
+    "AllowedMentions": null
+  },
+  "case_list_empty": {
+    "Content": "",
+    "Embeds": [
+      {
+        "title": "Recent Cases",
+        "description": "No cases found.",
+        "color": 5793266,
+        "footer": {
+          "text": "Page 1/1 · 0 total"
+        }
+      }
+    ],
+    "Components": [
+      {
+        "components": [
+          {
+            "label": "Prev",
+            "style": 2,
+            "disabled": true,
+            "custom_id": "case:list_prev:v1:1|",
+            "type": 2
+          },
+          {
+            "label": "Next",
+            "style": 1,
+            "disabled": true,
+            "custom_id": "case:list_next:v1:1|",
+            "type": 2
+          }
+        ],
+        "type": 1
+      }
+    ],
+    "Files": null,
+    "Ephemeral": false,
+    "AllowedMentions": null
+  },
+  "case_list_user": {
+    "Content": "",
+    "Embeds": [
+      {
+        "title": "Case History for \u003c@member\u003e",
+        "description": "**#9** · \u003c@member\u003e · voided · Warn\n**#8** · \u003c@other\u003e · valid",
+        "color": 5793266,
+        "footer": {
+          "text": "Page 2/3 · 21 total"
+        }
+      }
+    ],
+    "Components": [
+      {
+        "components": [
+          {
+            "label": "Prev",
+            "style": 2,
+            "disabled": false,
+            "custom_id": "case:user_prev:v1:2|member",
+            "type": 2
+          },
+          {
+            "label": "Next",
+            "style": 1,
+            "disabled": false,
+            "custom_id": "case:user_next:v1:2|member",
+            "type": 2
+          }
+        ],
+        "type": 1
+      }
+    ],
+    "Files": null,
+    "Ephemeral": false,
+    "AllowedMentions": null
+  },
+  "error_response": {
+    "type": 4,
+    "data": {
+      "tts": false,
+      "content": "",
+      "components": null,
+      "embeds": [
+        {
+          "title": "Error",
+          "description": "Nope",
+          "color": 15548997
+        }
+      ],
+      "allowed_mentions": {
+        "parse": null,
+        "replied_user": false
+      },
+      "flags": 64
+    }
+  },
+  "failures": {
+    "Content": "",
+    "Embeds": [
+      {
+        "title": "Failed Actions",
+        "description": "`exec-1` · Kick · kick permission or hierarchy denied\n`exec-2` · Ban · Discord action failed",
+        "color": 15548997,
+        "footer": {
+          "text": "Page 1/2 · 12 active"
+        }
+      }
+    ],
+    "Components": [
+      {
+        "components": [
+          {
+            "label": "Retry first",
+            "style": 1,
+            "disabled": false,
+            "custom_id": "case:retry:v1:exec-1",
+            "type": 2
+          },
+          {
+            "label": "Dismiss first",
+            "style": 2,
+            "disabled": false,
+            "custom_id": "case:dismiss:v1:exec-1",
+            "type": 2
+          },
+          {
+            "label": "Void case",
+            "style": 4,
+            "disabled": false,
+            "custom_id": "case:void:v1:case-1",
+            "type": 2
+          }
+        ],
+        "type": 1
+      },
+      {
+        "components": [
+          {
+            "label": "Prev",
+            "style": 2,
+            "disabled": true,
+            "custom_id": "case:failures_prev:v1:1",
+            "type": 2
+          },
+          {
+            "label": "Next",
+            "style": 1,
+            "disabled": false,
+            "custom_id": "case:failures_next:v1:1",
+            "type": 2
+          }
+        ],
+        "type": 1
+      }
+    ],
+    "Files": null,
+    "Ephemeral": false,
+    "AllowedMentions": null
+  },
+  "failures_empty": {
+    "Content": "",
+    "Embeds": [
+      {
+        "title": "Failed Actions",
+        "description": "No action failures need review.",
+        "color": 15548997,
+        "footer": {
+          "text": "Page 1/1 · 0 active"
+        }
+      }
+    ],
+    "Components": [
+      {
+        "components": [
+          {
+            "label": "Prev",
+            "style": 2,
+            "disabled": true,
+            "custom_id": "case:failures_prev:v1:1",
+            "type": 2
+          },
+          {
+            "label": "Next",
+            "style": 1,
+            "disabled": true,
+            "custom_id": "case:failures_next:v1:1",
+            "type": 2
+          }
+        ],
+        "type": 1
+      }
+    ],
+    "Files": null,
+    "Ephemeral": false,
+    "AllowedMentions": null
+  }
+}

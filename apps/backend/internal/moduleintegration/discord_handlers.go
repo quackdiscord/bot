@@ -4,15 +4,14 @@ import (
 	"errors"
 
 	"github.com/bwmarrin/discordgo"
-	discordadapter "github.com/quackdiscord/bot/internal/discordbot"
-	discordcommands "github.com/quackdiscord/bot/internal/discordbot/commands"
-	"github.com/quackdiscord/bot/internal/discordbot/interactions"
+	"github.com/quackdiscord/bot/internal/discord"
 	"github.com/quackdiscord/bot/internal/modules/tickets"
 )
 
-// RegisterComponents installs ticket buttons and the reply modal into the
-// process's single interaction dispatcher.
-func (r *Runtime) RegisterComponents(registry *interactions.ComponentRegistry) error {
+// RegisterComponents installs ticket buttons and the reply modal on the
+// process's interaction router. The /case and appeal controls are installed
+// by discord.NewRouter.
+func (r *Runtime) RegisterComponents(router *discord.Router) error {
 	if r == nil || r.TicketDiscord == nil || r.Tickets == nil {
 		return errors.New("ticket Discord runtime is not configured")
 	}
@@ -21,19 +20,12 @@ func (r *Runtime) RegisterComponents(registry *interactions.ComponentRegistry) e
 		View: r.viewTicketComponent, Reply: r.replyTicketComponent,
 		Close: r.closeTicketComponent,
 	}
-	if err := tickets.RegisterComponents(registry, handlers); err != nil {
+	if err := tickets.RegisterComponents(router, handlers); err != nil {
 		return err
 	}
-	if err := discordcommands.RegisterCaseComponents(registry); err != nil {
-		return err
-	}
-	if err := discordadapter.RegisterAppealComponents(registry, r.services, r.Appeals); err != nil {
-		return err
-	}
-	if err := registry.RegisterComponent("ticket", "repair", r.repairTicketComponent); err != nil {
-		return err
-	}
-	return registry.RegisterModal("ticket", "reply-submit", r.submitTicketReplyModal)
+	router.HandleComponent("ticket", "repair", r.repairTicketComponent)
+	router.HandleModal("ticket", "reply-submit", r.submitTicketReplyModal)
+	return nil
 }
 
 // RegisterGatewayHandlers subscribes optional modules to gateway events without

@@ -4,49 +4,52 @@ import (
 	"errors"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/quackdiscord/bot/internal/discordbot/interactions"
-	"github.com/quackdiscord/bot/internal/discordbot/ui"
+	"github.com/quackdiscord/bot/internal/discord"
 )
 
 const componentNamespace = "ticket"
 
 // ComponentHandlers supplies integration-owned identity resolution and presentation for ticket interactions.
 type ComponentHandlers struct {
-	Open, Queue, View, Reply, Close ui.Handler
+	Open, Queue, View, Reply, Close discord.Handler
 }
 
-// RegisterComponents installs the complete ticket interaction surface into a caller-owned registry.
-func RegisterComponents(registry *interactions.ComponentRegistry, handlers ComponentHandlers) error {
-	if registry == nil {
-		return errors.New("component registry is required")
-	}
-	for _, entry := range []struct {
+// ComponentRouter is where ticket buttons are installed; *discord.Router
+// satisfies it.
+type ComponentRouter interface {
+	HandleComponent(namespace, action string, handler discord.Handler)
+}
+
+// RegisterComponents installs the complete ticket interaction surface on router.
+func RegisterComponents(router ComponentRouter, handlers ComponentHandlers) error {
+	entries := []struct {
 		name    string
-		handler ui.Handler
-	}{{"open", handlers.Open}, {"queue", handlers.Queue}, {"view", handlers.View}, {"reply", handlers.Reply}, {"close", handlers.Close}} {
+		handler discord.Handler
+	}{{"open", handlers.Open}, {"queue", handlers.Queue}, {"view", handlers.View}, {"reply", handlers.Reply}, {"close", handlers.Close}}
+	for _, entry := range entries {
 		if entry.handler == nil {
 			return errors.New("all ticket component handlers are required")
 		}
-		if err := registry.RegisterComponent(componentNamespace, entry.name, entry.handler); err != nil {
-			return err
-		}
+	}
+	for _, entry := range entries {
+		router.HandleComponent(componentNamespace, entry.name, entry.handler)
 	}
 	return nil
 }
 
 // EntryComponents builds member-open and staff-queue controls with stable routed identifiers.
 func EntryComponents() []discordgo.MessageComponent {
-	return []discordgo.MessageComponent{ui.Row(
-		ui.Button(ui.MustCustomID(ui.CustomID{Namespace: componentNamespace, Action: "open", Version: "v1"}), "Open ticket", discordgo.PrimaryButton, false),
-		ui.Button(ui.MustCustomID(ui.CustomID{Namespace: componentNamespace, Action: "queue", Version: "v1"}), "Staff queue", discordgo.SecondaryButton, false),
+	return []discordgo.MessageComponent{discord.Row(
+		discord.Button(discord.MustCustomID(discord.CustomID{Namespace: componentNamespace, Action: "open", Version: "v1"}), "Open ticket", discordgo.PrimaryButton, false),
+		discord.Button(discord.MustCustomID(discord.CustomID{Namespace: componentNamespace, Action: "queue", Version: "v1"}), "Staff queue", discordgo.SecondaryButton, false),
 	)}
 }
 
 // TicketComponents builds private view, reply, and close controls for one ticket.
 func TicketComponents(ticketID string) []discordgo.MessageComponent {
-	return []discordgo.MessageComponent{ui.Row(
-		ui.Button(ui.MustCustomID(ui.CustomID{Namespace: componentNamespace, Action: "view", Version: "v1", Payload: ticketID}), "View", discordgo.SecondaryButton, false),
-		ui.Button(ui.MustCustomID(ui.CustomID{Namespace: componentNamespace, Action: "reply", Version: "v1", Payload: ticketID}), "Reply", discordgo.PrimaryButton, false),
-		ui.Button(ui.MustCustomID(ui.CustomID{Namespace: componentNamespace, Action: "close", Version: "v1", Payload: ticketID}), "Close", discordgo.DangerButton, false),
+	return []discordgo.MessageComponent{discord.Row(
+		discord.Button(discord.MustCustomID(discord.CustomID{Namespace: componentNamespace, Action: "view", Version: "v1", Payload: ticketID}), "View", discordgo.SecondaryButton, false),
+		discord.Button(discord.MustCustomID(discord.CustomID{Namespace: componentNamespace, Action: "reply", Version: "v1", Payload: ticketID}), "Reply", discordgo.PrimaryButton, false),
+		discord.Button(discord.MustCustomID(discord.CustomID{Namespace: componentNamespace, Action: "close", Version: "v1", Payload: ticketID}), "Close", discordgo.DangerButton, false),
 	)}
 }
