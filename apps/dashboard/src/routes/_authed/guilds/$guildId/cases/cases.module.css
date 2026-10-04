@@ -1,0 +1,25 @@
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: -12px;
+}
+
+.numberForm {
+  width: 116px;
+}
+
+.member {
+  width: 260px;
+}
+
+.select {
+  width: 176px;
+}
+
+@media (max-width: 640px) {
+  .member {
+    flex-grow: 1;
+  }
+}

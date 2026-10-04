@@ -1,0 +1,33 @@
+.number {
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-strong);
+  transition: color var(--fast) var(--ease);
+}
+
+.number:hover {
+  color: var(--accent);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.rule {
+  overflow: hidden;
+  font-weight: 550;
+  color: var(--text-strong);
+  text-overflow: ellipsis;
+}
+
+.voided {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.sub {
+  font-size: 13px;
+  color: var(--text-muted);
+}

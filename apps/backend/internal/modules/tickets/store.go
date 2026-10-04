@@ -2,9 +2,8 @@ package tickets
 
 import (
 	"context"
-	"crypto/sha256"
+	"encoding/json"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/oklog/ulid/v2"
@@ -13,22 +12,31 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+// openingTTL bounds a member's opening reservation, so a worker that dies
+// mid-provisioning cannot block the member forever. A reservation older than
+// this can be replaced, and its token can no longer finish the opening.
+const openingTTL = 5 * time.Minute
+
+// ticketRecord is a row of tickets.
 type ticketRecord struct {
-	ID                      string `gorm:"type:char(26);primaryKey"`
-	GuildID                 string `gorm:"type:char(26);not null;index:idx_ticket_guild_status,priority:1;index:idx_ticket_guild_owner,priority:1"`
-	OwnerDiscordUserID      string `gorm:"size:32;not null;index:idx_ticket_guild_owner,priority:2"`
-	ThreadDiscordChannelID  string `gorm:"size:32;uniqueIndex"`
-	Status                  Status `gorm:"size:32;not null;index:idx_ticket_guild_status,priority:2"`
-	LogMessageDiscordID     string `gorm:"size:32"`
-	ResolvedByDiscordUserID string `gorm:"size:32"`
-	ResolvedAt              *time.Time
-	TranscriptURL           string `gorm:"size:1024"`
-	MetadataJSON            string `gorm:"type:json;not null"`
-	CreatedAt, UpdatedAt    time.Time
+	ID                      string     `gorm:"type:char(26);primaryKey"`
+	GuildID                 string     `gorm:"type:char(26);not null;index:idx_ticket_guild_status,priority:1;index:idx_ticket_guild_owner,priority:1"`
+	OwnerDiscordUserID      string     `gorm:"size:32;not null;index:idx_ticket_guild_owner,priority:2"`
+	ThreadDiscordChannelID  string     `gorm:"size:32;uniqueIndex"`
+	Status                  Status     `gorm:"size:32;not null;index:idx_ticket_guild_status,priority:2"`
+	LogChannelDiscordID     string     `gorm:"size:32"`
+	LogMessageDiscordID     string     `gorm:"size:32"`
+	TranscriptURL           string     `gorm:"size:1024"`
+	ResolvedByDiscordUserID string     `gorm:"size:32"`
+	ResolvedAt              *time.Time `gorm:"index"`
+	// MetadataJSON holds the close notice state; see closeNoticeState.
+	MetadataJSON         string `gorm:"type:json;not null"`
+	CreatedAt, UpdatedAt time.Time
 }
 
 func (ticketRecord) TableName() string { return "tickets" }
 
+// eventRecord is a row of ticket_events.
 type eventRecord struct {
 	ID                   string    `gorm:"type:char(26);primaryKey"`
 	TicketID             string    `gorm:"type:char(26);not null;index"`
@@ -42,6 +50,7 @@ type eventRecord struct {
 
 func (eventRecord) TableName() string { return "ticket_events" }
 
+// transcriptRecord is a row of ticket_transcripts.
 type transcriptRecord struct {
 	TicketID   string    `gorm:"type:char(26);primaryKey"`
 	GuildID    string    `gorm:"type:char(26);not null;index"`
@@ -52,11 +61,17 @@ type transcriptRecord struct {
 
 func (transcriptRecord) TableName() string { return "ticket_transcripts" }
 
+// memberStateRecord is a member's ticket slot in one guild: the ticket, or
+// opening reservation, they hold. A closed ticket keeps the slot until its
+// thread is gone, so a member never has two. Locking this row serializes a
+// member's opens and closes.
 type memberStateRecord struct {
-	ID                   string    `gorm:"type:char(26);primaryKey"`
-	GuildID              string    `gorm:"type:char(26);not null;uniqueIndex:idx_ticket_member_state,priority:1"`
-	OwnerDiscordUserID   string    `gorm:"size:32;not null;uniqueIndex:idx_ticket_member_state,priority:2"`
-	OpenTicketID         string    `gorm:"type:char(26);not null"`
+	ID                 string `gorm:"type:char(26);primaryKey"`
+	GuildID            string `gorm:"type:char(26);not null;uniqueIndex:idx_ticket_member_state,priority:1"`
+	OwnerDiscordUserID string `gorm:"size:32;not null;uniqueIndex:idx_ticket_member_state,priority:2"`
+	OpenTicketID       string `gorm:"type:char(26);not null"`
+	// WindowStartedAt and OpenCount belonged to a daily open limit that no
+	// longer applies; the columns stay so existing rows keep loading.
 	WindowStartedAt      time.Time `gorm:"not null"`
 	OpenCount            int       `gorm:"not null"`
 	CreatedAt, UpdatedAt time.Time
@@ -64,61 +79,163 @@ type memberStateRecord struct {
 
 func (memberStateRecord) TableName() string { return "ticket_member_states" }
 
-// Store persists tickets, their immutable timelines, transcripts, and import identities.
+// Store persists tickets, their timelines, transcripts, and message
+// journal.
 type Store struct{ db *gorm.DB }
 
-// NewStore constructs ticket persistence from an adapter-owned database handle.
+// NewStore returns a Store over db.
 func NewStore(db *gorm.DB) *Store { return &Store{db: db} }
 
-// Migration exposes ticket schema changes without editing the central migration registry.
-func Migration() modules.Migration {
-	return modules.Migration{Version: 110, Name: "ticket_lifecycle", Apply: func(db *gorm.DB) error {
-		return db.AutoMigrate(&ticketRecord{}, &eventRecord{}, &transcriptRecord{}, &memberStateRecord{})
-	}}
+// Models returns the ticket tables' records. The store migrates them with the
+// rest of the schema.
+func Models() []any {
+	return []any{&ticketRecord{}, &eventRecord{}, &transcriptRecord{}, &memberStateRecord{}, &journalRecord{}}
 }
 
-func (s *Store) create(ctx context.Context, guildID, ownerID, threadID string, dailyLimit int, now time.Time) (*Ticket, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("ticket database is not connected")
+// reserveOpening claims the member's ticket slot before any Discord thread
+// is created, and returns the token that becomes the ticket's ID.
+func (s *Store) reserveOpening(ctx context.Context, actor modules.Actor, now time.Time) (string, error) {
+	if actor.GuildID == "" || actor.DiscordUserID == "" {
+		return "", errors.New("ticket member is required")
 	}
-	var out Ticket
+	token := ulid.Make().String()
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		state, err := lockMemberState(tx, guildID, ownerID, now)
+		state, err := lockMemberState(tx, actor.GuildID, actor.DiscordUserID, now)
 		if err != nil {
 			return err
 		}
 		if state.OpenTicketID != "" {
-			return ErrDuplicateOpen
+			var count int64
+			err := tx.Model(&ticketRecord{}).Where("id = ?", state.OpenTicketID).Count(&count).Error
+			if err != nil {
+				return err
+			}
+			// A ticket always blocks; a reservation blocks until it expires.
+			if count != 0 || now.Sub(state.UpdatedAt) < openingTTL {
+				return ErrDuplicateOpen
+			}
 		}
-		if now.Sub(state.WindowStartedAt) >= 24*time.Hour {
-			state.WindowStartedAt = now
-			state.OpenCount = 0
+		return tx.Model(state).Updates(map[string]any{"open_ticket_id": token, "updated_at": now}).Error
+	})
+	return token, err
+}
+
+// finishOpening turns the member's current reservation into a ticket in
+// channelID with its first timeline entry; the slot stays held. A token
+// whose reservation expired or was replaced gets ErrInvalidTransition.
+func (s *Store) finishOpening(ctx context.Context, actor modules.Actor, token, channelID string, now time.Time) (*Ticket, error) {
+	var ticket Ticket
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		state, err := lockMemberState(tx, actor.GuildID, actor.DiscordUserID, now)
+		if err != nil {
+			return err
 		}
-		if state.OpenCount >= dailyLimit {
-			return ErrRateLimited
+		if state.OpenTicketID != token || now.Sub(state.UpdatedAt) >= openingTTL {
+			return ErrInvalidTransition
 		}
-		record := ticketRecord{ID: ulid.Make().String(), GuildID: guildID, OwnerDiscordUserID: ownerID, ThreadDiscordChannelID: threadID, Status: StatusOpen, MetadataJSON: "{}", CreatedAt: now, UpdatedAt: now}
+		record := ticketRecord{
+			ID:                     token,
+			GuildID:                actor.GuildID,
+			OwnerDiscordUserID:     actor.DiscordUserID,
+			ThreadDiscordChannelID: channelID,
+			Status:                 StatusOpen,
+			MetadataJSON:           "{}",
+			CreatedAt:              now,
+			UpdatedAt:              now,
+		}
 		if err := tx.Create(&record).Error; err != nil {
 			return err
 		}
-		if err := appendEvent(tx, record, EventOpened, ownerID, "Ticket opened", "{}", now); err != nil {
+		if err := appendEvent(tx, record, EventOpened, actor.DiscordUserID, "Ticket opened", "{}", now); err != nil {
 			return err
 		}
-		state.OpenTicketID = record.ID
-		state.OpenCount++
-		state.UpdatedAt = now
-		if err := tx.Save(state).Error; err != nil {
-			return err
-		}
-		out = ticketFromRecord(record)
+		ticket = ticketFromRecord(record)
 		return nil
 	})
-	return &out, err
+	return &ticket, err
 }
 
+// releaseOpening frees the member's slot after a failed opening, but only
+// while token still holds it and never once its ticket exists.
+func (s *Store) releaseOpening(ctx context.Context, actor modules.Actor, token string) error {
+	return s.db.WithContext(ctx).Model(&memberStateRecord{}).
+		Where("guild_id = ? AND owner_discord_user_id = ? AND open_ticket_id = ?",
+			actor.GuildID, actor.DiscordUserID, token).
+		Where("NOT EXISTS (SELECT 1 FROM tickets WHERE tickets.id = ?)", token).
+		Update("open_ticket_id", "").Error
+}
+
+// captureClosure resolves an open ticket and saves its transcript in one
+// transaction. The journal's text now expires with the transcript. The
+// owner keeps their slot until finishClosure.
+func (s *Store) captureClosure(ctx context.Context, guildID, ticketID, actorID string, transcript Transcript, now time.Time) (*Ticket, error) {
+	var ticket Ticket
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var record ticketRecord
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("guild_id = ? AND id = ?", guildID, ticketID).First(&record).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if record.Status != StatusOpen {
+			return ErrInvalidTransition
+		}
+		record.Status, record.UpdatedAt = StatusResolved, now
+		record.ResolvedByDiscordUserID, record.ResolvedAt = actorID, &now
+		if err := tx.Save(&record).Error; err != nil {
+			return err
+		}
+		if err := appendEvent(tx, record, EventResolved, actorID, "Ticket closed", "{}", now); err != nil {
+			return err
+		}
+		err = tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&transcriptRecord{
+			TicketID:   record.ID,
+			GuildID:    record.GuildID,
+			Content:    transcript.Content,
+			CapturedAt: transcript.CapturedAt,
+			ExpiresAt:  transcript.ExpiresAt,
+		}).Error
+		if err != nil {
+			return err
+		}
+		err = tx.Model(&journalRecord{}).
+			Where("guild_id = ? AND ticket_id = ?", guildID, ticketID).
+			Update("expires_at", transcript.ExpiresAt).Error
+		if err != nil {
+			return err
+		}
+		ticket = ticketFromRecord(record)
+		return nil
+	})
+	return &ticket, err
+}
+
+// finishClosure frees the owner's slot once the thread is gone. It only
+// frees a slot this ticket still holds, so a late retry cannot release a
+// newer ticket.
+func (s *Store) finishClosure(ctx context.Context, guildID, ticketID string, now time.Time) error {
+	ticket, err := s.get(ctx, guildID, ticketID)
+	if err != nil {
+		return err
+	}
+	if ticket.Status != StatusResolved {
+		return ErrInvalidTransition
+	}
+	return s.db.WithContext(ctx).Model(&memberStateRecord{}).
+		Where("guild_id = ? AND owner_discord_user_id = ? AND open_ticket_id = ?",
+			guildID, ticket.OwnerDiscordUserID, ticketID).
+		Updates(map[string]any{"open_ticket_id": "", "updated_at": now}).Error
+}
+
+// get returns one of the guild's tickets, or ErrNotFound.
 func (s *Store) get(ctx context.Context, guildID, ticketID string) (*Ticket, error) {
 	var record ticketRecord
-	result := s.db.WithContext(ctx).Where("guild_id = ? AND id = ?", guildID, ticketID).Limit(1).Find(&record)
+	result := s.db.WithContext(ctx).
+		Where("guild_id = ? AND id = ?", guildID, ticketID).
+		Limit(1).Find(&record)
 	if result.Error != nil {
 		return nil, result.Error
 	}
@@ -129,85 +246,30 @@ func (s *Store) get(ctx context.Context, guildID, ticketID string) (*Ticket, err
 	return &ticket, nil
 }
 
-func (s *Store) transition(ctx context.Context, guildID, ticketID string, from []Status, to Status, actorID string, eventType EventType, body string, resolved bool, transcript *Transcript, now time.Time) (*Ticket, error) {
-	var out Ticket
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var record ticketRecord
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("guild_id = ? AND id = ?", guildID, ticketID).First(&record).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return ErrNotFound
-			}
-			return err
-		}
-		allowed := false
-		for _, status := range from {
-			if record.Status == status {
-				allowed = true
-			}
-		}
-		if !allowed {
-			return ErrInvalidTransition
-		}
-		record.Status, record.UpdatedAt = to, now
-		state, err := lockMemberState(tx, record.GuildID, record.OwnerDiscordUserID, now)
-		if err != nil {
-			return err
-		}
-		if to == StatusOpen {
-			if state.OpenTicketID != "" && state.OpenTicketID != record.ID {
-				return ErrDuplicateOpen
-			}
-			state.OpenTicketID = record.ID
-		} else if state.OpenTicketID == record.ID {
-			state.OpenTicketID = ""
-		}
-		state.UpdatedAt = now
-		if resolved {
-			record.ResolvedByDiscordUserID, record.ResolvedAt = actorID, &now
-		} else {
-			record.ResolvedByDiscordUserID, record.ResolvedAt = "", nil
-		}
-		if err := tx.Save(&record).Error; err != nil {
-			return err
-		}
-		if err := tx.Save(state).Error; err != nil {
-			return err
-		}
-		if err := appendEvent(tx, record, eventType, actorID, body, "{}", now); err != nil {
-			return err
-		}
-		if transcript != nil {
-			if err := tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&transcriptRecord{TicketID: record.ID, GuildID: record.GuildID, Content: transcript.Content, CapturedAt: transcript.CapturedAt, ExpiresAt: transcript.ExpiresAt}).Error; err != nil {
-				return err
-			}
-		}
-		out = ticketFromRecord(record)
-		return nil
-	})
-	return &out, err
+// activeForMember returns the ticket holding the member's slot, open or
+// still closing, or nil if they hold none or only a reservation.
+func (s *Store) activeForMember(ctx context.Context, guildID, memberID string) (*Ticket, error) {
+	var record ticketRecord
+	result := s.db.WithContext(ctx).
+		Where("guild_id = ? AND owner_discord_user_id = ?", guildID, memberID).
+		Where("id IN (SELECT open_ticket_id FROM ticket_member_states WHERE guild_id = ? AND owner_discord_user_id = ?)",
+			guildID, memberID).
+		Limit(1).Find(&record)
+	if result.Error != nil || result.RowsAffected == 0 {
+		return nil, result.Error
+	}
+	ticket := ticketFromRecord(record)
+	return &ticket, nil
 }
 
-func lockMemberState(tx *gorm.DB, guildID, ownerID string, now time.Time) (*memberStateRecord, error) {
-	seed := memberStateRecord{ID: ulid.Make().String(), GuildID: guildID, OwnerDiscordUserID: ownerID, WindowStartedAt: now, CreatedAt: now, UpdatedAt: now}
-	if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "guild_id"}, {Name: "owner_discord_user_id"}}, DoNothing: true}).Create(&seed).Error; err != nil {
-		return nil, err
-	}
-	var state memberStateRecord
-	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("guild_id = ? AND owner_discord_user_id = ?", guildID, ownerID).First(&state).Error; err != nil {
-		return nil, err
-	}
-	return &state, nil
-}
-
-func (s *Store) append(ctx context.Context, ticket Ticket, eventType EventType, actorID, body, metadata string, now time.Time) error {
+// append adds an entry to a ticket's timeline.
+func (s *Store) append(ctx context.Context, ticket *Ticket, eventType EventType, actorID, body, metadata string, now time.Time) error {
 	record := ticketRecord{ID: ticket.ID, GuildID: ticket.GuildID}
 	return appendEvent(s.db.WithContext(ctx), record, eventType, actorID, body, metadata, now)
 }
 
-func appendEvent(db *gorm.DB, ticket ticketRecord, eventType EventType, actorID, body, metadata string, now time.Time) error {
-	return db.Create(&eventRecord{ID: ulid.Make().String(), TicketID: ticket.ID, GuildID: ticket.GuildID, EventType: eventType, ActorDiscordUserID: actorID, Body: body, MetadataJSON: metadata, CreatedAt: now, UpdatedAt: now}).Error
-}
-
+// list returns up to limit of the guild's tickets, oldest first, optionally
+// only those in status. limit defaults to 50 and is capped at 100.
 func (s *Store) list(ctx context.Context, guildID string, status Status, limit int) ([]Ticket, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50
@@ -220,115 +282,210 @@ func (s *Store) list(ctx context.Context, guildID string, status Status, limit i
 	if err := query.Order("created_at ASC, id ASC").Limit(limit).Find(&records).Error; err != nil {
 		return nil, err
 	}
-	out := make([]Ticket, len(records))
-	for i := range records {
-		out[i] = ticketFromRecord(records[i])
-	}
-	return out, nil
+	return ticketsFromRecords(records), nil
 }
 
+// count returns how many of the guild's tickets are in status.
 func (s *Store) count(ctx context.Context, guildID string, status Status) (int64, error) {
 	var count int64
-	query := s.db.WithContext(ctx).Model(&ticketRecord{}).Where("guild_id = ?", guildID)
-	if status != "" {
-		query = query.Where("status = ?", status)
-	}
-	return count, query.Count(&count).Error
+	err := s.db.WithContext(ctx).Model(&ticketRecord{}).
+		Where("guild_id = ? AND status = ?", guildID, status).
+		Count(&count).Error
+	return count, err
 }
 
+// timeline returns a ticket's events in order.
 func (s *Store) timeline(ctx context.Context, guildID, ticketID string) ([]Event, error) {
-	if _, err := s.get(ctx, guildID, ticketID); err != nil {
-		return nil, err
-	}
 	var records []eventRecord
-	if err := s.db.WithContext(ctx).Where("guild_id = ? AND ticket_id = ?", guildID, ticketID).Order("created_at ASC, id ASC").Find(&records).Error; err != nil {
+	err := s.db.WithContext(ctx).
+		Where("guild_id = ? AND ticket_id = ?", guildID, ticketID).
+		Order("created_at ASC, id ASC").
+		Find(&records).Error
+	if err != nil {
 		return nil, err
 	}
-	out := make([]Event, len(records))
+	events := make([]Event, len(records))
 	for i, r := range records {
-		out[i] = Event{ID: r.ID, TicketID: r.TicketID, GuildID: r.GuildID, Type: r.EventType, ActorDiscordUserID: r.ActorDiscordUserID, Body: r.Body, MetadataJSON: r.MetadataJSON, CreatedAt: r.CreatedAt}
+		events[i] = Event{
+			ID:                 r.ID,
+			TicketID:           r.TicketID,
+			GuildID:            r.GuildID,
+			Type:               r.EventType,
+			ActorDiscordUserID: r.ActorDiscordUserID,
+			Body:               r.Body,
+			MetadataJSON:       r.MetadataJSON,
+			CreatedAt:          r.CreatedAt,
+		}
 	}
-	return out, nil
+	return events, nil
 }
 
+// transcript returns a ticket's transcript, or ErrNotFound if it has none
+// or it expired.
 func (s *Store) transcript(ctx context.Context, guildID, ticketID string, now time.Time) (*Transcript, error) {
 	var record transcriptRecord
-	result := s.db.WithContext(ctx).Where("guild_id = ? AND ticket_id = ? AND expires_at > ?", guildID, ticketID, now).Limit(1).Find(&record)
+	result := s.db.WithContext(ctx).
+		Where("guild_id = ? AND ticket_id = ? AND expires_at > ?", guildID, ticketID, now).
+		Limit(1).Find(&record)
 	if result.Error != nil {
 		return nil, result.Error
 	}
 	if result.RowsAffected == 0 {
 		return nil, ErrNotFound
 	}
-	return &Transcript{TicketID: record.TicketID, GuildID: record.GuildID, Content: record.Content, CapturedAt: record.CapturedAt, ExpiresAt: record.ExpiresAt}, nil
+	return &Transcript{
+		TicketID:   record.TicketID,
+		GuildID:    record.GuildID,
+		Content:    record.Content,
+		CapturedAt: record.CapturedAt,
+		ExpiresAt:  record.ExpiresAt,
+	}, nil
 }
 
-func (s *Store) purgeExpiredTranscripts(ctx context.Context, now time.Time) (int64, error) {
-	result := s.db.WithContext(ctx).Where("expires_at <= ?", now).Delete(&transcriptRecord{})
-	return result.RowsAffected, result.Error
-}
-
-func (s *Store) importTicket(ctx context.Context, source LegacyTicket, now time.Time) (string, bool, error) {
-	var targetID string
-	created := false
+// purgeExpired deletes every transcript and journal entry past its expiry
+// and returns how many transcripts went.
+func (s *Store) purgeExpired(ctx context.Context, now time.Time) (int64, error) {
+	var count int64
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var prior modules.ImportRecord
-		q := tx.Where("guild_id = ? AND module_id = ? AND source_id = ?", source.GuildID, modules.Tickets, source.SourceID).Limit(1).Find(&prior)
-		if q.Error != nil {
-			return q.Error
-		}
-		if q.RowsAffected > 0 {
-			targetID = prior.TargetID
-			return nil
-		}
-		threadID := source.ThreadDiscordChannelID
-		if threadID == "" {
-			sum := sha256.Sum256([]byte(source.GuildID + ":" + source.SourceID))
-			threadID = fmt.Sprintf("legacy-%x", sum[:12])
-		}
-		record := ticketRecord{ID: ulid.Make().String(), GuildID: source.GuildID, OwnerDiscordUserID: source.OwnerDiscordUserID, ThreadDiscordChannelID: threadID, Status: source.Status, MetadataJSON: `{"imported_from":"v4"}`, CreatedAt: source.CreatedAt, UpdatedAt: now}
-		if record.CreatedAt.IsZero() {
-			record.CreatedAt = now
-		}
-		if err := tx.Create(&record).Error; err != nil {
-			return fmt.Errorf("create imported ticket: %w", err)
-		}
-		if err := appendEvent(tx, record, EventOpened, "quack-v4-import", "Imported from v4", `{"source":"v4"}`, now); err != nil {
+		if err := tx.Where("expires_at <= ?", now).Delete(&journalRecord{}).Error; err != nil {
 			return err
 		}
-		if source.Status == StatusOpen {
-			state, err := lockMemberState(tx, source.GuildID, source.OwnerDiscordUserID, now)
-			if err != nil {
-				return err
-			}
-			if state.OpenTicketID != "" {
-				return ErrDuplicateOpen
-			}
-			state.OpenTicketID = record.ID
-			state.UpdatedAt = now
-			if err := tx.Save(state).Error; err != nil {
-				return err
-			}
-		}
-		ledger := modules.ImportRecord{ID: ulid.Make().String(), GuildID: source.GuildID, ModuleID: modules.Tickets, SourceID: source.SourceID, TargetID: record.ID, CreatedAt: now}
-		if err := tx.Create(&ledger).Error; err != nil {
-			return err
-		}
-		targetID, created = record.ID, true
-		return nil
+		result := tx.Where("expires_at <= ?", now).Delete(&transcriptRecord{})
+		count = result.RowsAffected
+		return result.Error
 	})
-	return targetID, created, err
+	return count, err
 }
 
-func (s *Store) importTarget(ctx context.Context, guildID, sourceID string) (string, bool, error) {
-	var record modules.ImportRecord
-	result := s.db.WithContext(ctx).Where("guild_id = ? AND module_id = ? AND source_id = ?", guildID, modules.Tickets, sourceID).Limit(1).Find(&record)
+// saveEntryPanel records the posted entry panel in the current settings.
+// The row lock and channel check keep a slow setup from overwriting a newer
+// entry channel choice.
+func (s *Store) saveEntryPanel(ctx context.Context, guildID, channelID, messageID string) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var config modules.Configuration
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("guild_id = ? AND module_id = ?", guildID, modules.Tickets).First(&config).Error
+		if err != nil {
+			return err
+		}
+		settings := Defaults()
+		if err := json.Unmarshal([]byte(config.ConfigJSON), &settings); err != nil {
+			return err
+		}
+		if settings.EntryChannelDiscordID != channelID {
+			return errors.New("ticket entry channel changed during setup")
+		}
+		settings.EntryPanelChannelID, settings.EntryPanelMessageID = channelID, messageID
+		payload, err := json.Marshal(settings)
+		if err != nil {
+			return err
+		}
+		return tx.Model(&config).Update("config_json", string(payload)).Error
+	})
+}
+
+// ticketIDByChannel returns the ID of the guild's ticket, in any status, in
+// channelID, or ErrNotFound.
+func (s *Store) ticketIDByChannel(ctx context.Context, guildID, channelID string) (string, error) {
+	var record ticketRecord
+	result := s.db.WithContext(ctx).Select("id").
+		Where("guild_id = ? AND thread_discord_channel_id = ?", guildID, channelID).
+		Limit(1).Find(&record)
 	if result.Error != nil {
-		return "", false, result.Error
+		return "", result.Error
 	}
-	return record.TargetID, result.RowsAffected > 0, nil
+	if result.RowsAffected == 0 {
+		return "", ErrNotFound
+	}
+	return record.ID, nil
 }
 
+// openThreadsAfter pages through a guild's open tickets in ID order, for
+// the thread membership repair. Keyset paging means a ticket closing
+// mid-scan cannot skip a page. Only the ID, thread, and owner are loaded.
+func (s *Store) openThreadsAfter(ctx context.Context, guildID, afterID string, limit int) ([]Ticket, error) {
+	var records []ticketRecord
+	err := s.db.WithContext(ctx).
+		Select("id, thread_discord_channel_id, owner_discord_user_id").
+		Where("guild_id = ? AND status = ? AND id > ?", guildID, StatusOpen, afterID).
+		Order("id ASC").Limit(limit).Find(&records).Error
+	if err != nil {
+		return nil, err
+	}
+	return ticketsFromRecords(records), nil
+}
+
+// lockMemberState returns the member's state row, creating it if needed,
+// locked for the rest of tx.
+func lockMemberState(tx *gorm.DB, guildID, ownerID string, now time.Time) (*memberStateRecord, error) {
+	seed := memberStateRecord{
+		ID:                 ulid.Make().String(),
+		GuildID:            guildID,
+		OwnerDiscordUserID: ownerID,
+		WindowStartedAt:    now,
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}
+	err := tx.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "guild_id"}, {Name: "owner_discord_user_id"}},
+		DoNothing: true,
+	}).Create(&seed).Error
+	if err != nil {
+		return nil, err
+	}
+	var state memberStateRecord
+	err = tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("guild_id = ? AND owner_discord_user_id = ?", guildID, ownerID).
+		First(&state).Error
+	if err != nil {
+		return nil, err
+	}
+	return &state, nil
+}
+
+// appendEvent inserts a timeline entry for ticket.
+func appendEvent(db *gorm.DB, ticket ticketRecord, eventType EventType, actorID, body, metadata string, now time.Time) error {
+	return db.Create(&eventRecord{
+		ID:                 ulid.Make().String(),
+		TicketID:           ticket.ID,
+		GuildID:            ticket.GuildID,
+		EventType:          eventType,
+		ActorDiscordUserID: actorID,
+		Body:               body,
+		MetadataJSON:       metadata,
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}).Error
+}
+
+// ticketFromRecord converts a row, exposing only the close notice outcome
+// from its metadata.
 func ticketFromRecord(r ticketRecord) Ticket {
-	return Ticket{ID: r.ID, GuildID: r.GuildID, OwnerDiscordUserID: r.OwnerDiscordUserID, ThreadDiscordChannelID: r.ThreadDiscordChannelID, Status: r.Status, ResolvedByDiscordUserID: r.ResolvedByDiscordUserID, ResolvedAt: r.ResolvedAt, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}
+	var metadata struct {
+		CloseNotice closeNoticeState `json:"close_notice"`
+	}
+	_ = json.Unmarshal([]byte(r.MetadataJSON), &metadata)
+	return Ticket{
+		ID:                      r.ID,
+		GuildID:                 r.GuildID,
+		OwnerDiscordUserID:      r.OwnerDiscordUserID,
+		ThreadDiscordChannelID:  r.ThreadDiscordChannelID,
+		Status:                  r.Status,
+		ResolvedByDiscordUserID: r.ResolvedByDiscordUserID,
+		ResolvedAt:              r.ResolvedAt,
+		LogChannelDiscordID:     r.LogChannelDiscordID,
+		LogMessageDiscordID:     r.LogMessageDiscordID,
+		TranscriptURL:           r.TranscriptURL,
+		CloseNoticeDelivered:    metadata.CloseNotice.State == noticeSent,
+		CreatedAt:               r.CreatedAt,
+		UpdatedAt:               r.UpdatedAt,
+	}
+}
+
+func ticketsFromRecords(records []ticketRecord) []Ticket {
+	tickets := make([]Ticket, len(records))
+	for i, record := range records {
+		tickets[i] = ticketFromRecord(record)
+	}
+	return tickets
 }

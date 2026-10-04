@@ -1,0 +1,93 @@
+.wrap {
+  position: relative;
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.none {
+  padding: 12px;
+  color: var(--text-muted);
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--fast) var(--ease);
+}
+
+.optionActive {
+  background: var(--surface-3);
+  color: var(--text-strong);
+}
+
+.name {
+  overflow: hidden;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.handle {
+  font-size: 13px;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+.bot {
+  margin-left: auto;
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+  background: var(--blurple);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.selected {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 6px 8px 6px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  animation: fade-in var(--base) var(--ease);
+}
+
+.gone {
+  font-size: 12px;
+  color: var(--warning);
+}
+
+.clear {
+  display: flex;
+  margin-left: auto;
+  padding: 5px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    background-color var(--fast) var(--ease),
+    color var(--fast) var(--ease);
+}
+
+.clear:hover {
+  background: var(--hover);
+  color: var(--text-strong);
+}

@@ -7,14 +7,14 @@ import (
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/internal/modules"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 func TestGuildSettingsServiceAuthorizationAuditAndNotice(t *testing.T) {
 	ctx := context.Background()
 	repositories := newMigratedStore(t)
-	bootstrap, err := repositories.BootstrapGuild(ctx, model.BootstrapGuildParams{
+	bootstrap, err := repositories.BootstrapGuild(ctx, quack.BootstrapGuildParams{Starter: quack.StarterTemplate(),
 		DiscordGuildID: "settings-guild", Name: "Settings Guild", OwnerDiscordUserID: "owner-1",
 	})
 	if err != nil {
@@ -22,11 +22,20 @@ func TestGuildSettingsServiceAuthorizationAuditAndNotice(t *testing.T) {
 	}
 	manager := templateGuildContext(t, repositories, "settings-guild", "manager-1", uint64(discordgo.PermissionManageGuild))
 	moderator := templateGuildContext(t, repositories, "settings-guild", "moderator-1", uint64(discordgo.PermissionModerateMembers))
-	service := quack.NewGuildSettingsService(repositories).WithStaffChannelValidator(allowStaffChannel{})
+	registry := modules.NewRegistry(repositories.DB())
+	service := quack.NewGuildSettingsService(repositories, allowStaffChannel{}, registry)
 
 	auditChannel := "100000000000000001"
 	intro, footer := "Welcome to this guild", "Review case details in Quack"
 	tickets, logging, honeypot := true, true, false
+	if _, err := service.Update(ctx, manager, quack.GuildSettingsInput{TicketsEnabled: &tickets}); !errors.Is(err, quack.ErrGuildSettingsValidation) {
+		t.Fatalf("switched on a module that was never set up: %v", err)
+	}
+	for _, id := range []modules.ID{modules.Tickets, modules.GeneralLogging} {
+		if _, err := registry.SetConfiguration(ctx, modules.Configuration{GuildID: bootstrap.Guild.ID, ModuleID: id}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	updated, err := service.Update(ctx, manager, quack.GuildSettingsInput{
 		AuditMirrorChannelDiscordID: &auditChannel,
 		NotificationIntroduction:    &intro, NotificationFooter: &footer,
@@ -38,12 +47,19 @@ func TestGuildSettingsServiceAuthorizationAuditAndNotice(t *testing.T) {
 	if updated.AuditMirrorChannelDiscordID != auditChannel || updated.ManagedEvidenceChannelDiscordID != "" || !updated.TicketsEnabled || !updated.GeneralLoggingEnabled || updated.HoneypotEnabled {
 		t.Fatalf("unexpected settings response: %+v", updated)
 	}
+	if states, err := registry.ModuleStates(ctx, bootstrap.Guild.ID); err != nil || states != (quack.ModuleStates{Tickets: true, GeneralLogging: true}) {
+		t.Fatalf("module switches = %+v, %v", states, err)
+	}
+	noModules := quack.NewGuildSettingsService(repositories, allowStaffChannel{}, nil)
+	if _, err := noModules.Update(ctx, manager, quack.GuildSettingsInput{HoneypotEnabled: &tickets}); !errors.Is(err, quack.ErrGuildSettingsValidation) {
+		t.Fatalf("switched a module on without modules: %v", err)
+	}
 
 	evidenceChannel := "100000000000000002"
 	if _, err := service.Update(ctx, manager, quack.GuildSettingsInput{ManagedEvidenceChannelDiscordID: &evidenceChannel}); !errors.Is(err, quack.ErrGuildSettingsValidation) {
 		t.Fatalf("manual evidence destination accepted: %v", err)
 	}
-	unvalidated := quack.NewGuildSettingsService(repositories)
+	unvalidated := quack.NewGuildSettingsService(repositories, nil, registry)
 	if _, err := unvalidated.Update(ctx, manager, quack.GuildSettingsInput{AuditMirrorChannelDiscordID: &auditChannel}); !errors.Is(err, quack.ErrGuildSettingsValidation) {
 		t.Fatalf("unvalidated audit destination accepted: %v", err)
 	}
@@ -64,13 +80,13 @@ func TestGuildSettingsServiceAuthorizationAuditAndNotice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list settings audits: %v", err)
 	}
-	results := map[model.AuditResult]bool{}
+	results := map[quack.AuditResult]bool{}
 	for _, audit := range audits {
 		if audit.Action == "guild_settings.update" {
 			results[audit.Result] = true
 		}
 	}
-	for _, result := range []model.AuditResult{model.AuditResultSuccess, model.AuditResultFailure, model.AuditResultDenied} {
+	for _, result := range []quack.AuditResult{quack.AuditResultSuccess, quack.AuditResultFailure, quack.AuditResultDenied} {
 		if !results[result] {
 			t.Fatalf("missing %s settings audit in %+v", result, audits)
 		}

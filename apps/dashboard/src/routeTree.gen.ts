@@ -8,352 +8,801 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
-import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as GuildsGuildIdRouteImport } from './routes/guilds/$guildId'
-import { Route as GuildsGuildIdIndexRouteImport } from './routes/guilds/$guildId.index'
-import { Route as GuildsGuildIdActionFailuresRouteImport } from './routes/guilds/$guildId.action-failures'
-import { Route as GuildsGuildIdAppealsRouteImport } from './routes/guilds/$guildId.appeals'
-import { Route as GuildsGuildIdAuditLogRouteImport } from './routes/guilds/$guildId.audit-log'
-import { Route as GuildsGuildIdCasesRouteImport } from './routes/guilds/$guildId.cases'
-import { Route as GuildsGuildIdSettingsRouteImport } from './routes/guilds/$guildId.settings'
-import { Route as GuildsGuildIdTemplatesRouteImport } from './routes/guilds/$guildId.templates'
-import { Route as GuildsGuildIdCasesCaseRefRouteImport } from './routes/guilds/$guildId.cases.$caseRef'
-import { Route as GuildsGuildIdMembersMemberIdRouteImport } from './routes/guilds/$guildId.members.$memberId'
-import { Route as MembersGuildsGuildIdCasesRouteImport } from './routes/members/guilds/$guildId.cases'
-import { Route as GuildsGuildIdCasesCaseRefAppealRouteImport } from './routes/guilds/$guildId.cases.$caseRef.appeal'
+import { Route as rootRouteImport } from "./routes/__root"
+import { Route as IndexRouteImport } from "./routes/index"
+import { Route as AuthedRouteImport } from "./routes/_authed"
+import { Route as DocsRouteRouteImport } from "./routes/docs/route"
+import { Route as InviteRouteImport } from "./routes/invite"
+import { Route as LoginRouteImport } from "./routes/login"
+import { Route as SupportRouteImport } from "./routes/support"
+import { Route as DocsIndexRouteImport } from "./routes/docs/index"
+import { Route as DocsAppealsRouteImport } from "./routes/docs/appeals"
+import { Route as DocsCasesRouteImport } from "./routes/docs/cases"
+import { Route as DocsCommandsRouteImport } from "./routes/docs/commands"
+import { Route as DocsExtrasRouteImport } from "./routes/docs/extras"
+import { Route as DocsFaqRouteImport } from "./routes/docs/faq"
+import { Route as DocsGettingStartedRouteImport } from "./routes/docs/getting-started"
+import { Route as DocsPermissionsRouteImport } from "./routes/docs/permissions"
+import { Route as DocsRulesRouteImport } from "./routes/docs/rules"
+import { Route as AuthedGuildsIndexRouteImport } from "./routes/_authed/guilds/index"
+import { Route as AuthedGuildsGuildIdRouteImport } from "./routes/_authed/guilds/$guildId"
+import { Route as AuthedGuildsGuildIdIndexRouteImport } from "./routes/_authed/guilds/$guildId/index"
+import { Route as AuthedGuildsGuildIdAppealsRouteRouteImport } from "./routes/_authed/guilds/$guildId/appeals/route"
+import { Route as AuthedGuildsGuildIdAuditRouteImport } from "./routes/_authed/guilds/$guildId/audit"
+import { Route as AuthedGuildsGuildIdFailuresRouteImport } from "./routes/_authed/guilds/$guildId/failures"
+import { Route as AuthedGuildsGuildIdSettingsRouteImport } from "./routes/_authed/guilds/$guildId/settings"
+import { Route as AuthedGuildsGuildIdAppealsIndexRouteImport } from "./routes/_authed/guilds/$guildId/appeals/index"
+import { Route as AuthedGuildsGuildIdAppealsAppealIdRouteImport } from "./routes/_authed/guilds/$guildId/appeals/$appealId"
+import { Route as AuthedGuildsGuildIdCasesIndexRouteImport } from "./routes/_authed/guilds/$guildId/cases/index"
+import { Route as AuthedGuildsGuildIdCasesCaseRefRouteImport } from "./routes/_authed/guilds/$guildId/cases/$caseRef"
+import { Route as AuthedGuildsGuildIdMembersUserIdRouteImport } from "./routes/_authed/guilds/$guildId/members/$userId"
+import { Route as AuthedGuildsGuildIdModulesHoneypotRouteImport } from "./routes/_authed/guilds/$guildId/modules/honeypot"
+import { Route as AuthedGuildsGuildIdModulesLoggingRouteImport } from "./routes/_authed/guilds/$guildId/modules/logging"
+import { Route as AuthedGuildsGuildIdModulesTicketsRouteImport } from "./routes/_authed/guilds/$guildId/modules/tickets"
+import { Route as AuthedGuildsGuildIdRulesIndexRouteImport } from "./routes/_authed/guilds/$guildId/rules/index"
+import { Route as AuthedGuildsGuildIdRulesRuleIdRouteImport } from "./routes/_authed/guilds/$guildId/rules/$ruleId"
+import { Route as AuthedGuildsGuildIdRulesNewRouteImport } from "./routes/_authed/guilds/$guildId/rules/new"
+import { Route as AuthedGuildsGuildIdCasesCaseIdAppealRouteImport } from "./routes/_authed/guilds/$guildId_/cases/$caseId/appeal"
 
 const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+  id: "/",
+  path: "/",
   getParentRoute: () => rootRouteImport,
 } as any)
-const GuildsGuildIdRoute = GuildsGuildIdRouteImport.update({
-  id: '/guilds/$guildId',
-  path: '/guilds/$guildId',
+const AuthedRoute = AuthedRouteImport.update({
+  id: "/_authed",
   getParentRoute: () => rootRouteImport,
 } as any)
-const GuildsGuildIdIndexRoute = GuildsGuildIdIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => GuildsGuildIdRoute,
+const DocsRouteRoute = DocsRouteRouteImport.update({
+  id: "/docs",
+  path: "/docs",
+  getParentRoute: () => rootRouteImport,
 } as any)
-const GuildsGuildIdActionFailuresRoute =
-  GuildsGuildIdActionFailuresRouteImport.update({
-    id: '/action-failures',
-    path: '/action-failures',
-    getParentRoute: () => GuildsGuildIdRoute,
+const InviteRoute = InviteRouteImport.update({
+  id: "/invite",
+  path: "/invite",
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: "/login",
+  path: "/login",
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SupportRoute = SupportRouteImport.update({
+  id: "/support",
+  path: "/support",
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DocsIndexRoute = DocsIndexRouteImport.update({
+  id: "/",
+  path: "/",
+  getParentRoute: () => DocsRouteRoute,
+} as any)
+const DocsAppealsRoute = DocsAppealsRouteImport.update({
+  id: "/appeals",
+  path: "/appeals",
+  getParentRoute: () => DocsRouteRoute,
+} as any)
+const DocsCasesRoute = DocsCasesRouteImport.update({
+  id: "/cases",
+  path: "/cases",
+  getParentRoute: () => DocsRouteRoute,
+} as any)
+const DocsCommandsRoute = DocsCommandsRouteImport.update({
+  id: "/commands",
+  path: "/commands",
+  getParentRoute: () => DocsRouteRoute,
+} as any)
+const DocsExtrasRoute = DocsExtrasRouteImport.update({
+  id: "/extras",
+  path: "/extras",
+  getParentRoute: () => DocsRouteRoute,
+} as any)
+const DocsFaqRoute = DocsFaqRouteImport.update({
+  id: "/faq",
+  path: "/faq",
+  getParentRoute: () => DocsRouteRoute,
+} as any)
+const DocsGettingStartedRoute = DocsGettingStartedRouteImport.update({
+  id: "/getting-started",
+  path: "/getting-started",
+  getParentRoute: () => DocsRouteRoute,
+} as any)
+const DocsPermissionsRoute = DocsPermissionsRouteImport.update({
+  id: "/permissions",
+  path: "/permissions",
+  getParentRoute: () => DocsRouteRoute,
+} as any)
+const DocsRulesRoute = DocsRulesRouteImport.update({
+  id: "/rules",
+  path: "/rules",
+  getParentRoute: () => DocsRouteRoute,
+} as any)
+const AuthedGuildsIndexRoute = AuthedGuildsIndexRouteImport.update({
+  id: "/guilds/",
+  path: "/guilds/",
+  getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedGuildsGuildIdRoute = AuthedGuildsGuildIdRouteImport.update({
+  id: "/guilds/$guildId",
+  path: "/guilds/$guildId",
+  getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedGuildsGuildIdIndexRoute =
+  AuthedGuildsGuildIdIndexRouteImport.update({
+    id: "/",
+    path: "/",
+    getParentRoute: () => AuthedGuildsGuildIdRoute,
   } as any)
-const GuildsGuildIdAppealsRoute = GuildsGuildIdAppealsRouteImport.update({
-  id: '/appeals',
-  path: '/appeals',
-  getParentRoute: () => GuildsGuildIdRoute,
-} as any)
-const GuildsGuildIdAuditLogRoute = GuildsGuildIdAuditLogRouteImport.update({
-  id: '/audit-log',
-  path: '/audit-log',
-  getParentRoute: () => GuildsGuildIdRoute,
-} as any)
-const GuildsGuildIdCasesRoute = GuildsGuildIdCasesRouteImport.update({
-  id: '/cases',
-  path: '/cases',
-  getParentRoute: () => GuildsGuildIdRoute,
-} as any)
-const GuildsGuildIdSettingsRoute = GuildsGuildIdSettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => GuildsGuildIdRoute,
-} as any)
-const GuildsGuildIdTemplatesRoute = GuildsGuildIdTemplatesRouteImport.update({
-  id: '/templates',
-  path: '/templates',
-  getParentRoute: () => GuildsGuildIdRoute,
-} as any)
-const GuildsGuildIdCasesCaseRefRoute =
-  GuildsGuildIdCasesCaseRefRouteImport.update({
-    id: '/$caseRef',
-    path: '/$caseRef',
-    getParentRoute: () => GuildsGuildIdCasesRoute,
+const AuthedGuildsGuildIdAppealsRouteRoute =
+  AuthedGuildsGuildIdAppealsRouteRouteImport.update({
+    id: "/appeals",
+    path: "/appeals",
+    getParentRoute: () => AuthedGuildsGuildIdRoute,
   } as any)
-const GuildsGuildIdMembersMemberIdRoute =
-  GuildsGuildIdMembersMemberIdRouteImport.update({
-    id: '/members/$memberId',
-    path: '/members/$memberId',
-    getParentRoute: () => GuildsGuildIdRoute,
+const AuthedGuildsGuildIdAuditRoute =
+  AuthedGuildsGuildIdAuditRouteImport.update({
+    id: "/audit",
+    path: "/audit",
+    getParentRoute: () => AuthedGuildsGuildIdRoute,
   } as any)
-const MembersGuildsGuildIdCasesRoute =
-  MembersGuildsGuildIdCasesRouteImport.update({
-    id: '/members/guilds/$guildId/cases',
-    path: '/members/guilds/$guildId/cases',
-    getParentRoute: () => rootRouteImport,
+const AuthedGuildsGuildIdFailuresRoute =
+  AuthedGuildsGuildIdFailuresRouteImport.update({
+    id: "/failures",
+    path: "/failures",
+    getParentRoute: () => AuthedGuildsGuildIdRoute,
   } as any)
-const GuildsGuildIdCasesCaseRefAppealRoute =
-  GuildsGuildIdCasesCaseRefAppealRouteImport.update({
-    id: '/appeal',
-    path: '/appeal',
-    getParentRoute: () => GuildsGuildIdCasesCaseRefRoute,
+const AuthedGuildsGuildIdSettingsRoute =
+  AuthedGuildsGuildIdSettingsRouteImport.update({
+    id: "/settings",
+    path: "/settings",
+    getParentRoute: () => AuthedGuildsGuildIdRoute,
+  } as any)
+const AuthedGuildsGuildIdAppealsIndexRoute =
+  AuthedGuildsGuildIdAppealsIndexRouteImport.update({
+    id: "/",
+    path: "/",
+    getParentRoute: () => AuthedGuildsGuildIdAppealsRouteRoute,
+  } as any)
+const AuthedGuildsGuildIdAppealsAppealIdRoute =
+  AuthedGuildsGuildIdAppealsAppealIdRouteImport.update({
+    id: "/$appealId",
+    path: "/$appealId",
+    getParentRoute: () => AuthedGuildsGuildIdAppealsRouteRoute,
+  } as any)
+const AuthedGuildsGuildIdCasesIndexRoute =
+  AuthedGuildsGuildIdCasesIndexRouteImport.update({
+    id: "/cases/",
+    path: "/cases/",
+    getParentRoute: () => AuthedGuildsGuildIdRoute,
+  } as any)
+const AuthedGuildsGuildIdCasesCaseRefRoute =
+  AuthedGuildsGuildIdCasesCaseRefRouteImport.update({
+    id: "/cases/$caseRef",
+    path: "/cases/$caseRef",
+    getParentRoute: () => AuthedGuildsGuildIdRoute,
+  } as any)
+const AuthedGuildsGuildIdMembersUserIdRoute =
+  AuthedGuildsGuildIdMembersUserIdRouteImport.update({
+    id: "/members/$userId",
+    path: "/members/$userId",
+    getParentRoute: () => AuthedGuildsGuildIdRoute,
+  } as any)
+const AuthedGuildsGuildIdModulesHoneypotRoute =
+  AuthedGuildsGuildIdModulesHoneypotRouteImport.update({
+    id: "/modules/honeypot",
+    path: "/modules/honeypot",
+    getParentRoute: () => AuthedGuildsGuildIdRoute,
+  } as any)
+const AuthedGuildsGuildIdModulesLoggingRoute =
+  AuthedGuildsGuildIdModulesLoggingRouteImport.update({
+    id: "/modules/logging",
+    path: "/modules/logging",
+    getParentRoute: () => AuthedGuildsGuildIdRoute,
+  } as any)
+const AuthedGuildsGuildIdModulesTicketsRoute =
+  AuthedGuildsGuildIdModulesTicketsRouteImport.update({
+    id: "/modules/tickets",
+    path: "/modules/tickets",
+    getParentRoute: () => AuthedGuildsGuildIdRoute,
+  } as any)
+const AuthedGuildsGuildIdRulesIndexRoute =
+  AuthedGuildsGuildIdRulesIndexRouteImport.update({
+    id: "/rules/",
+    path: "/rules/",
+    getParentRoute: () => AuthedGuildsGuildIdRoute,
+  } as any)
+const AuthedGuildsGuildIdRulesRuleIdRoute =
+  AuthedGuildsGuildIdRulesRuleIdRouteImport.update({
+    id: "/rules/$ruleId",
+    path: "/rules/$ruleId",
+    getParentRoute: () => AuthedGuildsGuildIdRoute,
+  } as any)
+const AuthedGuildsGuildIdRulesNewRoute =
+  AuthedGuildsGuildIdRulesNewRouteImport.update({
+    id: "/rules/new",
+    path: "/rules/new",
+    getParentRoute: () => AuthedGuildsGuildIdRoute,
+  } as any)
+const AuthedGuildsGuildIdCasesCaseIdAppealRoute =
+  AuthedGuildsGuildIdCasesCaseIdAppealRouteImport.update({
+    id: "/guilds/$guildId_/cases/$caseId/appeal",
+    path: "/guilds/$guildId/cases/$caseId/appeal",
+    getParentRoute: () => AuthedRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
-  '/guilds/$guildId': typeof GuildsGuildIdRouteWithChildren
-  '/guilds/$guildId/action-failures': typeof GuildsGuildIdActionFailuresRoute
-  '/guilds/$guildId/appeals': typeof GuildsGuildIdAppealsRoute
-  '/guilds/$guildId/audit-log': typeof GuildsGuildIdAuditLogRoute
-  '/guilds/$guildId/cases': typeof GuildsGuildIdCasesRouteWithChildren
-  '/guilds/$guildId/settings': typeof GuildsGuildIdSettingsRoute
-  '/guilds/$guildId/templates': typeof GuildsGuildIdTemplatesRoute
-  '/guilds/$guildId/': typeof GuildsGuildIdIndexRoute
-  '/guilds/$guildId/cases/$caseRef': typeof GuildsGuildIdCasesCaseRefRouteWithChildren
-  '/guilds/$guildId/members/$memberId': typeof GuildsGuildIdMembersMemberIdRoute
-  '/members/guilds/$guildId/cases': typeof MembersGuildsGuildIdCasesRoute
-  '/guilds/$guildId/cases/$caseRef/appeal': typeof GuildsGuildIdCasesCaseRefAppealRoute
+  "/": typeof IndexRoute
+  "/docs": typeof DocsRouteRouteWithChildren
+  "/invite": typeof InviteRoute
+  "/login": typeof LoginRoute
+  "/support": typeof SupportRoute
+  "/docs/appeals": typeof DocsAppealsRoute
+  "/docs/cases": typeof DocsCasesRoute
+  "/docs/commands": typeof DocsCommandsRoute
+  "/docs/extras": typeof DocsExtrasRoute
+  "/docs/faq": typeof DocsFaqRoute
+  "/docs/getting-started": typeof DocsGettingStartedRoute
+  "/docs/permissions": typeof DocsPermissionsRoute
+  "/docs/rules": typeof DocsRulesRoute
+  "/docs/": typeof DocsIndexRoute
+  "/guilds/$guildId": typeof AuthedGuildsGuildIdRouteWithChildren
+  "/guilds/": typeof AuthedGuildsIndexRoute
+  "/guilds/$guildId/appeals": typeof AuthedGuildsGuildIdAppealsRouteRouteWithChildren
+  "/guilds/$guildId/audit": typeof AuthedGuildsGuildIdAuditRoute
+  "/guilds/$guildId/failures": typeof AuthedGuildsGuildIdFailuresRoute
+  "/guilds/$guildId/settings": typeof AuthedGuildsGuildIdSettingsRoute
+  "/guilds/$guildId/": typeof AuthedGuildsGuildIdIndexRoute
+  "/guilds/$guildId/appeals/$appealId": typeof AuthedGuildsGuildIdAppealsAppealIdRoute
+  "/guilds/$guildId/cases/$caseRef": typeof AuthedGuildsGuildIdCasesCaseRefRoute
+  "/guilds/$guildId/members/$userId": typeof AuthedGuildsGuildIdMembersUserIdRoute
+  "/guilds/$guildId/modules/honeypot": typeof AuthedGuildsGuildIdModulesHoneypotRoute
+  "/guilds/$guildId/modules/logging": typeof AuthedGuildsGuildIdModulesLoggingRoute
+  "/guilds/$guildId/modules/tickets": typeof AuthedGuildsGuildIdModulesTicketsRoute
+  "/guilds/$guildId/rules/$ruleId": typeof AuthedGuildsGuildIdRulesRuleIdRoute
+  "/guilds/$guildId/rules/new": typeof AuthedGuildsGuildIdRulesNewRoute
+  "/guilds/$guildId/appeals/": typeof AuthedGuildsGuildIdAppealsIndexRoute
+  "/guilds/$guildId/cases/": typeof AuthedGuildsGuildIdCasesIndexRoute
+  "/guilds/$guildId/rules/": typeof AuthedGuildsGuildIdRulesIndexRoute
+  "/guilds/$guildId/cases/$caseId/appeal": typeof AuthedGuildsGuildIdCasesCaseIdAppealRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
-  '/guilds/$guildId/action-failures': typeof GuildsGuildIdActionFailuresRoute
-  '/guilds/$guildId/appeals': typeof GuildsGuildIdAppealsRoute
-  '/guilds/$guildId/audit-log': typeof GuildsGuildIdAuditLogRoute
-  '/guilds/$guildId/cases': typeof GuildsGuildIdCasesRouteWithChildren
-  '/guilds/$guildId/settings': typeof GuildsGuildIdSettingsRoute
-  '/guilds/$guildId/templates': typeof GuildsGuildIdTemplatesRoute
-  '/guilds/$guildId': typeof GuildsGuildIdIndexRoute
-  '/guilds/$guildId/cases/$caseRef': typeof GuildsGuildIdCasesCaseRefRouteWithChildren
-  '/guilds/$guildId/members/$memberId': typeof GuildsGuildIdMembersMemberIdRoute
-  '/members/guilds/$guildId/cases': typeof MembersGuildsGuildIdCasesRoute
-  '/guilds/$guildId/cases/$caseRef/appeal': typeof GuildsGuildIdCasesCaseRefAppealRoute
+  "/": typeof IndexRoute
+  "/invite": typeof InviteRoute
+  "/login": typeof LoginRoute
+  "/support": typeof SupportRoute
+  "/docs/appeals": typeof DocsAppealsRoute
+  "/docs/cases": typeof DocsCasesRoute
+  "/docs/commands": typeof DocsCommandsRoute
+  "/docs/extras": typeof DocsExtrasRoute
+  "/docs/faq": typeof DocsFaqRoute
+  "/docs/getting-started": typeof DocsGettingStartedRoute
+  "/docs/permissions": typeof DocsPermissionsRoute
+  "/docs/rules": typeof DocsRulesRoute
+  "/docs": typeof DocsIndexRoute
+  "/guilds": typeof AuthedGuildsIndexRoute
+  "/guilds/$guildId/audit": typeof AuthedGuildsGuildIdAuditRoute
+  "/guilds/$guildId/failures": typeof AuthedGuildsGuildIdFailuresRoute
+  "/guilds/$guildId/settings": typeof AuthedGuildsGuildIdSettingsRoute
+  "/guilds/$guildId": typeof AuthedGuildsGuildIdIndexRoute
+  "/guilds/$guildId/appeals/$appealId": typeof AuthedGuildsGuildIdAppealsAppealIdRoute
+  "/guilds/$guildId/cases/$caseRef": typeof AuthedGuildsGuildIdCasesCaseRefRoute
+  "/guilds/$guildId/members/$userId": typeof AuthedGuildsGuildIdMembersUserIdRoute
+  "/guilds/$guildId/modules/honeypot": typeof AuthedGuildsGuildIdModulesHoneypotRoute
+  "/guilds/$guildId/modules/logging": typeof AuthedGuildsGuildIdModulesLoggingRoute
+  "/guilds/$guildId/modules/tickets": typeof AuthedGuildsGuildIdModulesTicketsRoute
+  "/guilds/$guildId/rules/$ruleId": typeof AuthedGuildsGuildIdRulesRuleIdRoute
+  "/guilds/$guildId/rules/new": typeof AuthedGuildsGuildIdRulesNewRoute
+  "/guilds/$guildId/appeals": typeof AuthedGuildsGuildIdAppealsIndexRoute
+  "/guilds/$guildId/cases": typeof AuthedGuildsGuildIdCasesIndexRoute
+  "/guilds/$guildId/rules": typeof AuthedGuildsGuildIdRulesIndexRoute
+  "/guilds/$guildId/cases/$caseId/appeal": typeof AuthedGuildsGuildIdCasesCaseIdAppealRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
-  '/guilds/$guildId': typeof GuildsGuildIdRouteWithChildren
-  '/guilds/$guildId/action-failures': typeof GuildsGuildIdActionFailuresRoute
-  '/guilds/$guildId/appeals': typeof GuildsGuildIdAppealsRoute
-  '/guilds/$guildId/audit-log': typeof GuildsGuildIdAuditLogRoute
-  '/guilds/$guildId/cases': typeof GuildsGuildIdCasesRouteWithChildren
-  '/guilds/$guildId/settings': typeof GuildsGuildIdSettingsRoute
-  '/guilds/$guildId/templates': typeof GuildsGuildIdTemplatesRoute
-  '/guilds/$guildId/': typeof GuildsGuildIdIndexRoute
-  '/guilds/$guildId/cases/$caseRef': typeof GuildsGuildIdCasesCaseRefRouteWithChildren
-  '/guilds/$guildId/members/$memberId': typeof GuildsGuildIdMembersMemberIdRoute
-  '/members/guilds/$guildId/cases': typeof MembersGuildsGuildIdCasesRoute
-  '/guilds/$guildId/cases/$caseRef/appeal': typeof GuildsGuildIdCasesCaseRefAppealRoute
+  "/": typeof IndexRoute
+  "/docs": typeof DocsRouteRouteWithChildren
+  "/_authed": typeof AuthedRouteWithChildren
+  "/invite": typeof InviteRoute
+  "/login": typeof LoginRoute
+  "/support": typeof SupportRoute
+  "/docs/appeals": typeof DocsAppealsRoute
+  "/docs/cases": typeof DocsCasesRoute
+  "/docs/commands": typeof DocsCommandsRoute
+  "/docs/extras": typeof DocsExtrasRoute
+  "/docs/faq": typeof DocsFaqRoute
+  "/docs/getting-started": typeof DocsGettingStartedRoute
+  "/docs/permissions": typeof DocsPermissionsRoute
+  "/docs/rules": typeof DocsRulesRoute
+  "/docs/": typeof DocsIndexRoute
+  "/_authed/guilds/$guildId": typeof AuthedGuildsGuildIdRouteWithChildren
+  "/_authed/guilds/": typeof AuthedGuildsIndexRoute
+  "/_authed/guilds/$guildId/appeals": typeof AuthedGuildsGuildIdAppealsRouteRouteWithChildren
+  "/_authed/guilds/$guildId/audit": typeof AuthedGuildsGuildIdAuditRoute
+  "/_authed/guilds/$guildId/failures": typeof AuthedGuildsGuildIdFailuresRoute
+  "/_authed/guilds/$guildId/settings": typeof AuthedGuildsGuildIdSettingsRoute
+  "/_authed/guilds/$guildId/": typeof AuthedGuildsGuildIdIndexRoute
+  "/_authed/guilds/$guildId/appeals/$appealId": typeof AuthedGuildsGuildIdAppealsAppealIdRoute
+  "/_authed/guilds/$guildId/cases/$caseRef": typeof AuthedGuildsGuildIdCasesCaseRefRoute
+  "/_authed/guilds/$guildId/members/$userId": typeof AuthedGuildsGuildIdMembersUserIdRoute
+  "/_authed/guilds/$guildId/modules/honeypot": typeof AuthedGuildsGuildIdModulesHoneypotRoute
+  "/_authed/guilds/$guildId/modules/logging": typeof AuthedGuildsGuildIdModulesLoggingRoute
+  "/_authed/guilds/$guildId/modules/tickets": typeof AuthedGuildsGuildIdModulesTicketsRoute
+  "/_authed/guilds/$guildId/rules/$ruleId": typeof AuthedGuildsGuildIdRulesRuleIdRoute
+  "/_authed/guilds/$guildId/rules/new": typeof AuthedGuildsGuildIdRulesNewRoute
+  "/_authed/guilds/$guildId/appeals/": typeof AuthedGuildsGuildIdAppealsIndexRoute
+  "/_authed/guilds/$guildId/cases/": typeof AuthedGuildsGuildIdCasesIndexRoute
+  "/_authed/guilds/$guildId/rules/": typeof AuthedGuildsGuildIdRulesIndexRoute
+  "/_authed/guilds/$guildId_/cases/$caseId/appeal": typeof AuthedGuildsGuildIdCasesCaseIdAppealRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    | '/'
-    | '/guilds/$guildId'
-    | '/guilds/$guildId/action-failures'
-    | '/guilds/$guildId/appeals'
-    | '/guilds/$guildId/audit-log'
-    | '/guilds/$guildId/cases'
-    | '/guilds/$guildId/settings'
-    | '/guilds/$guildId/templates'
-    | '/guilds/$guildId/'
-    | '/guilds/$guildId/cases/$caseRef'
-    | '/guilds/$guildId/members/$memberId'
-    | '/members/guilds/$guildId/cases'
-    | '/guilds/$guildId/cases/$caseRef/appeal'
+    | "/"
+    | "/docs"
+    | "/invite"
+    | "/login"
+    | "/support"
+    | "/docs/appeals"
+    | "/docs/cases"
+    | "/docs/commands"
+    | "/docs/extras"
+    | "/docs/faq"
+    | "/docs/getting-started"
+    | "/docs/permissions"
+    | "/docs/rules"
+    | "/docs/"
+    | "/guilds/$guildId"
+    | "/guilds/"
+    | "/guilds/$guildId/appeals"
+    | "/guilds/$guildId/audit"
+    | "/guilds/$guildId/failures"
+    | "/guilds/$guildId/settings"
+    | "/guilds/$guildId/"
+    | "/guilds/$guildId/appeals/$appealId"
+    | "/guilds/$guildId/cases/$caseRef"
+    | "/guilds/$guildId/members/$userId"
+    | "/guilds/$guildId/modules/honeypot"
+    | "/guilds/$guildId/modules/logging"
+    | "/guilds/$guildId/modules/tickets"
+    | "/guilds/$guildId/rules/$ruleId"
+    | "/guilds/$guildId/rules/new"
+    | "/guilds/$guildId/appeals/"
+    | "/guilds/$guildId/cases/"
+    | "/guilds/$guildId/rules/"
+    | "/guilds/$guildId/cases/$caseId/appeal"
   fileRoutesByTo: FileRoutesByTo
   to:
-    | '/'
-    | '/guilds/$guildId/action-failures'
-    | '/guilds/$guildId/appeals'
-    | '/guilds/$guildId/audit-log'
-    | '/guilds/$guildId/cases'
-    | '/guilds/$guildId/settings'
-    | '/guilds/$guildId/templates'
-    | '/guilds/$guildId'
-    | '/guilds/$guildId/cases/$caseRef'
-    | '/guilds/$guildId/members/$memberId'
-    | '/members/guilds/$guildId/cases'
-    | '/guilds/$guildId/cases/$caseRef/appeal'
+    | "/"
+    | "/invite"
+    | "/login"
+    | "/support"
+    | "/docs/appeals"
+    | "/docs/cases"
+    | "/docs/commands"
+    | "/docs/extras"
+    | "/docs/faq"
+    | "/docs/getting-started"
+    | "/docs/permissions"
+    | "/docs/rules"
+    | "/docs"
+    | "/guilds"
+    | "/guilds/$guildId/audit"
+    | "/guilds/$guildId/failures"
+    | "/guilds/$guildId/settings"
+    | "/guilds/$guildId"
+    | "/guilds/$guildId/appeals/$appealId"
+    | "/guilds/$guildId/cases/$caseRef"
+    | "/guilds/$guildId/members/$userId"
+    | "/guilds/$guildId/modules/honeypot"
+    | "/guilds/$guildId/modules/logging"
+    | "/guilds/$guildId/modules/tickets"
+    | "/guilds/$guildId/rules/$ruleId"
+    | "/guilds/$guildId/rules/new"
+    | "/guilds/$guildId/appeals"
+    | "/guilds/$guildId/cases"
+    | "/guilds/$guildId/rules"
+    | "/guilds/$guildId/cases/$caseId/appeal"
   id:
-    | '__root__'
-    | '/'
-    | '/guilds/$guildId'
-    | '/guilds/$guildId/action-failures'
-    | '/guilds/$guildId/appeals'
-    | '/guilds/$guildId/audit-log'
-    | '/guilds/$guildId/cases'
-    | '/guilds/$guildId/settings'
-    | '/guilds/$guildId/templates'
-    | '/guilds/$guildId/'
-    | '/guilds/$guildId/cases/$caseRef'
-    | '/guilds/$guildId/members/$memberId'
-    | '/members/guilds/$guildId/cases'
-    | '/guilds/$guildId/cases/$caseRef/appeal'
+    | "__root__"
+    | "/"
+    | "/docs"
+    | "/_authed"
+    | "/invite"
+    | "/login"
+    | "/support"
+    | "/docs/appeals"
+    | "/docs/cases"
+    | "/docs/commands"
+    | "/docs/extras"
+    | "/docs/faq"
+    | "/docs/getting-started"
+    | "/docs/permissions"
+    | "/docs/rules"
+    | "/docs/"
+    | "/_authed/guilds/$guildId"
+    | "/_authed/guilds/"
+    | "/_authed/guilds/$guildId/appeals"
+    | "/_authed/guilds/$guildId/audit"
+    | "/_authed/guilds/$guildId/failures"
+    | "/_authed/guilds/$guildId/settings"
+    | "/_authed/guilds/$guildId/"
+    | "/_authed/guilds/$guildId/appeals/$appealId"
+    | "/_authed/guilds/$guildId/cases/$caseRef"
+    | "/_authed/guilds/$guildId/members/$userId"
+    | "/_authed/guilds/$guildId/modules/honeypot"
+    | "/_authed/guilds/$guildId/modules/logging"
+    | "/_authed/guilds/$guildId/modules/tickets"
+    | "/_authed/guilds/$guildId/rules/$ruleId"
+    | "/_authed/guilds/$guildId/rules/new"
+    | "/_authed/guilds/$guildId/appeals/"
+    | "/_authed/guilds/$guildId/cases/"
+    | "/_authed/guilds/$guildId/rules/"
+    | "/_authed/guilds/$guildId_/cases/$caseId/appeal"
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  GuildsGuildIdRoute: typeof GuildsGuildIdRouteWithChildren
-  MembersGuildsGuildIdCasesRoute: typeof MembersGuildsGuildIdCasesRoute
+  DocsRouteRoute: typeof DocsRouteRouteWithChildren
+  AuthedRoute: typeof AuthedRouteWithChildren
+  InviteRoute: typeof InviteRoute
+  LoginRoute: typeof LoginRoute
+  SupportRoute: typeof SupportRoute
 }
 
-declare module '@tanstack/react-router' {
+declare module "@tanstack/react-router" {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
+    "/": {
+      id: "/"
+      path: "/"
+      fullPath: "/"
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/guilds/$guildId': {
-      id: '/guilds/$guildId'
-      path: '/guilds/$guildId'
-      fullPath: '/guilds/$guildId'
-      preLoaderRoute: typeof GuildsGuildIdRouteImport
+    "/_authed": {
+      id: "/_authed"
+      path: ""
+      fullPath: "/"
+      preLoaderRoute: typeof AuthedRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/guilds/$guildId/': {
-      id: '/guilds/$guildId/'
-      path: '/'
-      fullPath: '/guilds/$guildId/'
-      preLoaderRoute: typeof GuildsGuildIdIndexRouteImport
-      parentRoute: typeof GuildsGuildIdRoute
-    }
-    '/guilds/$guildId/action-failures': {
-      id: '/guilds/$guildId/action-failures'
-      path: '/action-failures'
-      fullPath: '/guilds/$guildId/action-failures'
-      preLoaderRoute: typeof GuildsGuildIdActionFailuresRouteImport
-      parentRoute: typeof GuildsGuildIdRoute
-    }
-    '/guilds/$guildId/appeals': {
-      id: '/guilds/$guildId/appeals'
-      path: '/appeals'
-      fullPath: '/guilds/$guildId/appeals'
-      preLoaderRoute: typeof GuildsGuildIdAppealsRouteImport
-      parentRoute: typeof GuildsGuildIdRoute
-    }
-    '/guilds/$guildId/audit-log': {
-      id: '/guilds/$guildId/audit-log'
-      path: '/audit-log'
-      fullPath: '/guilds/$guildId/audit-log'
-      preLoaderRoute: typeof GuildsGuildIdAuditLogRouteImport
-      parentRoute: typeof GuildsGuildIdRoute
-    }
-    '/guilds/$guildId/cases': {
-      id: '/guilds/$guildId/cases'
-      path: '/cases'
-      fullPath: '/guilds/$guildId/cases'
-      preLoaderRoute: typeof GuildsGuildIdCasesRouteImport
-      parentRoute: typeof GuildsGuildIdRoute
-    }
-    '/guilds/$guildId/settings': {
-      id: '/guilds/$guildId/settings'
-      path: '/settings'
-      fullPath: '/guilds/$guildId/settings'
-      preLoaderRoute: typeof GuildsGuildIdSettingsRouteImport
-      parentRoute: typeof GuildsGuildIdRoute
-    }
-    '/guilds/$guildId/templates': {
-      id: '/guilds/$guildId/templates'
-      path: '/templates'
-      fullPath: '/guilds/$guildId/templates'
-      preLoaderRoute: typeof GuildsGuildIdTemplatesRouteImport
-      parentRoute: typeof GuildsGuildIdRoute
-    }
-    '/guilds/$guildId/cases/$caseRef': {
-      id: '/guilds/$guildId/cases/$caseRef'
-      path: '/$caseRef'
-      fullPath: '/guilds/$guildId/cases/$caseRef'
-      preLoaderRoute: typeof GuildsGuildIdCasesCaseRefRouteImport
-      parentRoute: typeof GuildsGuildIdCasesRoute
-    }
-    '/guilds/$guildId/members/$memberId': {
-      id: '/guilds/$guildId/members/$memberId'
-      path: '/members/$memberId'
-      fullPath: '/guilds/$guildId/members/$memberId'
-      preLoaderRoute: typeof GuildsGuildIdMembersMemberIdRouteImport
-      parentRoute: typeof GuildsGuildIdRoute
-    }
-    '/members/guilds/$guildId/cases': {
-      id: '/members/guilds/$guildId/cases'
-      path: '/members/guilds/$guildId/cases'
-      fullPath: '/members/guilds/$guildId/cases'
-      preLoaderRoute: typeof MembersGuildsGuildIdCasesRouteImport
+    "/docs": {
+      id: "/docs"
+      path: "/docs"
+      fullPath: "/docs"
+      preLoaderRoute: typeof DocsRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/guilds/$guildId/cases/$caseRef/appeal': {
-      id: '/guilds/$guildId/cases/$caseRef/appeal'
-      path: '/appeal'
-      fullPath: '/guilds/$guildId/cases/$caseRef/appeal'
-      preLoaderRoute: typeof GuildsGuildIdCasesCaseRefAppealRouteImport
-      parentRoute: typeof GuildsGuildIdCasesCaseRefRoute
+    "/invite": {
+      id: "/invite"
+      path: "/invite"
+      fullPath: "/invite"
+      preLoaderRoute: typeof InviteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    "/login": {
+      id: "/login"
+      path: "/login"
+      fullPath: "/login"
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    "/support": {
+      id: "/support"
+      path: "/support"
+      fullPath: "/support"
+      preLoaderRoute: typeof SupportRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    "/docs/": {
+      id: "/docs/"
+      path: "/"
+      fullPath: "/docs/"
+      preLoaderRoute: typeof DocsIndexRouteImport
+      parentRoute: typeof DocsRouteRoute
+    }
+    "/docs/appeals": {
+      id: "/docs/appeals"
+      path: "/appeals"
+      fullPath: "/docs/appeals"
+      preLoaderRoute: typeof DocsAppealsRouteImport
+      parentRoute: typeof DocsRouteRoute
+    }
+    "/docs/cases": {
+      id: "/docs/cases"
+      path: "/cases"
+      fullPath: "/docs/cases"
+      preLoaderRoute: typeof DocsCasesRouteImport
+      parentRoute: typeof DocsRouteRoute
+    }
+    "/docs/commands": {
+      id: "/docs/commands"
+      path: "/commands"
+      fullPath: "/docs/commands"
+      preLoaderRoute: typeof DocsCommandsRouteImport
+      parentRoute: typeof DocsRouteRoute
+    }
+    "/docs/extras": {
+      id: "/docs/extras"
+      path: "/extras"
+      fullPath: "/docs/extras"
+      preLoaderRoute: typeof DocsExtrasRouteImport
+      parentRoute: typeof DocsRouteRoute
+    }
+    "/docs/faq": {
+      id: "/docs/faq"
+      path: "/faq"
+      fullPath: "/docs/faq"
+      preLoaderRoute: typeof DocsFaqRouteImport
+      parentRoute: typeof DocsRouteRoute
+    }
+    "/docs/getting-started": {
+      id: "/docs/getting-started"
+      path: "/getting-started"
+      fullPath: "/docs/getting-started"
+      preLoaderRoute: typeof DocsGettingStartedRouteImport
+      parentRoute: typeof DocsRouteRoute
+    }
+    "/docs/permissions": {
+      id: "/docs/permissions"
+      path: "/permissions"
+      fullPath: "/docs/permissions"
+      preLoaderRoute: typeof DocsPermissionsRouteImport
+      parentRoute: typeof DocsRouteRoute
+    }
+    "/docs/rules": {
+      id: "/docs/rules"
+      path: "/rules"
+      fullPath: "/docs/rules"
+      preLoaderRoute: typeof DocsRulesRouteImport
+      parentRoute: typeof DocsRouteRoute
+    }
+    "/_authed/guilds/": {
+      id: "/_authed/guilds/"
+      path: "/guilds"
+      fullPath: "/guilds/"
+      preLoaderRoute: typeof AuthedGuildsIndexRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    "/_authed/guilds/$guildId": {
+      id: "/_authed/guilds/$guildId"
+      path: "/guilds/$guildId"
+      fullPath: "/guilds/$guildId"
+      preLoaderRoute: typeof AuthedGuildsGuildIdRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    "/_authed/guilds/$guildId/": {
+      id: "/_authed/guilds/$guildId/"
+      path: "/"
+      fullPath: "/guilds/$guildId/"
+      preLoaderRoute: typeof AuthedGuildsGuildIdIndexRouteImport
+      parentRoute: typeof AuthedGuildsGuildIdRoute
+    }
+    "/_authed/guilds/$guildId/appeals": {
+      id: "/_authed/guilds/$guildId/appeals"
+      path: "/appeals"
+      fullPath: "/guilds/$guildId/appeals"
+      preLoaderRoute: typeof AuthedGuildsGuildIdAppealsRouteRouteImport
+      parentRoute: typeof AuthedGuildsGuildIdRoute
+    }
+    "/_authed/guilds/$guildId/audit": {
+      id: "/_authed/guilds/$guildId/audit"
+      path: "/audit"
+      fullPath: "/guilds/$guildId/audit"
+      preLoaderRoute: typeof AuthedGuildsGuildIdAuditRouteImport
+      parentRoute: typeof AuthedGuildsGuildIdRoute
+    }
+    "/_authed/guilds/$guildId/failures": {
+      id: "/_authed/guilds/$guildId/failures"
+      path: "/failures"
+      fullPath: "/guilds/$guildId/failures"
+      preLoaderRoute: typeof AuthedGuildsGuildIdFailuresRouteImport
+      parentRoute: typeof AuthedGuildsGuildIdRoute
+    }
+    "/_authed/guilds/$guildId/settings": {
+      id: "/_authed/guilds/$guildId/settings"
+      path: "/settings"
+      fullPath: "/guilds/$guildId/settings"
+      preLoaderRoute: typeof AuthedGuildsGuildIdSettingsRouteImport
+      parentRoute: typeof AuthedGuildsGuildIdRoute
+    }
+    "/_authed/guilds/$guildId/appeals/": {
+      id: "/_authed/guilds/$guildId/appeals/"
+      path: "/"
+      fullPath: "/guilds/$guildId/appeals/"
+      preLoaderRoute: typeof AuthedGuildsGuildIdAppealsIndexRouteImport
+      parentRoute: typeof AuthedGuildsGuildIdAppealsRouteRoute
+    }
+    "/_authed/guilds/$guildId/appeals/$appealId": {
+      id: "/_authed/guilds/$guildId/appeals/$appealId"
+      path: "/$appealId"
+      fullPath: "/guilds/$guildId/appeals/$appealId"
+      preLoaderRoute: typeof AuthedGuildsGuildIdAppealsAppealIdRouteImport
+      parentRoute: typeof AuthedGuildsGuildIdAppealsRouteRoute
+    }
+    "/_authed/guilds/$guildId/cases/": {
+      id: "/_authed/guilds/$guildId/cases/"
+      path: "/cases"
+      fullPath: "/guilds/$guildId/cases/"
+      preLoaderRoute: typeof AuthedGuildsGuildIdCasesIndexRouteImport
+      parentRoute: typeof AuthedGuildsGuildIdRoute
+    }
+    "/_authed/guilds/$guildId/cases/$caseRef": {
+      id: "/_authed/guilds/$guildId/cases/$caseRef"
+      path: "/cases/$caseRef"
+      fullPath: "/guilds/$guildId/cases/$caseRef"
+      preLoaderRoute: typeof AuthedGuildsGuildIdCasesCaseRefRouteImport
+      parentRoute: typeof AuthedGuildsGuildIdRoute
+    }
+    "/_authed/guilds/$guildId/members/$userId": {
+      id: "/_authed/guilds/$guildId/members/$userId"
+      path: "/members/$userId"
+      fullPath: "/guilds/$guildId/members/$userId"
+      preLoaderRoute: typeof AuthedGuildsGuildIdMembersUserIdRouteImport
+      parentRoute: typeof AuthedGuildsGuildIdRoute
+    }
+    "/_authed/guilds/$guildId/modules/honeypot": {
+      id: "/_authed/guilds/$guildId/modules/honeypot"
+      path: "/modules/honeypot"
+      fullPath: "/guilds/$guildId/modules/honeypot"
+      preLoaderRoute: typeof AuthedGuildsGuildIdModulesHoneypotRouteImport
+      parentRoute: typeof AuthedGuildsGuildIdRoute
+    }
+    "/_authed/guilds/$guildId/modules/logging": {
+      id: "/_authed/guilds/$guildId/modules/logging"
+      path: "/modules/logging"
+      fullPath: "/guilds/$guildId/modules/logging"
+      preLoaderRoute: typeof AuthedGuildsGuildIdModulesLoggingRouteImport
+      parentRoute: typeof AuthedGuildsGuildIdRoute
+    }
+    "/_authed/guilds/$guildId/modules/tickets": {
+      id: "/_authed/guilds/$guildId/modules/tickets"
+      path: "/modules/tickets"
+      fullPath: "/guilds/$guildId/modules/tickets"
+      preLoaderRoute: typeof AuthedGuildsGuildIdModulesTicketsRouteImport
+      parentRoute: typeof AuthedGuildsGuildIdRoute
+    }
+    "/_authed/guilds/$guildId/rules/": {
+      id: "/_authed/guilds/$guildId/rules/"
+      path: "/rules"
+      fullPath: "/guilds/$guildId/rules/"
+      preLoaderRoute: typeof AuthedGuildsGuildIdRulesIndexRouteImport
+      parentRoute: typeof AuthedGuildsGuildIdRoute
+    }
+    "/_authed/guilds/$guildId/rules/$ruleId": {
+      id: "/_authed/guilds/$guildId/rules/$ruleId"
+      path: "/rules/$ruleId"
+      fullPath: "/guilds/$guildId/rules/$ruleId"
+      preLoaderRoute: typeof AuthedGuildsGuildIdRulesRuleIdRouteImport
+      parentRoute: typeof AuthedGuildsGuildIdRoute
+    }
+    "/_authed/guilds/$guildId/rules/new": {
+      id: "/_authed/guilds/$guildId/rules/new"
+      path: "/rules/new"
+      fullPath: "/guilds/$guildId/rules/new"
+      preLoaderRoute: typeof AuthedGuildsGuildIdRulesNewRouteImport
+      parentRoute: typeof AuthedGuildsGuildIdRoute
+    }
+    "/_authed/guilds/$guildId_/cases/$caseId/appeal": {
+      id: "/_authed/guilds/$guildId_/cases/$caseId/appeal"
+      path: "/guilds/$guildId/cases/$caseId/appeal"
+      fullPath: "/guilds/$guildId/cases/$caseId/appeal"
+      preLoaderRoute: typeof AuthedGuildsGuildIdCasesCaseIdAppealRouteImport
+      parentRoute: typeof AuthedRoute
     }
   }
 }
 
-interface GuildsGuildIdCasesCaseRefRouteChildren {
-  GuildsGuildIdCasesCaseRefAppealRoute: typeof GuildsGuildIdCasesCaseRefAppealRoute
+interface DocsRouteRouteChildren {
+  DocsAppealsRoute: typeof DocsAppealsRoute
+  DocsCasesRoute: typeof DocsCasesRoute
+  DocsCommandsRoute: typeof DocsCommandsRoute
+  DocsExtrasRoute: typeof DocsExtrasRoute
+  DocsFaqRoute: typeof DocsFaqRoute
+  DocsGettingStartedRoute: typeof DocsGettingStartedRoute
+  DocsPermissionsRoute: typeof DocsPermissionsRoute
+  DocsRulesRoute: typeof DocsRulesRoute
+  DocsIndexRoute: typeof DocsIndexRoute
 }
 
-const GuildsGuildIdCasesCaseRefRouteChildren: GuildsGuildIdCasesCaseRefRouteChildren =
+const DocsRouteRouteChildren: DocsRouteRouteChildren = {
+  DocsAppealsRoute: DocsAppealsRoute,
+  DocsCasesRoute: DocsCasesRoute,
+  DocsCommandsRoute: DocsCommandsRoute,
+  DocsExtrasRoute: DocsExtrasRoute,
+  DocsFaqRoute: DocsFaqRoute,
+  DocsGettingStartedRoute: DocsGettingStartedRoute,
+  DocsPermissionsRoute: DocsPermissionsRoute,
+  DocsRulesRoute: DocsRulesRoute,
+  DocsIndexRoute: DocsIndexRoute,
+}
+
+const DocsRouteRouteWithChildren = DocsRouteRoute._addFileChildren(
+  DocsRouteRouteChildren,
+)
+
+interface AuthedGuildsGuildIdAppealsRouteRouteChildren {
+  AuthedGuildsGuildIdAppealsAppealIdRoute: typeof AuthedGuildsGuildIdAppealsAppealIdRoute
+  AuthedGuildsGuildIdAppealsIndexRoute: typeof AuthedGuildsGuildIdAppealsIndexRoute
+}
+
+const AuthedGuildsGuildIdAppealsRouteRouteChildren: AuthedGuildsGuildIdAppealsRouteRouteChildren =
   {
-    GuildsGuildIdCasesCaseRefAppealRoute: GuildsGuildIdCasesCaseRefAppealRoute,
+    AuthedGuildsGuildIdAppealsAppealIdRoute:
+      AuthedGuildsGuildIdAppealsAppealIdRoute,
+    AuthedGuildsGuildIdAppealsIndexRoute: AuthedGuildsGuildIdAppealsIndexRoute,
   }
 
-const GuildsGuildIdCasesCaseRefRouteWithChildren =
-  GuildsGuildIdCasesCaseRefRoute._addFileChildren(
-    GuildsGuildIdCasesCaseRefRouteChildren,
+const AuthedGuildsGuildIdAppealsRouteRouteWithChildren =
+  AuthedGuildsGuildIdAppealsRouteRoute._addFileChildren(
+    AuthedGuildsGuildIdAppealsRouteRouteChildren,
   )
 
-interface GuildsGuildIdCasesRouteChildren {
-  GuildsGuildIdCasesCaseRefRoute: typeof GuildsGuildIdCasesCaseRefRouteWithChildren
+interface AuthedGuildsGuildIdRouteChildren {
+  AuthedGuildsGuildIdAppealsRouteRoute: typeof AuthedGuildsGuildIdAppealsRouteRouteWithChildren
+  AuthedGuildsGuildIdAuditRoute: typeof AuthedGuildsGuildIdAuditRoute
+  AuthedGuildsGuildIdFailuresRoute: typeof AuthedGuildsGuildIdFailuresRoute
+  AuthedGuildsGuildIdSettingsRoute: typeof AuthedGuildsGuildIdSettingsRoute
+  AuthedGuildsGuildIdIndexRoute: typeof AuthedGuildsGuildIdIndexRoute
+  AuthedGuildsGuildIdCasesCaseRefRoute: typeof AuthedGuildsGuildIdCasesCaseRefRoute
+  AuthedGuildsGuildIdMembersUserIdRoute: typeof AuthedGuildsGuildIdMembersUserIdRoute
+  AuthedGuildsGuildIdModulesHoneypotRoute: typeof AuthedGuildsGuildIdModulesHoneypotRoute
+  AuthedGuildsGuildIdModulesLoggingRoute: typeof AuthedGuildsGuildIdModulesLoggingRoute
+  AuthedGuildsGuildIdModulesTicketsRoute: typeof AuthedGuildsGuildIdModulesTicketsRoute
+  AuthedGuildsGuildIdRulesRuleIdRoute: typeof AuthedGuildsGuildIdRulesRuleIdRoute
+  AuthedGuildsGuildIdRulesNewRoute: typeof AuthedGuildsGuildIdRulesNewRoute
+  AuthedGuildsGuildIdCasesIndexRoute: typeof AuthedGuildsGuildIdCasesIndexRoute
+  AuthedGuildsGuildIdRulesIndexRoute: typeof AuthedGuildsGuildIdRulesIndexRoute
 }
 
-const GuildsGuildIdCasesRouteChildren: GuildsGuildIdCasesRouteChildren = {
-  GuildsGuildIdCasesCaseRefRoute: GuildsGuildIdCasesCaseRefRouteWithChildren,
+const AuthedGuildsGuildIdRouteChildren: AuthedGuildsGuildIdRouteChildren = {
+  AuthedGuildsGuildIdAppealsRouteRoute:
+    AuthedGuildsGuildIdAppealsRouteRouteWithChildren,
+  AuthedGuildsGuildIdAuditRoute: AuthedGuildsGuildIdAuditRoute,
+  AuthedGuildsGuildIdFailuresRoute: AuthedGuildsGuildIdFailuresRoute,
+  AuthedGuildsGuildIdSettingsRoute: AuthedGuildsGuildIdSettingsRoute,
+  AuthedGuildsGuildIdIndexRoute: AuthedGuildsGuildIdIndexRoute,
+  AuthedGuildsGuildIdCasesCaseRefRoute: AuthedGuildsGuildIdCasesCaseRefRoute,
+  AuthedGuildsGuildIdMembersUserIdRoute: AuthedGuildsGuildIdMembersUserIdRoute,
+  AuthedGuildsGuildIdModulesHoneypotRoute:
+    AuthedGuildsGuildIdModulesHoneypotRoute,
+  AuthedGuildsGuildIdModulesLoggingRoute:
+    AuthedGuildsGuildIdModulesLoggingRoute,
+  AuthedGuildsGuildIdModulesTicketsRoute:
+    AuthedGuildsGuildIdModulesTicketsRoute,
+  AuthedGuildsGuildIdRulesRuleIdRoute: AuthedGuildsGuildIdRulesRuleIdRoute,
+  AuthedGuildsGuildIdRulesNewRoute: AuthedGuildsGuildIdRulesNewRoute,
+  AuthedGuildsGuildIdCasesIndexRoute: AuthedGuildsGuildIdCasesIndexRoute,
+  AuthedGuildsGuildIdRulesIndexRoute: AuthedGuildsGuildIdRulesIndexRoute,
 }
 
-const GuildsGuildIdCasesRouteWithChildren =
-  GuildsGuildIdCasesRoute._addFileChildren(GuildsGuildIdCasesRouteChildren)
+const AuthedGuildsGuildIdRouteWithChildren =
+  AuthedGuildsGuildIdRoute._addFileChildren(AuthedGuildsGuildIdRouteChildren)
 
-interface GuildsGuildIdRouteChildren {
-  GuildsGuildIdActionFailuresRoute: typeof GuildsGuildIdActionFailuresRoute
-  GuildsGuildIdAppealsRoute: typeof GuildsGuildIdAppealsRoute
-  GuildsGuildIdAuditLogRoute: typeof GuildsGuildIdAuditLogRoute
-  GuildsGuildIdCasesRoute: typeof GuildsGuildIdCasesRouteWithChildren
-  GuildsGuildIdSettingsRoute: typeof GuildsGuildIdSettingsRoute
-  GuildsGuildIdTemplatesRoute: typeof GuildsGuildIdTemplatesRoute
-  GuildsGuildIdIndexRoute: typeof GuildsGuildIdIndexRoute
-  GuildsGuildIdMembersMemberIdRoute: typeof GuildsGuildIdMembersMemberIdRoute
+interface AuthedRouteChildren {
+  AuthedGuildsGuildIdRoute: typeof AuthedGuildsGuildIdRouteWithChildren
+  AuthedGuildsIndexRoute: typeof AuthedGuildsIndexRoute
+  AuthedGuildsGuildIdCasesCaseIdAppealRoute: typeof AuthedGuildsGuildIdCasesCaseIdAppealRoute
 }
 
-const GuildsGuildIdRouteChildren: GuildsGuildIdRouteChildren = {
-  GuildsGuildIdActionFailuresRoute: GuildsGuildIdActionFailuresRoute,
-  GuildsGuildIdAppealsRoute: GuildsGuildIdAppealsRoute,
-  GuildsGuildIdAuditLogRoute: GuildsGuildIdAuditLogRoute,
-  GuildsGuildIdCasesRoute: GuildsGuildIdCasesRouteWithChildren,
-  GuildsGuildIdSettingsRoute: GuildsGuildIdSettingsRoute,
-  GuildsGuildIdTemplatesRoute: GuildsGuildIdTemplatesRoute,
-  GuildsGuildIdIndexRoute: GuildsGuildIdIndexRoute,
-  GuildsGuildIdMembersMemberIdRoute: GuildsGuildIdMembersMemberIdRoute,
+const AuthedRouteChildren: AuthedRouteChildren = {
+  AuthedGuildsGuildIdRoute: AuthedGuildsGuildIdRouteWithChildren,
+  AuthedGuildsIndexRoute: AuthedGuildsIndexRoute,
+  AuthedGuildsGuildIdCasesCaseIdAppealRoute:
+    AuthedGuildsGuildIdCasesCaseIdAppealRoute,
 }
 
-const GuildsGuildIdRouteWithChildren = GuildsGuildIdRoute._addFileChildren(
-  GuildsGuildIdRouteChildren,
-)
+const AuthedRouteWithChildren =
+  AuthedRoute._addFileChildren(AuthedRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  GuildsGuildIdRoute: GuildsGuildIdRouteWithChildren,
-  MembersGuildsGuildIdCasesRoute: MembersGuildsGuildIdCasesRoute,
+  DocsRouteRoute: DocsRouteRouteWithChildren,
+  AuthedRoute: AuthedRouteWithChildren,
+  InviteRoute: InviteRoute,
+  LoginRoute: LoginRoute,
+  SupportRoute: SupportRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

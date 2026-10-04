@@ -1,0 +1,19 @@
+.name {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  font-weight: 550;
+  color: var(--text-strong);
+  overflow-wrap: anywhere;
+}
+
+.hash {
+  flex-shrink: 0;
+  color: var(--text-faint);
+}
+
+.muted {
+  font-weight: 400;
+  color: var(--text-muted);
+}

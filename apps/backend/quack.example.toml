@@ -1,0 +1,63 @@
+# Example Quack configuration. Copy to quack.toml (read from the working
+# directory by default) or pass -config <file>. Every value shown is the
+# default unless marked otherwise; delete what you don't change.
+#
+# Any key can also be set from the environment as QUACK_<SECTION>_<KEY>, for
+# example QUACK_DISCORD_TOKEN or QUACK_API_CORS_ORIGINS (comma-separated).
+# Environment variables win over this file. Keep secrets in the environment.
+
+environment = "dev" # dev, test, staging, or production
+
+[api]
+port = "8080"
+# Exact dashboard origins. Required outside dev, where the default is empty.
+cors_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
+trusted_proxies = []
+max_body_bytes = 1048576
+read_header_timeout = "5s"
+read_timeout = "15s"
+write_timeout = "30s"
+idle_timeout = "1m"
+shutdown_timeout = "20s"
+idempotency_ttl = "24h"
+# ops_token = ""     # required in staging and production
+# metrics_token = "" # required in staging and production
+
+[auth]
+session_cookie_name = "quack_session"
+csrf_cookie_name = "quack_csrf"
+session_ttl = "168h"
+state_ttl = "10m"
+post_login_redirect = "/"
+cookie_secure = false # defaults to true outside dev
+
+[discord]
+# token = ""         # required
+# app_id = ""        # required
+# client_secret = "" # required in staging and production
+oauth_redirect_uri = "http://localhost:8080/auth/discord/callback" # example
+oauth_scopes = "identify guilds"
+command_guild_id = ""
+command_prune = false
+
+# Fixed-window rate limits per request class, as "<max>/<window>".
+[limits]
+oauth = "20/10m"
+member_read = "120/1m"
+template_write = "30/1m"
+case_create = "20/1m"
+retry = "10/1m"
+evidence = "20/1m"
+
+[database]
+dsn = "quack:quack@tcp(127.0.0.1:3306)/quack?charset=utf8mb4&parseTime=True&loc=Local" # example
+
+[redis]
+url = "redis://127.0.0.1:6379/0" # example
+
+[queue]
+size = 1000
+workers = 3
+
+[log]
+level = "info"

@@ -1,0 +1,79 @@
+.wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  transition: opacity var(--base) var(--ease);
+}
+
+.dim {
+  opacity: 0.55;
+}
+
+.th {
+  height: 40px;
+  padding-inline: 14px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.tr {
+  border-bottom: 1px solid var(--border);
+  animation: fade-in var(--base) var(--ease);
+}
+
+.tr:last-child {
+  border-bottom: 0;
+}
+
+.clickable {
+  cursor: pointer;
+  outline-offset: -2px;
+  transition: background-color var(--fast) var(--ease);
+}
+
+.clickable:hover {
+  background: var(--hover);
+}
+
+.td {
+  height: 56px;
+  padding: 8px 14px;
+  vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.end {
+  text-align: right;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.range {
+  margin-right: 4px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+@media (max-width: 860px) {
+  .mobileHidden {
+    display: none;
+  }
+}

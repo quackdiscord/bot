@@ -1,81 +1,45 @@
-import { TanStackDevtools } from "@tanstack/react-devtools";
 import type { QueryClient } from "@tanstack/react-query";
-import {
-    createRootRouteWithContext,
-    HeadContent,
-    Outlet,
-    Scripts,
-} from "@tanstack/react-router";
-import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
-import { RootError } from "#/components/dashboard/root-error";
-import { AuthGate } from "#/features/auth/auth-gate";
-import TanStackQueryDevtools from "../integrations/tanstack-query/devtools";
-import appCss from "../styles.css?url";
+import { createRootRouteWithContext, Outlet } from "@tanstack/react-router";
 
-interface MyRouterContext {
-    queryClient: QueryClient;
-}
+import { ButtonLink } from "~/ui/Button";
+import { Empty, ErrorState } from "~/ui/States";
+import { Toaster } from "~/ui/Toast";
 
-export const Route = createRootRouteWithContext<MyRouterContext>()({
-    head: () => ({
-        meta: [
-            {
-                charSet: "utf-8",
-            },
-            {
-                name: "viewport",
-                content: "width=device-width, initial-scale=1",
-            },
-            {
-                title: "Quack Dashboard",
-            },
-            {
-                name: "description",
-                content: "Manage Quack moderation for your Discord servers.",
-            },
-        ],
-        links: [
-            {
-                rel: "stylesheet",
-                href: appCss,
-            },
-        ],
-    }),
-    component: AppRoot,
-    errorComponent: RootError,
-    shellComponent: RootDocument,
+import s from "./root.module.css";
+
+export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
+  component: Root,
+  notFoundComponent: NotFound,
+  errorComponent: ({ error, reset }) => (
+    <div className={s.center}>
+      <ErrorState error={error} retry={reset} />
+    </div>
+  ),
 });
 
-function AppRoot() {
-    return (
-        <AuthGate>
-            <Outlet />
-        </AuthGate>
-    );
+function Root() {
+  return (
+    <>
+      <Outlet />
+      <Toaster />
+    </>
+  );
 }
 
-function RootDocument({ children }: { children: React.ReactNode }) {
-    return (
-        <html lang="en">
-            <head>
-                <HeadContent />
-            </head>
-            <body className="isolate">
-                {children}
-                <TanStackDevtools
-                    config={{
-                        position: "bottom-right",
-                    }}
-                    plugins={[
-                        {
-                            name: "Tanstack Router",
-                            render: <TanStackRouterDevtoolsPanel />,
-                        },
-                        TanStackQueryDevtools,
-                    ]}
-                />
-                <Scripts />
-            </body>
-        </html>
-    );
+function NotFound() {
+  return (
+    <div className={s.center}>
+      <Empty
+        icon="search"
+        title="Nothing here"
+        action={
+          <ButtonLink to="/guilds" variant="secondary">
+            Back to your servers
+          </ButtonLink>
+        }
+      >
+        This page doesn't exist, or the link was cut short.
+      </Empty>
+    </div>
+  );
 }

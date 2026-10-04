@@ -1,5 +1,0 @@
-{
-  "last_successful_update_at": "2026-07-19T21:51:20Z",
-  "last_processed_commit": "ec01cf2f6339d163cc37a2204b4455b3f52f4e42",
-  "notes": "Updated active documentation for the apps/backend monorepo relocation and corrected the generated HTTP contract path to contracts/http/openapi.yaml."
-}

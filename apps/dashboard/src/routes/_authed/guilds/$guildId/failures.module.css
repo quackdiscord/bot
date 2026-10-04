@@ -1,0 +1,52 @@
+.intro {
+  max-width: 760px;
+  margin-bottom: -12px;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.number {
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-strong);
+  transition: color var(--fast) var(--ease);
+}
+
+.number:hover {
+  color: var(--accent);
+}
+
+.action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.strong {
+  font-weight: 550;
+  color: var(--text-strong);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.error {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--danger);
+}
+
+.sub {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}

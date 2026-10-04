@@ -1,170 +1,232 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/quackdiscord/bot/internal/quack/model"
+	"github.com/quackdiscord/bot/internal/quack"
 	"gorm.io/gorm"
 )
 
-// ListAuditLogEntriesParams aliases the core list audit log entries params contract so Store satisfies the port without maintaining a second data shape.
-type ListAuditLogEntriesParams = model.ListAuditLogEntriesParams
+// ErrAuditImmutable is returned for any attempt to update or delete an audit
+// entry through GORM.
+var ErrAuditImmutable = errors.New("audit entries are append-only")
 
-// ListAuditLogEntriesResult aliases the core list audit log entries result contract so Store satisfies the port without maintaining a second data shape.
-type ListAuditLogEntriesResult = model.ListAuditLogEntriesResult
-
-// CreateAuditLogEntry creates audit log entry while preserving validation, authorization, and persistence invariants.
-func (s *Store) CreateAuditLogEntry(ctx context.Context, entry *model.AuditLogEntry) error {
-	if s == nil || s.db == nil {
-		return errors.New("database not connected")
-	}
-
+// CreateAuditLogEntry appends entry and fills in its ID and timestamps.
+func (s *Store) CreateAuditLogEntry(ctx context.Context, entry *quack.AuditLogEntry) error {
 	return createAuditLogEntry(s.db.WithContext(ctx), entry, time.Now().UTC())
 }
 
-// ListAuditLogEntries returns audit log entries subject to authorization, ordering, and filtering constraints.
-func (s *Store) ListAuditLogEntries(ctx context.Context, guildID string) ([]model.AuditLogEntry, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
-
-	var entries []model.AuditLogEntry
-	if err := s.db.WithContext(ctx).Where("guild_id = ?", guildID).Order("created_at ASC").Find(&entries).Error; err != nil {
+// ListAuditLogEntries returns a guild's whole audit log, oldest first.
+func (s *Store) ListAuditLogEntries(ctx context.Context, guildID string) ([]quack.AuditLogEntry, error) {
+	var records []auditRecord
+	if err := s.db.WithContext(ctx).Where("guild_id = ?", guildID).
+		Order("created_at ASC, id ASC").Find(&records).Error; err != nil {
 		return nil, fmt.Errorf("list audit log entries: %w", err)
 	}
-
-	return entries, nil
+	return modelsOf(records, auditRecord.model), nil
 }
 
-// ListAuditLogEntriesFiltered returns audit log entries filtered subject to authorization, ordering, and filtering constraints.
-func (s *Store) ListAuditLogEntriesFiltered(ctx context.Context, params ListAuditLogEntriesParams) (*ListAuditLogEntriesResult, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
-
-	limit := params.Limit
-	if limit <= 0 {
-		limit = 50
-	}
-	if limit > 100 {
-		limit = 100
-	}
-	offset := params.Offset
-	if offset < 0 {
-		offset = 0
-	}
-
+// ListAuditLogEntriesFiltered returns a page of a guild's audit log, newest
+// first. BeforeID pages by cursor; Offset pages by position.
+func (s *Store) ListAuditLogEntriesFiltered(ctx context.Context, params quack.ListAuditLogEntriesParams) (*quack.ListAuditLogEntriesResult, error) {
+	db := s.db.WithContext(ctx)
+	limit, offset := page(params.Limit, params.Offset)
 	var total int64
-	if err := filteredAuditQuery(s.db.WithContext(ctx).Model(&model.AuditLogEntry{}), params).Count(&total).Error; err != nil {
+	if err := filterAudit(db.Model(&auditRecord{}), params).Count(&total).Error; err != nil {
 		return nil, fmt.Errorf("count audit log entries: %w", err)
 	}
-
-	query := filteredAuditQuery(s.db.WithContext(ctx).Model(&model.AuditLogEntry{}), params)
+	query := filterAudit(db.Model(&auditRecord{}), params)
 	if params.BeforeID != "" {
-		var cursor model.AuditLogEntry
-		result := s.db.WithContext(ctx).Where("guild_id = ? AND id = ?", params.GuildID, params.BeforeID).First(&cursor)
-		if result.Error != nil {
-			return nil, fmt.Errorf("resolve audit cursor: %w", result.Error)
+		var cursor auditRecord
+		found, err := first(db.Where("guild_id = ? AND id = ?", params.GuildID, params.BeforeID), &cursor)
+		if err != nil {
+			return nil, fmt.Errorf("resolve audit cursor: %w", err)
+		}
+		if !found {
+			return nil, errors.New("resolve audit cursor: entry not found")
 		}
 		query = query.Where("created_at < ? OR (created_at = ? AND id < ?)", cursor.CreatedAt, cursor.CreatedAt, cursor.ID)
 	}
-	var entries []model.AuditLogEntry
-	if err := query.
-		Order("created_at DESC, id DESC").
-		Limit(limit).
-		Offset(offset).
-		Find(&entries).Error; err != nil {
-		return nil, fmt.Errorf("list filtered audit log entries: %w", err)
+	var records []auditRecord
+	if err := query.Order("created_at DESC, id DESC").Limit(limit).Offset(offset).Find(&records).Error; err != nil {
+		return nil, fmt.Errorf("list audit log entries: %w", err)
 	}
-
-	return &ListAuditLogEntriesResult{Entries: entries, Total: total}, nil
+	return &quack.ListAuditLogEntriesResult{Entries: modelsOf(records, auditRecord.model), Total: total}, nil
 }
 
-// filteredAuditQuery encapsulates the filtered audit query rule so callers share one consistent package implementation.
-func filteredAuditQuery(query *gorm.DB, params ListAuditLogEntriesParams) *gorm.DB {
+// filterAudit applies the non-empty filters in params. Case and member
+// filters also match entries that only mention them in their metadata.
+func filterAudit(query *gorm.DB, params quack.ListAuditLogEntriesParams) *gorm.DB {
 	query = query.Where("guild_id = ?", params.GuildID)
-	if params.ActorDiscordUserID != "" {
-		query = query.Where("actor_discord_user_id = ?", params.ActorDiscordUserID)
-	}
-	if params.Source != "" {
-		query = query.Where("source = ?", params.Source)
-	}
-	if params.Action != "" {
-		query = query.Where("action = ?", params.Action)
-	}
-	if params.ResourceType != "" {
-		query = query.Where("resource_type = ?", params.ResourceType)
-	}
-	if params.ResourceID != "" {
-		query = query.Where("resource_id = ?", params.ResourceID)
-	}
-	if params.Result != "" {
-		query = query.Where("result = ?", params.Result)
-	}
-	if params.CaseID != "" {
-		pattern := `%"case_id":"` + params.CaseID + `"%`
-		query = query.Where("(resource_type = ? AND resource_id = ?) OR metadata_json LIKE ?", "case", params.CaseID, pattern)
-	}
-	if params.MemberDiscordUserID != "" {
-		pattern := `%"member_discord_user_id":"` + params.MemberDiscordUserID + `"%`
-		targetPattern := `%"target_discord_user_id":"` + params.MemberDiscordUserID + `"%`
-		query = query.Where("actor_discord_user_id = ? OR metadata_json LIKE ? OR metadata_json LIKE ?", params.MemberDiscordUserID, pattern, targetPattern)
-	}
-	if params.CreatedAfter != "" {
-		if value, err := time.Parse(time.RFC3339Nano, params.CreatedAfter); err == nil {
-			query = query.Where("created_at >= ?", value.UTC())
+	for _, filter := range [][2]string{
+		{"actor_discord_user_id", params.ActorDiscordUserID},
+		{"source", params.Source},
+		{"action", params.Action},
+		{"resource_type", params.ResourceType},
+		{"resource_id", params.ResourceID},
+		{"result", string(params.Result)},
+	} {
+		if filter[1] != "" {
+			query = query.Where(filter[0]+" = ?", filter[1])
 		}
 	}
-	if params.CreatedBefore != "" {
-		if value, err := time.Parse(time.RFC3339Nano, params.CreatedBefore); err == nil {
-			query = query.Where("created_at < ?", value.UTC())
-		}
+	if id := params.CaseID; id != "" {
+		caseMatch, caseArgs := metadataMatch("case_id", id)
+		query = query.Where("(resource_type = ? AND resource_id = ?) OR "+caseMatch,
+			append([]any{"case", id}, caseArgs...)...)
+	}
+	if id := params.MemberDiscordUserID; id != "" {
+		memberMatch, memberArgs := metadataMatch("member_discord_user_id", id)
+		targetMatch, targetArgs := metadataMatch("target_discord_user_id", id)
+		args := append(append([]any{id}, memberArgs...), targetArgs...)
+		query = query.Where("actor_discord_user_id = ? OR "+memberMatch+" OR "+targetMatch, args...)
+	}
+	if value, err := time.Parse(time.RFC3339Nano, params.CreatedAfter); err == nil {
+		query = query.Where("created_at >= ?", value.UTC())
+	}
+	if value, err := time.Parse(time.RFC3339Nano, params.CreatedBefore); err == nil {
+		query = query.Where("created_at < ?", value.UTC())
 	}
 	return query
 }
 
-// createAuditLogEntry creates audit log entry while preserving validation, authorization, and persistence invariants.
-func createAuditLogEntry(db *gorm.DB, entry *model.AuditLogEntry, now time.Time) error {
+// likeEscaper escapes LIKE's wildcards with '!', which the filters name in
+// an ESCAPE clause. A backslash would need different quoting on MySQL and
+// SQLite; '!' means the same on both.
+var likeEscaper = strings.NewReplacer("!", "!!", "%", "!%", "_", "!_")
+
+// metadataMatch returns a SQL condition and its arguments matching metadata
+// JSON that contains "key":"value". MySQL stores json columns normalized as
+// "key": "value" while SQLite keeps the text as written, so both spellings
+// are tried. value is matched literally; % and _ cannot widen the filter.
+func metadataMatch(key, value string) (string, []any) {
+	escaped := likeEscaper.Replace(value)
+	return "(metadata_json LIKE ? ESCAPE '!' OR metadata_json LIKE ? ESCAPE '!')", []any{
+		`%"` + key + `":"` + escaped + `"%`,
+		`%"` + key + `": "` + escaped + `"%`,
+	}
+}
+
+// createAuditLogEntry appends entry inside db, which may be a transaction. It
+// redacts the metadata and failure reason and fills in the entry's ID and
+// timestamps. An important entry (quack.IsImportantAuditAction) also queues
+// its audit mirror delivery, committed together with it.
+func createAuditLogEntry(db *gorm.DB, entry *quack.AuditLogEntry, now time.Time) error {
 	if entry == nil {
 		return nil
 	}
-	if entry.ResourceID == "" {
-		entry.ResourceID = "unknown"
+	entry.ResourceID = cmp.Or(entry.ResourceID, "unknown")
+	entry.MetadataJSON = quack.RedactAuditMetadata(cmp.Or(entry.MetadataJSON, "{}"))
+	entry.FailureReason = redactFailureReason(entry.FailureReason)
+	stamp(&entry.ULIDModel, now)
+	record := newAuditRecord(*entry)
+	if !quack.IsImportantAuditAction(record.Action) {
+		if err := db.Create(&record).Error; err != nil {
+			return fmt.Errorf("create audit log entry: %w", err)
+		}
+		return nil
 	}
-	if entry.MetadataJSON == "" {
-		entry.MetadataJSON = "{}"
-	}
-	entry.MetadataJSON = model.RedactAuditMetadata(entry.MetadataJSON)
-	entry.FailureReason = redactAuditFailureReason(entry.FailureReason)
-	if err := prepareULIDModel(&entry.ULIDModel, now); err != nil {
-		return fmt.Errorf("prepare audit log entry model: %w", err)
-	}
-	if err := db.Create(entry).Error; err != nil {
-		return fmt.Errorf("create audit log entry: %w", err)
-	}
-
-	return nil
+	// Inside a caller's transaction this is a savepoint.
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&record).Error; err != nil {
+			return fmt.Errorf("create audit log entry: %w", err)
+		}
+		return queueAuditMirrorDelivery(tx, record, now)
+	})
 }
 
-// redactAuditFailureReason keeps bounded classifications while stripping credentials accidentally embedded in an error.
-func redactAuditFailureReason(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return ""
+// writeAudit appends a copy of entry about resourceID. A nil entry is a
+// no-op, for callers whose audit is optional.
+func writeAudit(tx *gorm.DB, entry *quack.AuditLogEntry, resourceID string, now time.Time) error {
+	if entry == nil {
+		return nil
 	}
+	copied := *entry
+	copied.ResourceID = resourceID
+	return createAuditLogEntry(tx, &copied, now)
+}
+
+// redactFailureReason keeps short error classifications but drops anything
+// that looks like it carries a credential.
+func redactFailureReason(value string) string {
+	value = strings.TrimSpace(value)
 	lower := strings.ToLower(value)
 	for _, fragment := range []string{"token=", "authorization:", "bearer ", "password=", "secret=", "cookie="} {
 		if strings.Contains(lower, fragment) {
 			return "sensitive failure detail redacted"
 		}
 	}
-	runes := []rune(value)
-	if len(runes) > 240 {
+	if runes := []rune(value); len(runes) > 240 {
 		return string(runes[:240])
 	}
 	return value
+}
+
+// auditCallbackMu serializes callback registration; tests build many stores
+// on shared databases.
+var auditCallbackMu sync.Mutex
+
+// installAuditImmutability makes GORM refuse updates and deletes against the
+// audit table, so no code path can rewrite history.
+func installAuditImmutability(db *gorm.DB) {
+	auditCallbackMu.Lock()
+	defer auditCallbackMu.Unlock()
+	const name = "quack:audit_append_only"
+	if db.Callback().Update().Get(name) == nil {
+		_ = db.Callback().Update().Before("gorm:update").Register(name, rejectAuditMutation)
+	}
+	if db.Callback().Delete().Get(name) == nil {
+		_ = db.Callback().Delete().Before("gorm:delete").Register(name, rejectAuditMutation)
+	}
+}
+
+// rejectAuditMutation fails the statement when it targets the audit table.
+func rejectAuditMutation(db *gorm.DB) {
+	if db.Statement != nil && db.Statement.Table == "audit_log_entries" {
+		_ = db.AddError(ErrAuditImmutable)
+	}
+}
+
+func newAuditRecord(e quack.AuditLogEntry) auditRecord {
+	return auditRecord{
+		ID:                  e.ID,
+		CreatedAt:           e.CreatedAt,
+		UpdatedAt:           e.UpdatedAt,
+		GuildID:             e.GuildID,
+		ActorDiscordUserID:  e.ActorDiscordUserID,
+		ActorPermissionBits: e.ActorPermissionBits,
+		Source:              e.Source,
+		Action:              e.Action,
+		ResourceType:        e.ResourceType,
+		ResourceID:          e.ResourceID,
+		Result:              e.Result,
+		FailureReason:       e.FailureReason,
+		CorrelationID:       e.CorrelationID,
+		RequestID:           e.RequestID,
+		MetadataJSON:        e.MetadataJSON,
+	}
+}
+
+func (r auditRecord) model() quack.AuditLogEntry {
+	return quack.AuditLogEntry{
+		ULIDModel:           ulid(r.ID, r.CreatedAt, r.UpdatedAt),
+		GuildID:             r.GuildID,
+		ActorDiscordUserID:  r.ActorDiscordUserID,
+		ActorPermissionBits: r.ActorPermissionBits,
+		Source:              r.Source,
+		Action:              r.Action,
+		ResourceType:        r.ResourceType,
+		ResourceID:          r.ResourceID,
+		Result:              r.Result,
+		FailureReason:       r.FailureReason,
+		CorrelationID:       r.CorrelationID,
+		RequestID:           r.RequestID,
+		MetadataJSON:        r.MetadataJSON,
+	}
 }

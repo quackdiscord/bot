@@ -1,13 +1,5 @@
 node_modules
-.DS_Store
-dist
-dist-ssr
+dist/*
+!dist/.gitkeep
 *.local
-.env
-.nitro
 .tanstack
-.wrangler
-.output
-.vinxi
-__unconfig*
-todos.json

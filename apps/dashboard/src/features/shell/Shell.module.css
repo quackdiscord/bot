@@ -1,0 +1,23 @@
+.frame {
+  display: flex;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--bg-rail);
+}
+
+.scrim {
+  display: none;
+}
+
+@media (max-width: 860px) {
+  .scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    display: block;
+    border: 0;
+    background: rgb(0 0 0 / 0.6);
+    cursor: default;
+    animation: fade-in var(--base) var(--ease);
+  }
+}

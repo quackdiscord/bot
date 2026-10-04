@@ -1,182 +1,110 @@
 package store
 
 import (
+	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
-	"github.com/quackdiscord/bot/internal/quack/model"
+	"github.com/quackdiscord/bot/internal/quack"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
-// retiredCaseEventTypes are preserved compatibility rows that must not cross the live v5 event boundary.
-var retiredCaseEventTypes = []string{"note_added", "note_edited", "note_deleted", "status_changed"}
-
-// CreateCaseParams aliases the core create case params contract so Store satisfies the port without maintaining a second data shape.
-type CreateCaseParams = model.CreateCaseParams
-
-// CreatedCase aliases the core created case contract so Store satisfies the port without maintaining a second data shape.
-type CreatedCase = model.CreatedCase
-
-// CountTemplateCasesForTargetParams aliases the core count template cases for target params contract so Store satisfies the port without maintaining a second data shape.
-type CountTemplateCasesForTargetParams = model.CountTemplateCasesForTargetParams
-
-// ListCasesParams aliases the core list cases params contract so Store satisfies the port without maintaining a second data shape.
-type ListCasesParams = model.ListCasesParams
-
-// ListCasesResult aliases the core list cases result contract so Store satisfies the port without maintaining a second data shape.
-type ListCasesResult = model.ListCasesResult
-
-// TargetCaseSummary aliases the core target case summary contract so Store satisfies the port without maintaining a second data shape.
-type TargetCaseSummary = model.TargetCaseSummary
-
-// ClaimedCaseAction aliases the core claimed case action contract so Store satisfies the port without maintaining a second data shape.
-type ClaimedCaseAction = model.ClaimedCaseAction
-
-// ClaimCaseActionParams aliases the core claim case action params contract so Store satisfies the port without maintaining a second data shape.
-type ClaimCaseActionParams = model.ClaimCaseActionParams
-
-// CompleteCaseActionParams aliases the core complete case action params contract so Store satisfies the port without maintaining a second data shape.
-type CompleteCaseActionParams = model.CompleteCaseActionParams
-
-// SkipCaseActionsParams aliases the core skip case actions params contract so Store satisfies the port without maintaining a second data shape.
-type SkipCaseActionsParams = model.SkipCaseActionsParams
-
-// CreateCase creates case while preserving validation, authorization, and persistence invariants.
-func (s *Store) CreateCase(ctx context.Context, params CreateCaseParams) (*CreatedCase, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
-
+// CreateCase saves a case with its first event, executions, evidence,
+// notification, and audit entries in one transaction, numbering it next in
+// its guild. Callers hold the guild case lock (see WithGuildCaseLock); the
+// unique (guild_id, case_number) index backs that up.
+func (s *Store) CreateCase(ctx context.Context, params quack.CreateCaseParams) (*quack.CreatedCase, error) {
 	now := time.Now().UTC()
-	caseModel := params.Case
-	if err := prepareULIDModel(&caseModel.ULIDModel, now); err != nil {
-		return nil, fmt.Errorf("prepare case model: %w", err)
-	}
-	if caseModel.Validity == "" {
-		caseModel.Validity = model.CaseValidityValid
-	}
-	if caseModel.Source == "" {
-		caseModel.Source = model.CaseSourceDashboard
-	}
-	if caseModel.TemplateSnapshotJSON == "" {
-		caseModel.TemplateSnapshotJSON = "{}"
-	}
-	if caseModel.MetadataJSON == "" {
-		caseModel.MetadataJSON = "{}"
-	}
-	if caseModel.ContextValuesJSON == "" {
-		caseModel.ContextValuesJSON = "[]"
-	}
+	c := params.Case
+	stamp(&c.ULIDModel, now)
+	c.Validity = cmp.Or(c.Validity, quack.CaseValidityValid)
+	c.Source = cmp.Or(c.Source, quack.CaseSourceDashboard)
+	c.TemplateSnapshotJSON = cmp.Or(c.TemplateSnapshotJSON, "{}")
+	c.MetadataJSON = cmp.Or(c.MetadataJSON, "{}")
+	c.ContextValuesJSON = cmp.Or(c.ContextValuesJSON, "[]")
 
 	event := params.Event
-	actionExecutions := make([]model.CaseActionExecution, len(params.ActionExecutions))
-	copy(actionExecutions, params.ActionExecutions)
-	evidence := make([]model.CaseEvidenceSnapshot, len(params.Evidence))
-	copy(evidence, params.Evidence)
-	attachments := make([]model.CaseEvidenceAttachment, len(params.Attachments))
-	copy(attachments, params.Attachments)
-	var notification *model.CaseNotification
+	executions := append([]quack.CaseActionExecution(nil), params.ActionExecutions...)
+	evidence := append([]quack.CaseEvidenceSnapshot(nil), params.Evidence...)
+	attachments := append([]quack.CaseEvidenceAttachment(nil), params.Attachments...)
+	var notification *quack.CaseNotification
 
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		caseNumber, err := nextCaseNumber(tx, caseModel.GuildID)
-		if err != nil {
-			return err
+		var latest uint64
+		if err := tx.Model(&caseRecord{}).Where("guild_id = ?", c.GuildID).
+			Select("COALESCE(MAX(case_number), 0)").Scan(&latest).Error; err != nil {
+			return fmt.Errorf("get latest case number: %w", err)
 		}
-		caseModel.CaseNumber = caseNumber
-
-		if err := tx.Select("*").Create(&caseModel).Error; err != nil {
+		c.CaseNumber = latest + 1
+		record := newCaseRecord(c)
+		if err := tx.Create(&record).Error; err != nil {
 			return fmt.Errorf("create case: %w", err)
 		}
 
-		event.CaseID = caseModel.ID
-		event.GuildID = caseModel.GuildID
-		if event.EventType == "" {
-			event.EventType = model.CaseEventCreated
-		}
-		if event.ActorType == "" {
-			event.ActorType = "staff"
-		}
-		if event.Visibility == "" {
-			event.Visibility = model.EventVisibilityStaff
-		}
-		if event.MetadataJSON == "" {
-			event.MetadataJSON = "{}"
-		}
-		if err := prepareULIDModel(&event.ULIDModel, now); err != nil {
-			return fmt.Errorf("prepare case event model: %w", err)
-		}
-		if err := tx.Select("*").Create(&event).Error; err != nil {
-			return fmt.Errorf("create case event: %w", err)
+		event.CaseID, event.GuildID = c.ID, c.GuildID
+		event.EventType = cmp.Or(event.EventType, quack.CaseEventCreated)
+		event.ActorType = cmp.Or(event.ActorType, "staff")
+		if err := appendCaseEvent(tx, &event, now); err != nil {
+			return err
 		}
 
-		for i := range actionExecutions {
-			actionExecutions[i].CaseID = caseModel.ID
-			if actionExecutions[i].Status == "" {
-				actionExecutions[i].Status = model.ActionExecutionPending
-			}
-			if actionExecutions[i].ConfigSnapshotJSON == "" {
-				actionExecutions[i].ConfigSnapshotJSON = "{}"
-			}
-			if actionExecutions[i].IdempotencyKey == "" {
-				actionExecutions[i].IdempotencyKey = fmt.Sprintf("case:%s:action:%d", caseModel.ID, actionExecutions[i].Position)
-			}
-			if actionExecutions[i].CorrelationID == "" {
-				actionExecutions[i].CorrelationID = caseModel.CorrelationID
-			}
-			if err := prepareULIDModel(&actionExecutions[i].ULIDModel, now); err != nil {
-				return fmt.Errorf("prepare case action execution model: %w", err)
-			}
+		executionRecords := make([]executionRecord, len(executions))
+		for i := range executions {
+			e := &executions[i]
+			e.CaseID = c.ID
+			e.Status = cmp.Or(e.Status, quack.ActionExecutionPending)
+			e.ConfigSnapshotJSON = cmp.Or(e.ConfigSnapshotJSON, "{}")
+			e.IdempotencyKey = cmp.Or(e.IdempotencyKey, fmt.Sprintf("case:%s:action:%d", c.ID, e.Position))
+			e.CorrelationID = cmp.Or(e.CorrelationID, c.CorrelationID)
+			stamp(&e.ULIDModel, now)
+			executionRecords[i] = newExecutionRecord(*e)
 		}
-		if len(actionExecutions) > 0 {
-			if err := tx.Select("*").Create(&actionExecutions).Error; err != nil {
-				return fmt.Errorf("create case action executions: %w", err)
-			}
+		if err := createAll(tx, executionRecords); err != nil {
+			return fmt.Errorf("create case action executions: %w", err)
 		}
 
+		evidenceRecords := make([]evidenceRecord, len(evidence))
 		for i := range evidence {
-			evidence[i].CaseID = caseModel.ID
-			evidence[i].GuildID = caseModel.GuildID
-			if evidence[i].EmbedsJSON == "" {
-				evidence[i].EmbedsJSON = "[]"
-			}
-			if err := prepareULIDModel(&evidence[i].ULIDModel, now); err != nil {
-				return err
-			}
-			if err := tx.Select("*").Create(&evidence[i]).Error; err != nil {
-				return fmt.Errorf("create case evidence: %w", err)
-			}
+			e := &evidence[i]
+			e.CaseID, e.GuildID = c.ID, c.GuildID
+			e.EmbedsJSON = cmp.Or(e.EmbedsJSON, "[]")
+			stamp(&e.ULIDModel, now)
+			evidenceRecords[i] = newEvidenceRecord(*e)
 		}
+		if err := createAll(tx, evidenceRecords); err != nil {
+			return fmt.Errorf("create case evidence: %w", err)
+		}
+		attachmentRecords := make([]attachmentRecord, len(attachments))
 		for i := range attachments {
 			if attachments[i].EvidenceID == "" {
 				return errors.New("evidence attachment has no snapshot")
 			}
-			if err := prepareULIDModel(&attachments[i].ULIDModel, now); err != nil {
-				return err
-			}
-			if err := tx.Select("*").Create(&attachments[i]).Error; err != nil {
-				return fmt.Errorf("create case evidence attachment: %w", err)
-			}
+			stamp(&attachments[i].ULIDModel, now)
+			attachmentRecords[i] = newAttachmentRecord(attachments[i])
 		}
+		if err := createAll(tx, attachmentRecords); err != nil {
+			return fmt.Errorf("create case evidence attachments: %w", err)
+		}
+
 		if params.Notification != nil {
-			copyValue := *params.Notification
-			copyValue.CaseID = caseModel.ID
-			if copyValue.Status == "" {
-				copyValue.Status = model.NotificationPending
-			}
-			if err := prepareULIDModel(&copyValue.ULIDModel, now); err != nil {
-				return err
-			}
-			if err := tx.Select("*").Create(&copyValue).Error; err != nil {
+			n := *params.Notification
+			n.CaseID = c.ID
+			n.Status = cmp.Or(n.Status, quack.NotificationPending)
+			stamp(&n.ULIDModel, now)
+			record := newCaseNotificationRecord(n)
+			if err := tx.Create(&record).Error; err != nil {
 				return fmt.Errorf("create case notification: %w", err)
 			}
-			notification = &copyValue
+			notification = &n
 		}
-		if caseModel.ReplacesCaseID != nil {
-			result := tx.Model(&model.Case{}).Where("id = ? AND guild_id = ? AND status = ? AND replacement_case_id IS NULL", *caseModel.ReplacesCaseID, caseModel.GuildID, model.CaseValidityVoided).Update("replacement_case_id", caseModel.ID)
+
+		if c.ReplacesCaseID != nil {
+			result := tx.Model(&caseRecord{}).
+				Where("id = ? AND guild_id = ? AND validity = ? AND replacement_case_id IS NULL",
+					*c.ReplacesCaseID, c.GuildID, quack.CaseValidityVoided).
+				Update("replacement_case_id", c.ID)
 			if result.Error != nil {
 				return fmt.Errorf("link replacement case: %w", result.Error)
 			}
@@ -185,157 +113,330 @@ func (s *Store) CreateCase(ctx context.Context, params CreateCaseParams) (*Creat
 			}
 		}
 
-		if params.Audit != nil {
-			audit := *params.Audit
-			audit.ResourceID = caseModel.ID
-			if err := createAuditLogEntry(tx, &audit, now); err != nil {
+		if err := writeAudit(tx, params.Audit, c.ID, now); err != nil {
+			return err
+		}
+		for _, entry := range params.AdditionalAudits {
+			resourceID := entry.ResourceID
+			if resourceID == "" || resourceID == "unknown" {
+				resourceID = c.ID
+			}
+			if err := writeAudit(tx, &entry, resourceID, now); err != nil {
 				return err
 			}
 		}
-		for i := range params.AdditionalAudits {
-			entry := params.AdditionalAudits[i]
-			if entry.ResourceID == "" || entry.ResourceID == "unknown" {
-				entry.ResourceID = caseModel.ID
-			}
-			if err := createAuditLogEntry(tx, &entry, now); err != nil {
-				return err
-			}
-		}
-
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-
-	return &CreatedCase{
-		Case:             caseModel,
+	return &quack.CreatedCase{
+		Case:             c,
 		Event:            event,
-		ActionExecutions: actionExecutions,
-		Evidence:         evidence, Attachments: attachments, Notification: notification,
+		ActionExecutions: executions,
+		Evidence:         evidence,
+		Attachments:      attachments,
+		Notification:     notification,
 	}, nil
 }
 
-// VoidCase atomically changes only case validity and appends immutable correction history.
-func (s *Store) VoidCase(ctx context.Context, params model.VoidCaseParams) (*model.Case, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
+// VoidCase voids a valid case so it stops counting toward escalation, and
+// cancels its unstarted work. Voiding an already voided case with the same
+// reason is a no-op; with a different reason it fails. It returns nil when
+// the case is not in the guild.
+func (s *Store) VoidCase(ctx context.Context, params quack.VoidCaseParams) (*quack.Case, error) {
 	now := time.Now().UTC()
-	var item model.Case
+	var record caseRecord
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND guild_id = ?", params.CaseID, params.GuildID).First(&item)
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return gorm.ErrRecordNotFound
+		found, err := first(forUpdate(tx).Where("id = ? AND guild_id = ?", params.CaseID, params.GuildID), &record)
+		if err != nil {
+			return fmt.Errorf("get case: %w", err)
 		}
-		if result.Error != nil {
-			return result.Error
+		if !found {
+			return errNotFound
 		}
-		if item.Validity == model.CaseValidityVoided {
-			if item.VoidedReason == params.Reason {
+		if record.Validity == quack.CaseValidityVoided {
+			if record.VoidedReason == params.Reason {
 				return nil
 			}
 			return errors.New("case is already voided with a different reason")
 		}
-		item.Validity = model.CaseValidityVoided
-		item.VoidedReason = params.Reason
-		item.VoidedByDiscordUserID = params.ActorDiscordUserID
-		item.VoidedAt = &now
-		item.ReplacementCaseID = params.ReplacementCaseID
-		item.UpdatedAt = now
-		if err := tx.Select("*").Save(&item).Error; err != nil {
+		if err := voidCase(tx, &record, params.Reason, params.ActorDiscordUserID, params.ReplacementCaseID, nil, now); err != nil {
 			return err
 		}
-		if err := tx.Model(&model.CaseActionExecution{}).Where("case_id = ? AND status IN ?", item.ID, []model.ActionExecutionStatus{model.ActionExecutionPending, model.ActionExecutionRetrying}).Updates(map[string]any{"status": model.ActionExecutionCancelled, "last_error_code": "case_voided", "last_error": "case was voided before enforcement", "finished_at": now, "next_retry_at": nil}).Error; err != nil {
-			return fmt.Errorf("cancel voided case actions: %w", err)
+		event := quack.CaseEvent{
+			CaseID:             record.ID,
+			GuildID:            record.GuildID,
+			EventType:          quack.CaseEventVoided,
+			ActorDiscordUserID: params.ActorDiscordUserID,
+			ActorType:          "staff",
+			Visibility:         quack.EventVisibilityPublic,
+			Body:               "Case voided",
+			MetadataJSON: jsonObject(map[string]any{
+				"reason":              params.Reason,
+				"replacement_case_id": params.ReplacementCaseID,
+			}),
 		}
-		if err := tx.Model(&model.CaseNotification{}).Where("case_id = ? AND status IN ?", item.ID, []model.NotificationStatus{model.NotificationPending, model.NotificationPrepared, model.NotificationClaimed}).Updates(map[string]any{"status": model.NotificationFailed, "last_error_code": "case_voided", "last_error": "case was voided before notification", "lease_token": "", "lease_expires_at": nil, "updated_at": now}).Error; err != nil {
-			return fmt.Errorf("cancel voided case notification: %w", err)
-		}
-		event := model.CaseEvent{CaseID: item.ID, EventType: model.CaseEventVoided, ActorDiscordUserID: params.ActorDiscordUserID, ActorType: "staff", Visibility: model.EventVisibilityPublic, Body: "Case voided", MetadataJSON: marshalJSONObject(map[string]any{"reason": params.Reason, "replacement_case_id": params.ReplacementCaseID})}
 		if err := appendCaseEvent(tx, &event, now); err != nil {
 			return err
 		}
-		if params.Audit != nil {
-			audit := *params.Audit
-			audit.ResourceID = item.ID
-			if err := createAuditLogEntry(tx, &audit, now); err != nil {
-				return err
-			}
-		}
-		return nil
+		return writeAudit(tx, params.Audit, record.ID, now)
 	})
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, nil
+	if err != nil || record.ID == "" {
+		return nil, notFoundIsNil(err)
 	}
-	if err != nil {
-		return nil, err
-	}
+	item := record.model()
 	return &item, nil
 }
 
-// firstNonEmpty encapsulates the first non empty rule so callers share one consistent package implementation.
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if value != "" {
-			return value
-		}
-	}
-	return ""
-}
+// errCaseNotValid means a case changed validity under a caller that expected
+// it to still be valid.
+var errCaseNotValid = errors.New("case is no longer valid")
 
-// nextCaseNumber encapsulates the next case number rule so callers share one consistent package implementation.
-func nextCaseNumber(tx *gorm.DB, guildID string) (uint64, error) {
-	var latest model.Case
-	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("guild_id = ?", guildID).
-		Order("case_number DESC").
-		Limit(1).
-		Find(&latest).Error
-	if err != nil {
-		return 0, fmt.Errorf("get latest case number: %w", err)
-	}
-	if latest.CaseNumber == 0 {
-		return 1, nil
-	}
-	return latest.CaseNumber + 1, nil
-}
-
-// appendCaseEvent encapsulates the append case event rule so callers share one consistent package implementation.
-func appendCaseEvent(tx *gorm.DB, event *model.CaseEvent, now time.Time) error {
-	var caseModel model.Case
-	result := tx.Where("id = ?", event.CaseID).Limit(1).Find(&caseModel)
+// voidCase marks a locked, valid case voided and cancels the work it has not
+// started: pending and retrying executions and an unsent notification.
+// Running executions and a notification already being sent are left alone,
+// because their Discord requests may already have happened. It then queues
+// reversals of the case's succeeded timeouts and bans, linked to appealID
+// when an accepted appeal voided it, and requests a refresh of the case's
+// publications. Both case voids and accepted appeals go through here.
+func voidCase(tx *gorm.DB, c *caseRecord, reason, actorID string, replacementID, appealID *string, now time.Time) error {
+	result := tx.Model(&caseRecord{}).
+		Where("id = ? AND validity = ?", c.ID, quack.CaseValidityValid).
+		Updates(map[string]any{
+			"validity":                  quack.CaseValidityVoided,
+			"voided_reason":             reason,
+			"voided_by_discord_user_id": actorID,
+			"voided_at":                 now,
+			"replacement_case_id":       replacementID,
+			"updated_at":                now,
+		})
 	if result.Error != nil {
-		return fmt.Errorf("get case for event: %w", result.Error)
+		return fmt.Errorf("void case: %w", result.Error)
 	}
-	if result.RowsAffected == 0 {
-		return nil
+	if result.RowsAffected != 1 {
+		return errCaseNotValid
 	}
+	c.Validity = quack.CaseValidityVoided
+	c.VoidedReason = reason
+	c.VoidedByDiscordUserID = actorID
+	c.VoidedAt = &now
+	c.ReplacementCaseID = replacementID
+	c.UpdatedAt = now
 
-	event.GuildID = caseModel.GuildID
-	if event.Visibility == "" {
-		event.Visibility = model.EventVisibilityStaff
+	unstarted := []quack.ActionExecutionStatus{quack.ActionExecutionPending, quack.ActionExecutionRetrying}
+	if err := tx.Model(&executionRecord{}).
+		Where("case_id = ? AND status IN ?", c.ID, unstarted).
+		Updates(map[string]any{
+			"status":          quack.ActionExecutionCancelled,
+			"last_error_code": "case_voided",
+			"last_error":      "case was voided before enforcement",
+			"finished_at":     now,
+			"next_retry_at":   nil,
+			"updated_at":      now,
+		}).Error; err != nil {
+		return fmt.Errorf("cancel voided case actions: %w", err)
 	}
-	if event.ActorType == "" {
-		event.ActorType = "system"
+	unsent := []quack.NotificationStatus{quack.NotificationPending, quack.NotificationPrepared, quack.NotificationClaimed}
+	if err := tx.Model(&caseNotificationRecord{}).
+		Where("case_id = ? AND status IN ?", c.ID, unsent).
+		Updates(map[string]any{
+			"status":           quack.NotificationFailed,
+			"last_error_code":  "case_voided",
+			"last_error":       "case was voided before notification",
+			"lease_token":      "",
+			"lease_expires_at": nil,
+			"updated_at":       now,
+		}).Error; err != nil {
+		return fmt.Errorf("cancel voided case notification: %w", err)
 	}
-	if event.MetadataJSON == "" {
-		event.MetadataJSON = "{}"
+	if err := queueVoidedCaseReversals(tx, *c, appealID, now); err != nil {
+		return err
 	}
-	if err := prepareULIDModel(&event.ULIDModel, now); err != nil {
-		return fmt.Errorf("prepare case event model: %w", err)
+	return requestPublicationRefresh(tx, c.ID, now)
+}
+
+// appendCaseEvent adds event to its case's timeline, filling in defaults and,
+// when the caller left it empty, the guild ID.
+func appendCaseEvent(tx *gorm.DB, event *quack.CaseEvent, now time.Time) error {
+	if event.GuildID == "" {
+		var c caseRecord
+		found, err := first(tx.Select("guild_id").Where("id = ?", event.CaseID), &c)
+		if err != nil {
+			return fmt.Errorf("get case for event: %w", err)
+		}
+		if !found {
+			return fmt.Errorf("get case for event: case %s not found", event.CaseID)
+		}
+		event.GuildID = c.GuildID
 	}
-	if err := tx.Select("*").Create(event).Error; err != nil {
+	event.Visibility = cmp.Or(event.Visibility, quack.EventVisibilityStaff)
+	event.ActorType = cmp.Or(event.ActorType, "system")
+	event.MetadataJSON = cmp.Or(event.MetadataJSON, "{}")
+	stamp(&event.ULIDModel, now)
+	record := newCaseEventRecord(*event)
+	if err := tx.Create(&record).Error; err != nil {
 		return fmt.Errorf("create case event: %w", err)
 	}
 	return nil
 }
 
-// marshalJSONObject serializes marshal jsonobject into its stable external representation.
-func marshalJSONObject(value any) string {
-	body, err := json.Marshal(value)
-	if err != nil {
-		return "{}"
+func newCaseRecord(c quack.Case) caseRecord {
+	return caseRecord{
+		ID:                      c.ID,
+		CreatedAt:               c.CreatedAt,
+		UpdatedAt:               c.UpdatedAt,
+		GuildID:                 c.GuildID,
+		CaseNumber:              c.CaseNumber,
+		TemplateID:              c.TemplateID,
+		TemplateVersion:         c.TemplateVersion,
+		TemplateSnapshotJSON:    c.TemplateSnapshotJSON,
+		TargetDiscordUserID:     c.TargetDiscordUserID,
+		ModeratorDiscordUserID:  c.ModeratorDiscordUserID,
+		Reason:                  c.Reason,
+		Validity:                c.Validity,
+		Source:                  c.Source,
+		CorrelationID:           c.CorrelationID,
+		ContextChannelDiscordID: c.ContextChannelDiscordID,
+		ContextMessageDiscordID: c.ContextMessageDiscordID,
+		ContextURL:              c.ContextURL,
+		MetadataJSON:            c.MetadataJSON,
+		ContextValuesJSON:       c.ContextValuesJSON,
+		VoidedReason:            c.VoidedReason,
+		VoidedByDiscordUserID:   c.VoidedByDiscordUserID,
+		VoidedAt:                c.VoidedAt,
+		ReplacementCaseID:       c.ReplacementCaseID,
+		ReplacesCaseID:          c.ReplacesCaseID,
+		IdempotencyKey:          c.IdempotencyKey,
 	}
-	return string(body)
+}
+
+func (r caseRecord) model() quack.Case {
+	return quack.Case{
+		ULIDModel:               ulid(r.ID, r.CreatedAt, r.UpdatedAt),
+		GuildID:                 r.GuildID,
+		CaseNumber:              r.CaseNumber,
+		TemplateID:              r.TemplateID,
+		TemplateVersion:         r.TemplateVersion,
+		TemplateSnapshotJSON:    r.TemplateSnapshotJSON,
+		TargetDiscordUserID:     r.TargetDiscordUserID,
+		ModeratorDiscordUserID:  r.ModeratorDiscordUserID,
+		Reason:                  r.Reason,
+		Validity:                r.Validity,
+		Source:                  r.Source,
+		CorrelationID:           r.CorrelationID,
+		ContextChannelDiscordID: r.ContextChannelDiscordID,
+		ContextMessageDiscordID: r.ContextMessageDiscordID,
+		ContextURL:              r.ContextURL,
+		MetadataJSON:            r.MetadataJSON,
+		ContextValuesJSON:       r.ContextValuesJSON,
+		VoidedReason:            r.VoidedReason,
+		VoidedByDiscordUserID:   r.VoidedByDiscordUserID,
+		VoidedAt:                r.VoidedAt,
+		ReplacementCaseID:       r.ReplacementCaseID,
+		ReplacesCaseID:          r.ReplacesCaseID,
+		IdempotencyKey:          r.IdempotencyKey,
+	}
+}
+
+func newCaseEventRecord(e quack.CaseEvent) caseEventRecord {
+	return caseEventRecord{
+		ID:                 e.ID,
+		CreatedAt:          e.CreatedAt,
+		UpdatedAt:          e.UpdatedAt,
+		CaseID:             e.CaseID,
+		GuildID:            e.GuildID,
+		EventType:          e.EventType,
+		ActorDiscordUserID: e.ActorDiscordUserID,
+		ActorType:          e.ActorType,
+		Visibility:         e.Visibility,
+		Body:               e.Body,
+		MetadataJSON:       e.MetadataJSON,
+	}
+}
+
+func (r caseEventRecord) model() quack.CaseEvent {
+	return quack.CaseEvent{
+		ULIDModel:          ulid(r.ID, r.CreatedAt, r.UpdatedAt),
+		CaseID:             r.CaseID,
+		GuildID:            r.GuildID,
+		EventType:          r.EventType,
+		ActorDiscordUserID: r.ActorDiscordUserID,
+		ActorType:          r.ActorType,
+		Visibility:         r.Visibility,
+		Body:               r.Body,
+		MetadataJSON:       r.MetadataJSON,
+	}
+}
+
+func newEvidenceRecord(e quack.CaseEvidenceSnapshot) evidenceRecord {
+	return evidenceRecord{
+		ID:                  e.ID,
+		CreatedAt:           e.CreatedAt,
+		UpdatedAt:           e.UpdatedAt,
+		CaseID:              e.CaseID,
+		GuildID:             e.GuildID,
+		ChannelDiscordID:    e.ChannelDiscordID,
+		MessageDiscordID:    e.MessageDiscordID,
+		AuthorDiscordUserID: e.AuthorDiscordUserID,
+		MessageURL:          e.MessageURL,
+		Content:             e.Content,
+		MessageCreatedAt:    e.MessageCreatedAt,
+		MessageEditedAt:     e.MessageEditedAt,
+		EmbedsJSON:          e.EmbedsJSON,
+		CaptureOutcome:      e.CaptureOutcome,
+		CaptureWarning:      e.CaptureWarning,
+	}
+}
+
+func (r evidenceRecord) model() quack.CaseEvidenceSnapshot {
+	return quack.CaseEvidenceSnapshot{
+		ULIDModel:           ulid(r.ID, r.CreatedAt, r.UpdatedAt),
+		CaseID:              r.CaseID,
+		GuildID:             r.GuildID,
+		ChannelDiscordID:    r.ChannelDiscordID,
+		MessageDiscordID:    r.MessageDiscordID,
+		AuthorDiscordUserID: r.AuthorDiscordUserID,
+		MessageURL:          r.MessageURL,
+		Content:             r.Content,
+		MessageCreatedAt:    r.MessageCreatedAt,
+		MessageEditedAt:     r.MessageEditedAt,
+		EmbedsJSON:          r.EmbedsJSON,
+		CaptureOutcome:      r.CaptureOutcome,
+		CaptureWarning:      r.CaptureWarning,
+	}
+}
+
+func newAttachmentRecord(a quack.CaseEvidenceAttachment) attachmentRecord {
+	return attachmentRecord{
+		ID:                           a.ID,
+		CreatedAt:                    a.CreatedAt,
+		UpdatedAt:                    a.UpdatedAt,
+		EvidenceID:                   a.EvidenceID,
+		Filename:                     a.Filename,
+		ContentType:                  a.ContentType,
+		SizeBytes:                    a.SizeBytes,
+		OriginalURL:                  a.OriginalURL,
+		PreservedURL:                 a.PreservedURL,
+		PreservedMessageDiscordID:    a.PreservedMessageDiscordID,
+		PreservedAttachmentDiscordID: a.PreservedAttachmentDiscordID,
+		CopyOutcome:                  a.CopyOutcome,
+		Warning:                      a.Warning,
+	}
+}
+
+func (r attachmentRecord) model() quack.CaseEvidenceAttachment {
+	return quack.CaseEvidenceAttachment{
+		ULIDModel:                    ulid(r.ID, r.CreatedAt, r.UpdatedAt),
+		EvidenceID:                   r.EvidenceID,
+		Filename:                     r.Filename,
+		ContentType:                  r.ContentType,
+		SizeBytes:                    r.SizeBytes,
+		OriginalURL:                  r.OriginalURL,
+		PreservedURL:                 r.PreservedURL,
+		PreservedMessageDiscordID:    r.PreservedMessageDiscordID,
+		PreservedAttachmentDiscordID: r.PreservedAttachmentDiscordID,
+		CopyOutcome:                  r.CopyOutcome,
+		Warning:                      r.Warning,
+	}
 }
