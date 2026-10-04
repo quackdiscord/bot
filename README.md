@@ -17,8 +17,9 @@ disagree, `v5.md` wins.
 - `apps/backend`: the Go module. One binary, `quack`, runs the Discord bot,
   the dashboard API, and the background workers, and provides the migration
   and v4 import commands.
-- `apps/dashboard`: the web dashboard (TanStack Start, Bun). See its
-  [README](apps/dashboard/README.md).
+- `apps/dashboard`: the web dashboard. A Vite+ React app styled with CSS Modules,
+  served by a small Go program that also proxies `/api` to the backend. See
+  its [README](apps/dashboard/README.md).
 - `contracts/http/openapi.yaml`: the HTTP API contract between the backend and
   the dashboard, generated from the Go route table with `go generate ./...`
   in `apps/backend`.
@@ -27,23 +28,28 @@ disagree, `v5.md` wins.
 
 ## Quick start
 
-You need Go, Docker, and a Discord application for development.
+You need Go, Bun, Docker, and a Discord application for development.
 
 ```sh
 cp .env.example .env        # then fill in the QUACK_DISCORD_* values
 docker compose up -d        # MySQL and Redis
-cd apps/backend
-go run ./cmd/quack serve
+cd apps/backend && go run ./cmd/quack serve
+cd apps/dashboard && bun install && bun run dev
 ```
 
-The API listens on `http://localhost:8080`. Run `go test ./...` from
-`apps/backend` to test. [`docs/development.md`](docs/development.md) has the
+Open `http://localhost:3000`. The API listens on `http://localhost:8080`;
+the dashboard proxies `/api` to it. Add
+`http://localhost:3000/api/auth/discord/callback` to your Discord
+application's OAuth2 redirects. Run `go test ./...` from `apps/backend` to
+test. [`docs/development.md`](docs/development.md) has the
 rest.
 
 ## Docs
 
 - [Architecture](docs/architecture.md): packages, request flows, the action
   engine, appeals, the API, and the modules.
+- [Dashboard](docs/dashboard.md): how the web app is served, signs in, and
+  talks to the API.
 - [Configuration](docs/configuration.md): every setting and its `QUACK_*`
   variable.
 - [Development](docs/development.md) and [testing](docs/testing.md).

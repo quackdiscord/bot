@@ -6,6 +6,9 @@ Settings are in [`configuration.md`](configuration.md), schema changes in
 
 ## Deploying
 
+- Build the dashboard image with `docker build -f apps/dashboard/Dockerfile .`
+  from the repository root and run it next to the API; see
+  [`dashboard.md`](dashboard.md).
 - Build the image from `apps/backend/Dockerfile`. It produces a static `quack`
   binary on Alpine, runs as a non-root user, exposes 8080, and runs
   `quack serve` by default.
@@ -45,7 +48,10 @@ Metrics are aggregate counters with no guild, user, or content labels:
   `quack_action_retries_total`, `quack_action_retrying_current`
 - `quack_action_queue_depth`, `quack_action_queue_failures_total`
 - `quack_notifications_total`, `quack_appeals_total`
-- `quack_audit_events_total`, `quack_audit_mirror_events_total`
+- `quack_audit_events_total`, `quack_audit_mirror_events_total` (audit
+  entries the mirror wrote: repairs and give-ups, plus older bookkeeping)
+- `quack_audit_mirror_deliveries_total`, `quack_audit_mirror_failures_total`
+  (audit mirror posts delivered, and given up on)
 - `quack_optional_module_events_total`
 
 Alert on:
@@ -104,7 +110,7 @@ re-check permissions and keep the fencing intact.
   `max_retries`. Uncertain failures, and any action whose lease expired
   mid-attempt, go to the staff review queue.
 - **Failed actions.** Staff review them in the dashboard
-  (`/guilds/{discordGuildID}/action-failures`) or with `/case failures`, then
+  (`/guilds/{discordGuildID}/failures`) or with `/case failures`, then
   retry, dismiss, or void the case. A retry re-runs the live permission and
   hierarchy checks.
 - **A guild is degraded.** Check `guild_health.reasons` on the guild ops

@@ -2,8 +2,11 @@
 
 Quack v5 is one Go binary, `quack`, built from `apps/backend`. `quack serve`
 runs the Discord bot, the dashboard HTTP API, the action workers, and the
-optional modules in one process, backed by MySQL and Redis. Product rules live
-in [`v5.md`](../v5.md); this document describes how the code implements them.
+optional modules in one process, backed by MySQL and Redis. The web dashboard
+in `apps/dashboard` is a separate, stateless program that serves the app and
+proxies `/api` to this one; see [`dashboard.md`](dashboard.md). Product rules
+live in [`v5.md`](../v5.md); this document describes how the code implements
+them.
 
 ## Packages
 
@@ -16,7 +19,7 @@ All packages live under `apps/backend/internal` unless noted.
 | `config` | Loads settings from code defaults, an optional TOML file, and `QUACK_*` env vars, and validates them. |
 | `quack` | The moderation domain: templates, escalation, cases, actions, notifications, appeals, audit, statistics, and the ports it needs. |
 | `store` | GORM/MySQL and Redis implementation of the `quack` storage ports, the schema, and migrations. |
-| `discord` | Discord adapter: REST client behind the `quack` Discord ports, interaction router, message and response model, `/case`, `/setup`, `/template`, `/appeals`, `/help`, the appeal form and queue, views, command sync and command mentions, guild lifecycle. |
+| `discord` | Discord adapter: REST client behind the `quack` Discord ports, interaction router, message and response model, `/case`, `/setup`, `/template`, `/appeals`, `/help`, the appeal form and queue, views, command sync and command mentions, guild lifecycle, and the cached display lookups behind the dashboard's directory routes. |
 | `discordtext` | Transport-free prose helpers for Discord copy: `{{quack:key}}` icon placeholders and the generated per-application emoji catalog, Markdown escaping, quoting, and the conversation layout. |
 | `api` | The dashboard's `net/http` API: middleware, sessions, OAuth, and handlers over `quack.Services`. |
 | `worker` | The in-process action queue, the database poller behind it, and periodic background loops. |
@@ -93,7 +96,7 @@ developer portal, or the gateway refuses to connect.
 
 ```
 Discord ──interaction──> discord.Router ──> /case add handler
-                                             │ resolve staff once (live REST)
+                                             │ resolve staff once (live Discord state)
                                              │ authorize case.create
                                              v
                                 quack.CaseService.Create
@@ -201,6 +204,30 @@ case, View evidence, History, statement pages on the appeal queue post) and
 the forms they open (Edit context, Void, Reverse), plus Retry and Dismiss on
 shared messages and appeal reversals, answer privately. Paging buttons edit
 the message they sit on.
+
+Messages with a matching dashboard page carry a link button to it. Every
+link is built by `quack.DashboardLinks` (`quack/dashboard.go`) from
+`config.Config.DashboardURL` (see [`configuration.md`](configuration.md)):
+staff pages under `/guilds/{discordGuildID}/...`, and the member's appeal
+page under Quack's internal guild and case IDs. Each path segment must be an
+opaque ID or page name, so nothing from a custom ID can add URL syntax, and
+links never carry evidence, context, or other text. Without a dashboard, or
+when a message already has Discord's five rows, the link is left out. Link
+buttons have no custom ID, so they never change existing routes.
+
+| Message | Button | Page |
+| --- | --- | --- |
+| `/case view`, `/case evidence`, case and evidence pages | Open in dashboard | the case |
+| `/case list`, `/case user`, History | Open in dashboard | cases, or the member |
+| `/case failures` and Retry/Dismiss results, while failures remain | Open in dashboard | failures |
+| `/case add` receipt (beside the case controls) | Open in dashboard | the case |
+| Appeal queue post, `/appeals`, decisions | Open in dashboard | the appeal |
+| Appeal submitted (member) | View appeal | member appeal page |
+| Appeal decision DM | View appeal, or Reply on the dashboard when staff asked for information | member appeal page |
+| Audit mirror entry (beside Retry action) | View appeal, Open case, Open rule, Open settings, or Open in dashboard | the appeal, case, rule, settings, or module the entry is about |
+| `/setup` confirmations | Open settings | settings, or `modules/{tickets,logging,honeypot}` |
+| `/template` results | Open rule | the rule |
+| `/help` in a server | Open in dashboard | the overview, or the topic's page |
 
 ## Escalation
 
@@ -319,8 +346,8 @@ with the case when the selected level has `notify_user` set.
   DM itself. The Discord bot does (`discord/notify.go`): an appealable case's
   DM carries an "Appeal decision" button (`appeal:submit:v1:<case ID>`).
 - A messenger without that interface sends the plain wording, and if the
-  case is appealable and an `https` dashboard origin is configured (the first
-  `https` entry in `api.cors_origins`), an "Open appeal" link to
+  case is appealable and a dashboard is configured
+  (`config.Config.DashboardURL`), an "Appeal decision" link to
   `<dashboard>/guilds/<guild>/cases/<case>/appeal`.
 
 ### Polling
@@ -382,10 +409,13 @@ rest. The database is the source of truth; the queue only saves latency.
   the appeal form, whose one field becomes the statement. The queue post in
   the appeal queue channel shows the statement in pages, Accept and Reject
   while pending (with a reason form when the guild requires one), and
-  "Confirm ..." buttons for reversals still on offer after acceptance.
-  `/appeals` pages through pending appeals straight from storage. Every staff control re-reads live
-  permissions. The decision DM quotes the reason and carries a Rejoin
-  Server button when an accepted appeal has an invite.
+  "Confirm ..." buttons for reversals still on offer after acceptance, and
+  links the appeal's dashboard page. `/appeals` pages through pending appeals
+  straight from storage. Every staff control re-reads live permissions. The
+  decision DM quotes the reason, carries a Rejoin Server button when an
+  accepted appeal has an invite, and links the member's appeal page
+  (`AppealDecisionNotice.GuildID` and the intent's case ID locate it), where
+  they reply when staff ask for information.
 
 ## Audit log and mirror
 
@@ -393,23 +423,44 @@ rest. The database is the source of truth; the queue only saves latency.
   refuse updates and deletes on that table. Metadata and failure text are
   redacted on write (`quack.RedactAuditMetadata`).
 - Moderation changes write their audit entry in the same transaction as the
-  change. Permission-sensitive reads and denials are audited too.
+  change. Denied requests are audited too (`authorization.denied`, or the
+  read's own action such as `case.read` with result `denied`). Successful
+  reads, such as viewing a case, listing appeals, or searching, are not; older
+  rows from before that change stay in the log.
 - Staff read the log through `GET /guilds/{discordGuildID}/audit-log` with
   filters and a `before_id` cursor. `GET .../statistics` is computed from
   cases, executions, appeals, and audit rows; there is no separate statistics
   table.
-- `quack.AuditMirror` (`quack/audit_mirror.go`) polls every five seconds for
-  important entries (`quack.ImportantAuditActions`) that have no successful
-  mirror outcome yet and posts them to the guild's audit mirror channel.
+- Writing an important entry (`quack.ImportantAuditActions`) in a guild with
+  an audit mirror channel also queues a row in `audit_mirror_deliveries`, in
+  the same transaction (`store.createAuditLogEntry`). Guilds without a
+  channel get no row. `quack.AuditMirror` (`quack/audit_mirror.go`) polls
+  every five seconds: it claims up to 50 due rows, one per guild before any
+  guild gets a second, and posts them to the guild's audit mirror channel.
   Entries about a case, one of its executions, or its appeal carry the case
   number, target, rule name, the selected level and outcome (on
   `case.create`), whether a reversal found the punishment already over, and
   the execution staff can still retry. The Discord entry
   (`discord/views_audit.go`) is one line with those details in subtext
   beneath it, and a retryable failure gets a "Retry action" button that runs
-  the same checks as `/case retry`. Each outcome (delivered, skipped, failed) is itself an audit entry, which is how
-  the mirror knows an entry is done. Failures retry after a minute. If the
-  channel is gone, the mirror clears the setting and stops trying it.
+  the same checks as `/case retry`. Beside it, a link opens the appeal, case,
+  rule, settings, or module page the entry is about.
+- Delivery state lives only in `audit_mirror_deliveries`: status, attempts,
+  next attempt time, a redacted last error, and the posted message ID. A row
+  is claimed under a lease and marked sending just before the Discord call.
+  A claim that lapses unsent is retried; a send that lapses is marked failed
+  with `delivery_outcome_unknown` and never retried, so a crash can lose a
+  post but never duplicate one. A failed try waits 1m, 5m, 30m, 2h, then
+  6h; the sixth failure gives up. Once a send to a guild fails, the rest of
+  that guild's batch counts the same failure without calling Discord.
+- The mirror writes audit entries only for things staff should see:
+  `audit_mirror.repaired` when Discord reports the channel gone (the setting
+  is cleared, and the guild's remaining rows are skipped), and
+  `audit_mirror.failed` when it gives up, once per outage: not again until
+  the guild has had a successful delivery. Older databases also hold
+  `audit_mirror.delivered`, `audit_mirror.skipped`, and per-retry
+  `audit_mirror.failed` rows from before migration 2; they stay in the log
+  and list like any entry.
 - The audit mirror is separate from the general logging module.
 
 ## Case publications
@@ -422,7 +473,8 @@ execution, retrying, reversing, voiding, updating context or evidence) sets
 `refresh_requested`, clears `last_digest`, and bumps `revision`
 (`store.requestPublicationRefresh`). A refresh loop
 (`discord.PublicationRefresher`, run by the worker every two seconds) asks
-for due publications (`Due`), renders each from its stored presentation and
+for due publications (`Due`), renders each from its stored presentation (the
+view and the Discord guild, for the receipt's dashboard link) and
 `CaseReceipt`, skips the edit when the digest is unchanged, and reports back
 (`Complete`), or retires the publication when the message or case is gone
 (`Retire`). A receipt still settling is checked again in two seconds, a
@@ -487,6 +539,8 @@ Guild staff routes then add, in order:
   or Discord grant answers `reauthentication_required`.
 - **Guild context.** `GuildService.ResolveStaffContext` reads the caller's
   live Discord permissions, and `Authorize` checks the route's capability.
+  The guild and staff rows it refreshes are only written when something
+  changed, and `last_active_at` at most every five minutes.
 - **Idempotency, for writes.** `Idempotency-Key` is required. The key holds a
   fenced Redis lease while the write runs, then the stored response, which is
   replayed for `api.idempotency_ttl`. Reusing a key with a different body is a
@@ -504,6 +558,39 @@ Capabilities come from Discord permissions (`quack/guild.go`):
 - `Manage Guild` can manage templates and settings.
 - `Moderate Members` can create, read, and void cases, review appeals, read
   the audit log, and work the ticket queue.
+
+Every authorization check (`Bot.GuildAuthorization`, `discord/client.go` and
+`discord/live.go`) needs the guild's owner and roles and the current roles of
+the actor, the bot, and any target. While the gateway session is live, these
+come from discordgo's state, which the gateway keeps current: `GUILD_UPDATE`
+and `GUILD_ROLE_*` rewrite the guild and its roles, and with the Guild Members
+intent (always requested) `GUILD_MEMBER_UPDATE` and `GUILD_MEMBER_REMOVE`
+rewrite or drop members. A new session rebuilds state from `READY` and
+`GUILD_CREATE`, and a resumed one replays what it missed. A typical dashboard
+request therefore makes no Discord REST calls.
+
+REST fills in whatever state lacks: everything while the session is
+disconnected or before `READY`, a guild that has not loaded, and members a
+large guild did not send up front. A member fetched over REST is kept in a
+small overlay for up to 30 seconds (10,000 entries), dropped on any member
+event for that user and on `READY`, and not kept at all if a member event in
+the guild arrived during the fetch. It is never written into discordgo's
+state, where a removal that raced the fetch could leave it behind for good.
+"Not a member" is never cached. A state member without a join time came from
+a presence update, has no roles, and is fetched instead.
+
+Directory routes (`api/directory.go`) give the dashboard Discord display data
+so it can show names, avatars, and channels instead of snowflakes:
+`GET /guilds/{discordGuildID}/directory/members?query=` searches current
+members by name (`case.read`), `.../directory/users?ids=` describes up to 100
+user IDs as members or, failing that, plain users (`case.read`), and
+`.../directory/channels` lists channels in sidebar order
+(`guild_settings.read`). They go through `api.Directory`, which `app`
+implements over the Discord adapter (`discord/directory.go`); it caches user
+and member lookups per guild for 10 minutes (up to 5000 entries, fetching
+misses 8 at a time) and channel lists per guild for 30 seconds. A Discord
+failure is a 502, a Discord rate limit a 503, and a server built without a
+`Directory` answers 503.
 
 OAuth (`api/oauth.go`): `GET /auth/discord/login` stores a single-use state in
 Redis bound to a browser cookie. `GET /auth/discord/callback` exchanges the
@@ -595,6 +682,11 @@ What each module does:
   events and audit entries.
 - IDs are ULIDs. One record struct per table lives in `store/schema.go`.
   Migrations are covered in [`migrations.md`](migrations.md).
+- Outbox and work tables beside the history they serve:
+  `case_action_executions` and `case_notifications` (the action engine),
+  `appeal_notifications`, `case_publications`, and `audit_mirror_deliveries`
+  (the audit mirror's queue, keyed by audit entry ID). Unlike
+  `audit_log_entries`, these rows are updated as work progresses.
 - Redis holds dashboard sessions and OAuth state (`auth:*`), interaction
   dedupe claims, the command sync cache, rate limit counters, and idempotency
   records. No moderation state lives only in Redis.

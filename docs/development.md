@@ -19,9 +19,19 @@ Redis, and a Discord application for development, separate from production.
    Or run `air` from `apps/backend`. It loads `.env` and rebuilds on change
    (`apps/backend/.air.toml`).
 
-The API listens on `http://localhost:8080`. The dashboard dev server
-(`apps/dashboard`, `bun run dev`) runs on `http://localhost:3000`, which the
-dev CORS defaults allow.
+The API listens on `http://localhost:8080`. Then start the dashboard from
+`apps/dashboard`:
+
+```sh
+bun install
+bun run dev
+```
+
+It runs on `http://localhost:3000` and proxies `/api` to the API, so sign in
+there. Your Discord application needs
+`http://localhost:3000/api/auth/discord/callback` as an OAuth2 redirect, and
+`QUACK_DISCORD_OAUTH_REDIRECT_URI` must match it. See
+[`dashboard.md`](dashboard.md) and the dashboard's README for its commands.
 
 To run Quack in Docker too: `docker compose --profile app up --build`. The app
 container reads `.env` and points at the `mysql` and `redis` services.
@@ -31,8 +41,8 @@ and `apps/backend/quack.example.toml`.
 
 ## Commands
 
-Run Go commands from `apps/backend`. `go.work` at the repo root covers the one
-module.
+Run Go commands from `apps/backend`. `go.work` at the repo root covers it and
+the dashboard server in `apps/dashboard`.
 
 | Command | What it does |
 | --- | --- |
@@ -49,7 +59,9 @@ module.
 | `staticcheck ./...` | Optional, if you have it installed. |
 
 CI (`.github/workflows/go.yml`) builds `./cmd/quack` and runs `go test ./...`
-from `apps/backend`.
+from `apps/backend`. `.github/workflows/dashboard.yml` checks that the
+dashboard's API types match the contract, then lints, tests, and builds the
+app and its Go server.
 
 ## Where things go
 
@@ -67,8 +79,9 @@ The package map and request flows are in
   and writes; use named types, not `map[string]any` or anonymous structs, so
   the schema is real. The JSON contract, `contracts/http/openapi.yaml`, is
   generated from those docs: run `go generate ./...` from `apps/backend`
-  after changing a route or any type it reads or writes, and commit the
-  result. `go test ./...` fails while the file is stale (use `-count=1` if
+  after changing a route or any type it reads or writes, then `bun run api`
+  in `apps/dashboard` to update the dashboard's types, and commit both.
+  `go test ./...` fails while the file is stale (use `-count=1` if
   only the YAML changed, since the test cache does not track files outside
   the module). Never edit the file by hand.
 - **Discord commands and components** go in `internal/discord`. Custom IDs

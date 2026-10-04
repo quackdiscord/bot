@@ -6,7 +6,9 @@ applied migration is recorded in `quack_schema_migrations` by version and name.
 `quack migrate up` (or just `quack migrate`) and `quack serve` both apply
 whatever is pending. `migrate` only needs `database.dsn`.
 
-There is one migration today, version 1 `baseline`. It creates every table,
+There are two migrations today.
+
+Version 1 `baseline` creates every table,
 including the module tables (`modules.Models`, `tickets.Models`,
 `honeypot.Models`), with GORM AutoMigrate and then adds the one constraint
 struct tags cannot express: at most one default level per template. MySQL has
@@ -19,6 +21,17 @@ AutoMigrate adds missing tables and columns, and `retireAppealForms` first
 removes what custom appeal forms left behind (`guild_appeal_settings`,
 `appeals.question_snapshot_json` and `answers_json`, with `appeals.content`
 renamed to `statement` and filled from the old answers).
+
+Version 2 `audit_mirror_deliveries` creates the audit mirror's queue table,
+which the baseline also creates on a fresh database. Until then the mirror
+recorded each delivery outcome as another audit entry and found pending work
+by scanning the audit log. Nothing is backfilled: important entries written
+before the migration get no delivery row, so none can be posted twice. The
+cost is that entries still waiting at upgrade time (written in the last few
+seconds before shutdown, or stuck failing) are not mirrored; their audit
+history is unaffected. The step has no `down`: the older binary would see no
+delivery outcomes for entries mirrored since, and post them all again. So
+`quack migrate down` now stops at version 2, `-drop-all` included.
 
 On MySQL, migrators take a named lock (`GET_LOCK`), so several processes can
 start at once and run migrations one at a time.

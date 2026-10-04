@@ -40,7 +40,8 @@ cors_origins = ["https://dashboard.example.com"]
 trusted_proxies = ["10.0.0.0/8"]
 
 [discord]
-oauth_redirect_uri = "https://api.example.com/auth/discord/callback"
+# Sign-in goes through the dashboard's /api proxy; see dashboard.md.
+oauth_redirect_uri = "https://dashboard.example.com/api/auth/discord/callback"
 command_prune = true
 
 [limits]
@@ -58,7 +59,7 @@ Secrets (`discord.token`, `discord.client_secret`, `api.ops_token`,
 | --- | --- | --- |
 | `environment` | `dev` | `dev`, `test`, `staging`, or `production`. Anything but `dev` defaults `auth.cookie_secure` to true and `api.cors_origins` to empty. |
 | `api.port` | `8080` | HTTP listen port. |
-| `api.cors_origins` | localhost:3000 and 127.0.0.1:3000 in dev | Exact dashboard origins allowed to make credentialed requests. Required outside dev; wildcards fail startup. |
+| `api.cors_origins` | localhost:3000 and 127.0.0.1:3000 in dev | Exact dashboard origins allowed to make credentialed requests. Required outside dev; wildcards fail startup. The first `https` origin (in dev, the first `http` or `https` one) is also where Discord messages link to the dashboard; with none, messages carry no dashboard buttons. |
 | `api.trusted_proxies` | none | Proxy IPs or CIDRs whose forwarded client IP is trusted. |
 | `api.max_body_bytes` | `1048576` | Largest accepted request body. |
 | `api.read_header_timeout` | `5s` | HTTP header read limit. |
@@ -78,7 +79,7 @@ Secrets (`discord.token`, `discord.client_secret`, `api.ops_token`,
 | `discord.token` | none | Bot token. Required. |
 | `discord.app_id` | none | Application ID. Required. |
 | `discord.client_secret` | none | OAuth client secret. Required in prod. |
-| `discord.oauth_redirect_uri` | none | OAuth callback URL (`.../auth/discord/callback`). A plain `https` URL in prod. |
+| `discord.oauth_redirect_uri` | none | OAuth callback URL: the dashboard's `/api/auth/discord/callback`, so the session cookie lands on the dashboard's origin. A plain `https` URL in prod. |
 | `discord.oauth_scopes` | `identify guilds` | Space-separated OAuth scopes; must include both defaults in prod. |
 | `discord.command_guild_id` | none | Sync slash commands to this guild only. Guild commands update instantly. |
 | `discord.command_prune` | `false` | Delete registered commands Quack no longer defines. |
@@ -106,7 +107,7 @@ environment.
 
 `docker compose up -d` starts MySQL and Redis; the `.env.example` storage
 addresses point at them from the host. `docker compose --profile app up --build`
-also runs the app, reading `.env` and replacing `QUACK_DATABASE_DSN` and
+also runs the app and the dashboard (on port 3000), reading `.env` and replacing `QUACK_DATABASE_DSN` and
 `QUACK_REDIS_URL` with the container hostnames.
 
 ## Discord install permissions and intents
