@@ -402,6 +402,32 @@ type auditRecord struct {
 
 func (auditRecord) TableName() string { return "audit_log_entries" }
 
+// auditMirrorDeliveryRecord is the audit mirror's work for one important
+// audit entry, queued in the transaction that writes the entry when the guild
+// has a mirror channel. Delivery state lives here so the append-only audit
+// log never records its own bookkeeping. Rows move pending -> claimed ->
+// sending -> delivered, skipped, or failed; a failed send goes back to
+// pending until NextAttemptAt. See audit_mirror.go.
+type auditMirrorDeliveryRecord struct {
+	AuditEntryID string                          `gorm:"type:char(26);primaryKey"`
+	CreatedAt    time.Time                       `gorm:"not null"`
+	UpdatedAt    time.Time                       `gorm:"not null;index:idx_audit_mirror_deliveries_guild_status,priority:3"`
+	GuildID      string                          `gorm:"type:char(26);not null;index:idx_audit_mirror_deliveries_guild_status,priority:1"`
+	Status       quack.AuditMirrorDeliveryStatus `gorm:"size:32;not null;index:idx_audit_mirror_deliveries_due,priority:1;index:idx_audit_mirror_deliveries_guild_status,priority:2"`
+	// Attempts counts failed tries; the mirror gives up after a fixed number.
+	Attempts uint8 `gorm:"not null;default:0"`
+	// NextAttemptAt is when a pending row is due: when it was queued, or
+	// when its backoff ends.
+	NextAttemptAt time.Time `gorm:"not null;index:idx_audit_mirror_deliveries_due,priority:2"`
+	// LastError is a short, redacted failure classification.
+	LastError          string `gorm:"size:255;not null;default:''"`
+	DeliveredMessageID string `gorm:"size:32;not null;default:''"`
+	LeaseToken         string `gorm:"size:64;not null;default:''"`
+	LeaseExpiresAt     *time.Time
+}
+
+func (auditMirrorDeliveryRecord) TableName() string { return "audit_mirror_deliveries" }
+
 // v4BatchRecord is one imported v4 export file. The unique (guild, source,
 // checksum) makes a re-run of the same file a no-op.
 type v4BatchRecord struct {
@@ -458,6 +484,7 @@ func tables() []any {
 		&appealEventRecord{},
 		&appealNotificationRecord{},
 		&auditRecord{},
+		&auditMirrorDeliveryRecord{},
 		&v4BatchRecord{},
 		&v4SourceRecord{},
 	}

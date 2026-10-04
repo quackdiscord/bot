@@ -12,7 +12,8 @@ import (
 // returns.
 const compactEventLimit = 6
 
-// Get returns one case, by ID or case number, with its full history.
+// Get returns one case, by ID or case number, with its full history. Only
+// denials are audited.
 func (s *CaseService) Get(ctx context.Context, guildContext *GuildStaffContext, caseRef string) (*CaseDetailResponse, error) {
 	return s.detail(ctx, guildContext, caseRef, false)
 }
@@ -24,7 +25,7 @@ func (s *CaseService) GetCompact(ctx context.Context, guildContext *GuildStaffCo
 	return s.detail(ctx, guildContext, caseRef, true)
 }
 
-// detail loads and audits a staff case detail. compact limits the timeline
+// detail loads a staff case detail. compact limits the timeline
 // and attempts as GetCompact describes.
 func (s *CaseService) detail(ctx context.Context, guildContext *GuildStaffContext, caseRef string, compact bool) (*CaseDetailResponse, error) {
 	item, err := s.readCase(ctx, guildContext, caseRef)
@@ -62,9 +63,6 @@ func (s *CaseService) detail(ctx context.Context, guildContext *GuildStaffContex
 	}
 	notification, err := s.store.GetCaseNotification(ctx, item.ID)
 	if err != nil {
-		return nil, err
-	}
-	if err := s.audit(ctx, guildContext, staffAttribution, string(AuditActionCaseRead), "case", item.ID, AuditResultSuccess, ""); err != nil {
 		return nil, err
 	}
 	response := caseResponse(*item, actions)
@@ -124,9 +122,6 @@ func (s *CaseService) EvidencePage(ctx context.Context, guildContext *GuildStaff
 	}
 	snapshot, attachments, total, err := s.store.GetCaseEvidencePage(ctx, item.ID, position)
 	if err != nil {
-		return nil, err
-	}
-	if err := s.audit(ctx, guildContext, staffAttribution, string(AuditActionCaseRead), "case", item.ID, AuditResultSuccess, ""); err != nil {
 		return nil, err
 	}
 	page := &CaseEvidencePage{

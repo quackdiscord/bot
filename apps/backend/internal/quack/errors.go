@@ -99,6 +99,10 @@ var (
 	// ErrAuditMirrorChannelUnavailable means the configured audit channel was
 	// deleted or the bot lost access to it.
 	ErrAuditMirrorChannelUnavailable = errors.New("audit mirror channel unavailable")
+
+	// ErrAuditMirrorLeaseLost means an audit mirror delivery is no longer
+	// held by the caller's claim, so the caller must not send or settle it.
+	ErrAuditMirrorLeaseLost = errors.New("audit mirror delivery lease lost")
 )
 
 // errNoGuildContext means an adapter called a staff operation without

@@ -173,9 +173,8 @@ type cases struct {
 	// poster publishes standalone channel messages with bot credentials,
 	// for results of context-menu flows whose interaction is private.
 	poster channelPoster
-	// dashboardURL is the dashboard origin staff views link to, or "" to
-	// leave the links out.
-	dashboardURL string
+	// dashboard builds the dashboard links on staff views and receipts.
+	dashboard quack.DashboardLinks
 }
 
 // channelPoster sends a message to a channel as the bot. *Bot implements it.
@@ -184,8 +183,8 @@ type channelPoster interface {
 }
 
 // newCases returns the case handlers with an empty draft store.
-func newCases(services *quack.Services, poster channelPoster, dashboardURL string) *cases {
-	return &cases{services: services, drafts: newDraftStore(), poster: poster, dashboardURL: dashboardURL}
+func newCases(services *quack.Services, poster channelPoster, dashboard quack.DashboardLinks) *cases {
+	return &cases{services: services, drafts: newDraftStore(), poster: poster, dashboard: dashboard}
 }
 
 // register installs the case commands, components, and modals on r. The

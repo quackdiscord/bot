@@ -93,32 +93,25 @@ type GuildSettingsResponse struct {
 	StarterPolicyNoticeAcknowledgedAt *time.Time `json:"starter_policy_notice_acknowledged_at,omitempty"`
 }
 
-// Get returns the guild's settings.
+// Get returns the guild's settings. Only denials are audited.
 func (s *GuildSettingsService) Get(ctx context.Context, guildContext *GuildStaffContext) (*GuildSettingsResponse, error) {
 	ctx = ensureTraceContext(ctx)
-	const action = string(AuditActionSettingsRead)
 	if guildContext == nil || guildContext.Guild == nil {
 		return nil, errNoGuildContext
 	}
 	if !guildContext.Can(PermissionActionGuildSettingsRead) {
-		_ = s.audit(ctx, guildContext, action, AuditResultDenied, ErrGuildSettingsPermissionDenied.Error())
+		_ = s.audit(ctx, guildContext, string(AuditActionSettingsRead), AuditResultDenied, ErrGuildSettingsPermissionDenied.Error())
 		return nil, ErrGuildSettingsPermissionDenied
 	}
 	settings, err := s.store.GetGuildSettings(ctx, guildContext.Guild.ID)
 	if err != nil {
-		_ = s.audit(ctx, guildContext, action, AuditResultFailure, "query_failed")
 		return nil, err
 	}
 	if settings == nil {
-		_ = s.audit(ctx, guildContext, action, AuditResultFailure, "not_found")
 		return nil, ErrGuildSettingsNotFound
 	}
 	states, err := s.moduleStates(ctx, guildContext.Guild.ID)
 	if err != nil {
-		_ = s.audit(ctx, guildContext, action, AuditResultFailure, "query_failed")
-		return nil, err
-	}
-	if err := s.audit(ctx, guildContext, action, AuditResultSuccess, ""); err != nil {
 		return nil, err
 	}
 	response := guildSettingsResponse(*settings, states)

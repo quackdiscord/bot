@@ -122,6 +122,14 @@ func floatPointer(value float64) *float64 { return &value }
 // templates handles /template and its create form.
 type templates struct {
 	services *quack.Services
+	// dashboard links each result to the rule's dashboard page.
+	dashboard quack.DashboardLinks
+}
+
+// withRuleLink adds an "Open rule" button for the rule templateID in the
+// interaction's guild.
+func (t templates) withRuleLink(message Message, i *discordgo.InteractionCreate, templateID string) Message {
+	return withLink(message, t.dashboard.Staff(i.GuildID, "rules", templateID), dashboardRuleLabel)
 }
 
 // register installs /template and its create form on r.
@@ -260,10 +268,10 @@ func (t templates) createSubmit(_ context.Context, i *discordgo.InteractionCreat
 		if outcome == "timeout" {
 			label = fmt.Sprintf("%d-minute timeout", minutes)
 		}
-		_, err = Publish(responder, Signal("settings", fmt.Sprintf(
+		_, err = Publish(responder, t.withRuleLink(Signal("settings", fmt.Sprintf(
 			"**%s** is ready. First case: **%s**.\nUse `/case add` when someone breaks this rule.",
 			PlainText(created.Name), label,
-		), true))
+		), true), i, created.ID))
 		return err
 	})
 }
@@ -397,7 +405,7 @@ func (t templates) level(i *discordgo.InteractionCreate, option *discordgo.Appli
 				text += " The member will not be notified."
 			}
 		}
-		_, err = Publish(responder, Signal("settings", text, true))
+		_, err = Publish(responder, t.withRuleLink(Signal("settings", text, true), i, template.ID))
 		return err
 	})
 }

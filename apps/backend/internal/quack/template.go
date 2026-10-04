@@ -9,7 +9,8 @@ import (
 )
 
 // TemplateService manages a guild's case templates. Reads need case or
-// template read access; writes need Manage Guild. Every call is audited.
+// template read access; writes need Manage Guild. Writes and denials are
+// audited; successful reads are not.
 type TemplateService struct {
 	store TemplateStore
 }
@@ -120,24 +121,20 @@ type TemplateActionResponse struct {
 	MaxRetries             uint8      `json:"max_retries"`
 }
 
-// List returns all of the guild's templates, including archived ones.
+// List returns all of the guild's templates, including archived ones. Only
+// denials are audited.
 func (s *TemplateService) List(ctx context.Context, guildContext *GuildStaffContext) ([]TemplateResponse, error) {
 	ctx = ensureTraceContext(ctx)
-	const action = string(AuditActionTemplateRead)
 	if err := s.requireRead(ctx, guildContext, "list"); err != nil {
 		return nil, err
 	}
 	templates, err := s.store.ListCaseTemplates(ctx, guildContext.Guild.ID)
 	if err != nil {
-		_ = s.audit(ctx, guildContext, action, "list", AuditResultFailure, "query_failed")
 		return nil, err
 	}
 	out := make([]TemplateResponse, 0, len(templates))
 	for _, template := range templates {
 		out = append(out, templateResponse(template))
-	}
-	if err := s.audit(ctx, guildContext, action, "list", AuditResultSuccess, ""); err != nil {
-		return nil, err
 	}
 	return out, nil
 }
@@ -157,24 +154,18 @@ func (s *TemplateService) ListActive(ctx context.Context, guildContext *GuildSta
 	return active, nil
 }
 
-// Get returns one template.
+// Get returns one template. Only denials are audited.
 func (s *TemplateService) Get(ctx context.Context, guildContext *GuildStaffContext, templateID string) (*TemplateResponse, error) {
 	ctx = ensureTraceContext(ctx)
-	const action = string(AuditActionTemplateRead)
 	if err := s.requireRead(ctx, guildContext, templateID); err != nil {
 		return nil, err
 	}
 	template, err := s.store.GetCaseTemplateExpanded(ctx, guildContext.Guild.ID, templateID)
 	if err != nil {
-		_ = s.audit(ctx, guildContext, action, templateID, AuditResultFailure, "query_failed")
 		return nil, err
 	}
 	if template == nil {
-		_ = s.audit(ctx, guildContext, action, templateID, AuditResultFailure, "not_found")
 		return nil, ErrTemplateNotFound
-	}
-	if err := s.audit(ctx, guildContext, action, templateID, AuditResultSuccess, ""); err != nil {
-		return nil, err
 	}
 	response := templateResponse(*template)
 	return &response, nil

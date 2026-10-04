@@ -142,6 +142,8 @@ type setup struct {
 	session  *discordgo.Session
 	services *quack.Services
 	modules  map[string]SetupHandler
+	// dashboard links each confirmation to the matching settings page.
+	dashboard quack.DashboardLinks
 }
 
 // command dispatches /setup by subcommand. Each runs as a public deferred
@@ -157,9 +159,9 @@ func (s *setup) command(_ context.Context, i *discordgo.InteractionCreate) Resul
 	command := options[0]
 	switch name := command.Name; {
 	case name == "appeals":
-		return s.run(i, "set up appeals", s.appeals(command))
+		return s.run(i, "set up appeals", []string{"settings"}, s.appeals(command))
 	case name == "audit":
-		return s.run(i, "change the audit channel", s.audit(command))
+		return s.run(i, "change the audit channel", []string{"settings"}, s.audit(command))
 	case setupModules[name] != "" && command.GetOption("enabled") != nil:
 		if len(command.Options) != 1 {
 			return Immediate(Error("Use enabled on its own. To change channels or the warning, run setup separately without enabled."))
@@ -168,10 +170,10 @@ func (s *setup) command(_ context.Context, i *discordgo.InteractionCreate) Resul
 		if !ok {
 			return Immediate(Error("Choose true or false for enabled."))
 		}
-		return s.run(i, "turn features on or off", s.toggle(name, enabled))
+		return s.run(i, "turn features on or off", []string{"modules", name}, s.toggle(name, enabled))
 	case s.modules[name] != nil:
 		handler := s.modules[name]
-		return s.run(i, "set up "+name, func(ctx context.Context, staff *quack.GuildStaffContext, userID string) (Message, error) {
+		return s.run(i, "set up "+name, []string{"modules", name}, func(ctx context.Context, staff *quack.GuildStaffContext, userID string) (Message, error) {
 			return handler(ctx, SetupRequest{Guild: staff, UserID: userID, Options: command.Options})
 		})
 	default:
@@ -183,9 +185,10 @@ func (s *setup) command(_ context.Context, i *discordgo.InteractionCreate) Resul
 type setupTask func(ctx context.Context, staff *quack.GuildStaffContext, userID string) (Message, error)
 
 // run resolves the caller's live authority, requires Manage Server, runs
-// task, and publishes its confirmation. what completes "You need Manage
-// Server permission to ...".
-func (s *setup) run(i *discordgo.InteractionCreate, what string, task setupTask) Result {
+// task, and publishes its confirmation with a link to the guild's
+// dashboard page named by page. what completes "You need Manage Server
+// permission to ...".
+func (s *setup) run(i *discordgo.InteractionCreate, what string, page []string, task setupTask) Result {
 	userID, name := interactionMember(i)
 	return AsyncPublic(func(ctx context.Context, responder Responder) error {
 		staff, err := s.services.Guilds.ResolveDiscordStaffContext(ctx, quack.DiscordStaffContextInput{
@@ -210,7 +213,7 @@ func (s *setup) run(i *discordgo.InteractionCreate, what string, task setupTask)
 			_, err = responder.EditOriginal(ErrorEdit(text))
 			return err
 		}
-		_, err = Publish(responder, message)
+		_, err = Publish(responder, withLink(message, s.dashboard.Staff(i.GuildID, page...), dashboardSetupLabel))
 		return err
 	})
 }

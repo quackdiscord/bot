@@ -201,6 +201,21 @@ func Default() Config {
 	}
 }
 
+// DashboardURL is the dashboard origin Quack links to from Discord: the
+// first api.cors_origins entry that uses https. Discord link buttons also
+// accept http, so in dev, where the dashboard runs on
+// http://localhost:3000, the first http entry qualifies too. Anywhere else
+// an http origin is never linked. "" means no dashboard links.
+func (c Config) DashboardURL() string {
+	for _, origin := range c.API.CORSOrigins {
+		origin = strings.TrimRight(strings.TrimSpace(origin), "/")
+		if strings.HasPrefix(origin, "https://") || (c.Environment == "dev" && strings.HasPrefix(origin, "http://")) {
+			return origin
+		}
+	}
+	return ""
+}
+
 // Load reads the configuration. path names a TOML file; when it is empty,
 // QUACK_CONFIG is used, and failing that the optional DefaultFile. Load does
 // not validate; call Validate before relying on required settings.

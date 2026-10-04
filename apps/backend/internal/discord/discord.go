@@ -8,9 +8,10 @@
 // AsyncPublic: success replaces the public placeholder in place, and an
 // ErrorEdit goes privately to the invoking user instead.
 //
-// Authorization always comes from fresh REST reads; the gateway cache is only
-// used for display and readiness. REST calls carry the caller's context and
-// never retry on their own, because Quack's workers own retry policy.
+// Authorization uses current Discord state: the gateway's live state while
+// the session is connected, and REST for anything state lacks (see live.go).
+// REST calls carry the caller's context and never retry on their own,
+// because Quack's workers own retry policy.
 package discord
 
 import (
@@ -30,13 +31,23 @@ type Bot struct {
 	// Session is exposed so the composition root can set gateway intents and
 	// optional modules can subscribe to gateway events.
 	Session *discordgo.Session
-	// DashboardURL is the dashboard origin that staff case views link to
-	// with "Open on web". Empty leaves the links out. Set it before
+	// Dashboard builds the dashboard links on Quack's messages: staff views,
+	// receipts, the appeal queue, the audit mirror, setup, and member
+	// appeal DMs. The zero value leaves every link out. Set it before
 	// NewRouter.
-	DashboardURL string
+	Dashboard quack.DashboardLinks
 
 	httpClient *http.Client
 	connected  atomic.Bool
+
+	// directoryUsers and directoryChannels cache the dashboard's display
+	// lookups; see directory.go.
+	directoryUsers    ttlCache[directoryEntry]
+	directoryChannels ttlCache[[]DirectoryChannel]
+
+	// live says when gateway state can answer authorization and holds
+	// members fetched over REST; see live.go.
+	live liveState
 }
 
 // New creates a bot for token. Only the Guilds intent is requested; the
@@ -51,6 +62,7 @@ func New(token string) (*Bot, error) {
 	session.State.MaxMessageCount = 5000
 	bot := &Bot{Session: session, httpClient: http.DefaultClient}
 	session.AddHandler(bot.trackGateway)
+	session.AddHandler(bot.live.track)
 	return bot, nil
 }
 

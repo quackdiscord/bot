@@ -214,10 +214,29 @@ func (s *Server) routes() {
 			Body:        reverseActionRequest{}, Status: http.StatusAccepted, Response: actionEnvelope{}, Errors: caseFailures,
 		})
 
+	// Discord display data: member search, user names and avatars, and
+	// channels. Discord answers these; the adapter caches them briefly.
+	s.staff("GET /guilds/{discordGuildID}/directory/members", quack.PermissionActionCaseRead, s.searchMembers, Doc{
+		ID: "searchMembers", Summary: "Search the guild's current members by name",
+		Description: "Matches the start of a username or nickname. limit defaults to 10 and is capped at 25.",
+		Query:       memberSearchQuery{}, Response: memberSearchResponse{}, Errors: directoryFailures,
+	})
+	s.staff("GET /guilds/{discordGuildID}/directory/users", quack.PermissionActionCaseRead, s.lookupUsers, Doc{
+		ID: "lookupUsers", Summary: "Display names and avatars for Discord user IDs",
+		Description: "Users come back in the order asked, as guild members when they are one. Unknown users are left out.",
+		Query:       userLookupQuery{}, Response: userLookupResponse{}, Errors: directoryFailures,
+	})
+	s.staff("GET /guilds/{discordGuildID}/directory/channels", quack.PermissionActionGuildSettingsRead, s.listChannels, Doc{
+		ID: "listChannels", Summary: "The guild's channels, for channel pickers",
+		Description: "Already in Discord's sidebar order. Threads are left out.",
+		Response:    channelListResponse{}, Errors: directoryFailures,
+	})
+
 	// Audit log and statistics.
 	s.staff("GET /guilds/{discordGuildID}/audit-log", quack.PermissionActionAuditRead, s.listAuditLog, Doc{
 		ID: "listAuditLog", Summary: "Search the guild's audit log",
-		Query: auditLogQuery{}, Response: &quack.AuditListResponse{}, Errors: auditFailures,
+		Description: "Newest first.",
+		Query:       auditLogQuery{}, Response: &quack.AuditListResponse{}, Errors: auditFailures,
 	})
 	s.staff("GET /guilds/{discordGuildID}/statistics", quack.PermissionActionAuditRead, s.getStatistics, Doc{
 		ID: "getStatistics", Summary: "Moderation counts over [from, to)",

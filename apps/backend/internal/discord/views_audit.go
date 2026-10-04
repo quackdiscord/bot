@@ -12,8 +12,9 @@ import (
 // channel in one line, with the case it concerns and when it happened in
 // subtext directly beneath it. Internal IDs stay in the audit log and
 // controls, not the copy. A failed action staff can still retry gets a
-// "Retry action" button, which rechecks permissions like /case retry.
-func auditMirrorMessage(message quack.AuditMirrorMessage) Message {
+// "Retry action" button, which rechecks permissions like /case retry, and
+// entries with a dashboard page get a link to it (see auditMirrorLink).
+func auditMirrorMessage(message quack.AuditMirrorMessage, dashboard quack.DashboardLinks) Message {
 	actor := "Quack"
 	if message.ActorDiscordUserID != "" && message.ActorDiscordUserID != "quack-system" {
 		actor = "<@" + message.ActorDiscordUserID + ">"
@@ -81,12 +82,46 @@ func auditMirrorMessage(message quack.AuditMirrorMessage) Message {
 		}
 	}
 	notice := Signal(icon, body, false)
+	var buttons []discordgo.MessageComponent
 	if message.RetryExecutionID != "" && message.Result == quack.AuditResultFailure {
 		if id, err := EncodeCustomID(CustomID{Namespace: "case", Action: "retry", Version: "v1", Payload: message.RetryExecutionID}); err == nil {
-			notice.Components = []discordgo.MessageComponent{Row(Button(id, "Retry action", discordgo.SecondaryButton, false))}
+			buttons = append(buttons, Button(id, "Retry action", discordgo.SecondaryButton, false))
 		}
 	}
+	url, label := auditMirrorLink(message, dashboard)
+	if buttons = appendLink(buttons, url, label); len(buttons) > 0 {
+		notice.Components = []discordgo.MessageComponent{Row(buttons...)}
+	}
 	return notice
+}
+
+// auditMirrorLink picks the staff dashboard page an audit entry is about:
+// the appeal, the case, the rule, Quack's settings, or a module's settings.
+// Entries without a page, such as guild lifecycle and imports, get "".
+func auditMirrorLink(message quack.AuditMirrorMessage, dashboard quack.DashboardLinks) (string, string) {
+	guildID := message.DiscordGuildID
+	area, _, _ := strings.Cut(message.Action, ".")
+	switch {
+	case message.ResourceType == "appeal" && message.ResourceID != "":
+		return dashboard.Staff(guildID, "appeals", message.ResourceID), dashboardAppealLabel
+	case message.ResourceType == "appeal":
+		return dashboard.Staff(guildID, "appeals"), dashboardLabel
+	case message.CaseID != "":
+		return dashboard.Staff(guildID, "cases", message.CaseID), dashboardCaseLabel
+	case message.ResourceType == "case_template" && message.ResourceID != "":
+		return dashboard.Staff(guildID, "rules", message.ResourceID), dashboardRuleLabel
+	case area == "case_template":
+		return dashboard.Staff(guildID, "rules"), dashboardLabel
+	case area == "guild_settings":
+		return dashboard.Staff(guildID, "settings"), dashboardSetupLabel
+	case area == "ticket":
+		return dashboard.Staff(guildID, "modules", "tickets"), dashboardLabel
+	case area == "general_logging":
+		return dashboard.Staff(guildID, "modules", "logging"), dashboardSetupLabel
+	case area == "honeypot":
+		return dashboard.Staff(guildID, "modules", "honeypot"), dashboardSetupLabel
+	}
+	return "", ""
 }
 
 // auditPhrase is how the mirror words an audit action, and its icon.

@@ -73,7 +73,7 @@ func (c *cases) runStaffCommand(
 		if err != nil {
 			return Message{}, err
 		}
-		return c.webLink(caseListMessage(list, 1, ""), i.GuildID, "cases", ""), nil
+		return c.webLink(caseListMessage(list, 1, ""), i.GuildID, "cases"), nil
 	case "user":
 		targetID := option("user")
 		profile, err := c.services.Cases.UserHistory(ctx, staff, targetID, quack.CaseListInput{Limit: strconv.Itoa(casePageSize)})
@@ -86,7 +86,7 @@ func (c *cases) runStaffCommand(
 		if err != nil {
 			return Message{}, err
 		}
-		return failedActionMessage(failed, 1), nil
+		return c.failuresView(failed, 1, i.GuildID), nil
 	case "retry":
 		if _, err := c.services.Actions.Retry(ctx, staff, option("execution")); err != nil {
 			return Message{}, err
@@ -156,7 +156,7 @@ func (c *cases) pageCases(delta int, user bool) Handler {
 				if err != nil {
 					return err
 				}
-				message = c.webLink(caseListMessage(list, page, targetID), i.GuildID, "cases", "")
+				message = c.webLink(caseListMessage(list, page, targetID), i.GuildID, "cases")
 			}
 			_, err = responder.EditOriginal(EditMessage(message))
 			return err
@@ -182,10 +182,20 @@ func (c *cases) pageFailures(delta int) Handler {
 			if err != nil {
 				return err
 			}
-			_, err = responder.EditOriginal(EditMessage(failedActionMessage(failed, page)))
+			_, err = responder.EditOriginal(EditMessage(c.failuresView(failed, page, i.GuildID)))
 			return err
 		})
 	}
+}
+
+// failuresView renders a page of the failure queue, linking the dashboard's
+// failures page while anything needs review.
+func (c *cases) failuresView(failed *quack.FailedCaseActionResult, page int, guildID string) Message {
+	message := failedActionMessage(failed, page)
+	if failed != nil && failed.Total > 0 {
+		message = c.webLink(message, guildID, "failures")
+	}
+	return message
 }
 
 // actionOperation is a recovery control on a failed execution.
@@ -231,7 +241,7 @@ func (c *cases) actionControl(operation actionOperation) Handler {
 			// turn it into a generic failure.
 			receipt := Conversation("retry", lead, "", "Use `/case failures` to review remaining failures.", "", false)
 			if failed, err := c.services.Actions.ListFailures(ctx, staff, casePageSize, 0); err == nil {
-				receipt = failedActionMessage(failed, 1)
+				receipt = c.failuresView(failed, 1, i.GuildID)
 				receipt.Content = lead + "\n\n" + receipt.Content
 			}
 			if _, err := editWithRetry(ctx, responder, receipt); err != nil {

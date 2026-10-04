@@ -323,6 +323,16 @@ func TestCaseContextEvidenceVoidReplacementAndMemberProjection(t *testing.T) {
 	if member.Reason != "No spam" || len(member.ContextValues) != 3 || len(member.Evidence) != 1 {
 		t.Fatalf("member projection incomplete: %+v", member)
 	}
+	if member.GuildName != "Guild" || member.RuleName != "Spam" {
+		t.Fatalf("member detail missing guild or rule name: %+v", member)
+	}
+	list, err := service.ListMemberCases(ctx, admin.Guild.ID, "target-1", quack.CaseListInput{})
+	if err != nil {
+		t.Fatalf("member list: %v", err)
+	}
+	if len(list.Cases) != 2 || list.Cases[0].GuildName != "Guild" || list.Cases[0].RuleName != "Spam" {
+		t.Fatalf("member list missing guild or rule name: %+v", list)
+	}
 	if _, err := service.GetMemberCase(ctx, replacement.ID, "other-user"); err != quack.ErrCaseNotFound {
 		t.Fatalf("cross-user enumeration was not hidden: %v", err)
 	}

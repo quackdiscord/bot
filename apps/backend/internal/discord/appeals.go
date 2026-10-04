@@ -48,27 +48,28 @@ type appealChannels struct {
 	validator staffChannelValidator
 }
 
-// queueChannel returns the guild's appeal queue channel. A guild without
-// one, or whose channel fails the staff-only check, gets an error wrapping
-// quack.ErrAppealDeliveryDeferred, since nothing was sent and setting the
-// channel up later should still deliver the appeal.
-func (c appealChannels) queueChannel(ctx context.Context, guildID string) (string, error) {
+// queueChannel returns the guild's appeal queue channel and the guild's
+// Discord ID. A guild without one, or whose channel fails the staff-only
+// check, gets an error wrapping quack.ErrAppealDeliveryDeferred, since
+// nothing was sent and setting the channel up later should still deliver
+// the appeal.
+func (c appealChannels) queueChannel(ctx context.Context, guildID string) (channelID, discordGuildID string, err error) {
 	settings, err := c.store.GetGuildSettings(ctx, guildID)
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", quack.ErrAppealDeliveryDeferred, err)
+		return "", "", fmt.Errorf("%w: %v", quack.ErrAppealDeliveryDeferred, err)
 	}
 	if settings == nil || strings.TrimSpace(settings.AppealQueueChannelDiscordID) == "" {
-		return "", fmt.Errorf("%w: appeal queue channel is not configured", quack.ErrAppealDeliveryDeferred)
+		return "", "", fmt.Errorf("%w: appeal queue channel is not configured", quack.ErrAppealDeliveryDeferred)
 	}
 	guild, err := c.store.GetGuildByID(ctx, guildID)
 	if err != nil || guild == nil {
-		return "", fmt.Errorf("%w: appeal guild is unavailable", quack.ErrAppealDeliveryDeferred)
+		return "", "", fmt.Errorf("%w: appeal guild is unavailable", quack.ErrAppealDeliveryDeferred)
 	}
-	channelID := settings.AppealQueueChannelDiscordID
+	channelID = settings.AppealQueueChannelDiscordID
 	if err := c.validator.ValidateStaffChannel(ctx, guild.DiscordGuildID, channelID); err != nil {
-		return "", fmt.Errorf("%w: %v", quack.ErrAppealDeliveryDeferred, err)
+		return "", "", fmt.Errorf("%w: %v", quack.ErrAppealDeliveryDeferred, err)
 	}
-	return channelID, nil
+	return channelID, guild.DiscordGuildID, nil
 }
 
 // SendAppealMemberNotification sends a plain status update to the member by
@@ -78,9 +79,11 @@ func (n *AppealNotifier) SendAppealMemberNotification(ctx context.Context, disco
 }
 
 // SendAppealDecision DMs the member the decision on their appeal, with a
-// Rejoin Server button when an accepted appeal carries an invite.
+// Rejoin Server button when an accepted appeal carries an invite and a link
+// to their appeal page in the dashboard.
 func (n *AppealNotifier) SendAppealDecision(ctx context.Context, discordUserID string, notice quack.AppealDecisionNotice) (string, error) {
-	return n.dm(ctx, discordUserID, appealDecisionMessage(notice.Intent))
+	appealURL := n.bot.Dashboard.MemberAppeal(notice.GuildID, notice.Intent.CaseID)
+	return n.dm(ctx, discordUserID, appealDecisionMessage(notice.Intent, appealURL))
 }
 
 // dm sends message to the member. A rate limit is deferred, since nothing
@@ -104,7 +107,7 @@ func (n *AppealNotifier) dm(ctx context.Context, discordUserID string, message M
 // SendAppealStaffNotification posts a plain update to the guild's appeal
 // queue channel. Staff updates normally go through PublishAppealQueue.
 func (n *AppealNotifier) SendAppealStaffNotification(ctx context.Context, guildID, body string) (string, error) {
-	channelID, err := n.channels.queueChannel(ctx, guildID)
+	channelID, _, err := n.channels.queueChannel(ctx, guildID)
 	if err != nil {
 		return "", err
 	}
@@ -115,7 +118,8 @@ func (n *AppealNotifier) SendAppealStaffNotification(ctx context.Context, guildI
 	return sent.ID, nil
 }
 
-// PublishAppealQueue shows appeal in the guild's appeal queue channel. A
+// PublishAppealQueue shows appeal in the guild's appeal queue channel,
+// linked to its page in the dashboard. A
 // post still in that channel is edited in place; otherwise, or when the
 // post was deleted, a new one is posted and its receipt returned. Editing
 // is idempotent, so any failed edit is retried, but a failed post is only
@@ -123,12 +127,16 @@ func (n *AppealNotifier) SendAppealStaffNotification(ctx context.Context, guildI
 func (n *AppealNotifier) PublishAppealQueue(
 	ctx context.Context, guildID string, appeal *quack.AppealResponse, receipt quack.AppealQueueReceipt,
 ) (quack.AppealQueueReceipt, error) {
-	channelID, err := n.channels.queueChannel(ctx, guildID)
+	channelID, discordGuildID, err := n.channels.queueChannel(ctx, guildID)
 	if err != nil {
 		return receipt, err
 	}
 	applicationID := n.bot.applicationID(ctx)
-	message := appealStaffPage(appeal, 1, applicationID)
+	var appealURL string
+	if appeal != nil {
+		appealURL = n.bot.Dashboard.Staff(discordGuildID, "appeals", appeal.ID)
+	}
+	message := appealStaffPage(appeal, 1, applicationID, appealURL)
 	if receipt.ChannelID == channelID && receipt.MessageID != "" {
 		edit := EditMessage(message).ForApplication(applicationID).webhookEdit()
 		_, err := n.bot.Session.ChannelMessageEditComplex(&discordgo.MessageEdit{

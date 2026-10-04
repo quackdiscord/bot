@@ -164,15 +164,24 @@ type AuditStore interface {
 // AuditMirrorStore is what AuditMirror needs from storage.
 type AuditMirrorStore interface {
 	ClearGuildChannelReferences(ctx context.Context, guildID, channelID string, audit *AuditLogEntry) (*GuildSettings, error)
-	CreateAuditLogEntry(context.Context, *AuditLogEntry) error
 	GetAppealByID(ctx context.Context, appealID string) (*Appeal, error)
 	GetCaseActionExecution(ctx context.Context, guildID, executionID string) (*CaseActionExecution, error)
 	GetCaseByID(ctx context.Context, caseID string) (*Case, error)
 	GetGuildByID(ctx context.Context, guildID string) (*Guild, error)
 	GetGuildSettings(ctx context.Context, guildID string) (*GuildSettings, error)
-	// ListPendingAuditMirrorEntries returns important entries not yet
-	// delivered or skipped. Failed deliveries come back after a minute.
-	ListPendingAuditMirrorEntries(ctx context.Context, limit int) ([]AuditLogEntry, error)
+	// ClaimAuditMirrorDeliveries leases up to limit due deliveries, oldest
+	// first but fair across guilds, with their audit entries. A claim whose
+	// lease lapsed before sending began is due again. A delivery left
+	// sending past its lease fails as delivery_outcome_unknown and is never
+	// sent again, so a crash cannot post an entry twice.
+	ClaimAuditMirrorDeliveries(ctx context.Context, limit int) ([]AuditMirrorDelivery, error)
+	// BeginAuditMirrorDelivery moves a claimed delivery to sending just
+	// before it goes to Discord, provided the caller's lease is still live.
+	// It returns ErrAuditMirrorLeaseLost otherwise.
+	BeginAuditMirrorDelivery(ctx context.Context, auditEntryID, leaseToken string) error
+	// CompleteAuditMirrorDelivery records the outcome of a claimed or
+	// sending delivery the caller holds the lease for.
+	CompleteAuditMirrorDelivery(context.Context, CompleteAuditMirrorDeliveryParams) error
 }
 
 // StatisticsStore is what StaffStatisticsService needs from storage.
@@ -356,9 +365,19 @@ type FailedCaseActionFilter struct {
 }
 
 // FailedCaseActionResult is a page of failed executions and the total.
+// Cases describes the case behind each execution, keyed by case ID, so a
+// review queue can name the case and member without a lookup per row.
 type FailedCaseActionResult struct {
 	Executions []CaseActionExecution
+	Cases      map[string]FailedActionCase
 	Total      int64
+}
+
+// FailedActionCase is what the failure queue shows about the case a failed
+// execution belongs to.
+type FailedActionCase struct {
+	CaseNumber          uint64
+	TargetDiscordUserID string
 }
 
 // ClaimCaseNotificationParams identifies the case whose notification a

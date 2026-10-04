@@ -9,9 +9,15 @@ import (
 // MemberCaseSummary is a case as its member sees it in a list. It never
 // names the moderator.
 type MemberCaseSummary struct {
-	ID            string             `json:"id"`
-	GuildID       string             `json:"guild_id"`
-	CaseNumber    uint64             `json:"case_number"`
+	ID      string `json:"id"`
+	GuildID string `json:"guild_id"`
+	// GuildName and GuildIconURL let the member recognize the server even
+	// after they have left it or been banned.
+	GuildName    string `json:"guild_name"`
+	GuildIconURL string `json:"guild_icon_url"`
+	CaseNumber   uint64 `json:"case_number"`
+	// RuleName is the template name frozen in the case snapshot.
+	RuleName      string             `json:"rule_name"`
 	Reason        string             `json:"official_reason"`
 	Validity      CaseValidity       `json:"validity"`
 	CreatedAt     time.Time          `json:"created_at"`
@@ -32,10 +38,16 @@ type MemberCaseListResponse struct {
 // MemberCaseDetail is a case as its member sees it: public events only, no
 // staff identities, and no internal delivery diagnostics.
 type MemberCaseDetail struct {
-	ID                string                     `json:"id"`
-	GuildID           string                     `json:"guild_id"`
-	CaseNumber        uint64                     `json:"case_number"`
-	TemplateID        *string                    `json:"template_id"`
+	ID      string `json:"id"`
+	GuildID string `json:"guild_id"`
+	// GuildName and GuildIconURL let the member recognize the server even
+	// after they have left it or been banned.
+	GuildName    string  `json:"guild_name"`
+	GuildIconURL string  `json:"guild_icon_url"`
+	CaseNumber   uint64  `json:"case_number"`
+	TemplateID   *string `json:"template_id"`
+	// RuleName is the template name frozen in the case snapshot.
+	RuleName          string                     `json:"rule_name"`
 	Reason            string                     `json:"official_reason"`
 	Validity          CaseValidity               `json:"validity"`
 	VoidedReason      string                     `json:"voided_reason,omitempty"`
@@ -80,6 +92,10 @@ func (s *CaseService) ListMemberCases(ctx context.Context, guildID, memberDiscor
 	if err != nil {
 		return nil, err
 	}
+	guild, err := s.store.GetGuildByID(ctx, guildID)
+	if err != nil {
+		return nil, err
+	}
 	responses := make([]MemberCaseSummary, 0, len(page.Cases))
 	for _, item := range page.Cases {
 		appeal, err := s.store.GetAppealByCaseID(ctx, item.ID)
@@ -90,19 +106,20 @@ func (s *CaseService) ListMemberCases(ctx context.Context, guildID, memberDiscor
 			ID:            item.ID,
 			GuildID:       item.GuildID,
 			CaseNumber:    item.CaseNumber,
+			RuleName:      snapshotRuleName(item.TemplateSnapshotJSON),
 			Reason:        item.Reason,
 			Validity:      item.Validity,
 			CreatedAt:     item.CreatedAt,
 			SelectedLevel: snapshotSelectedLevel(item.TemplateSnapshotJSON),
 			Appealable:    canAppeal(item, appeal),
 		}
+		if guild != nil {
+			summary.GuildName, summary.GuildIconURL = guild.Name, guild.IconURL
+		}
 		if appeal != nil {
 			summary.AppealID, summary.AppealStatus = appeal.ID, appeal.Status
 		}
 		responses = append(responses, summary)
-	}
-	if err := s.memberReadAudit(ctx, guildID, memberDiscordUserID, "member_case.list", "guild", guildID, AuditResultSuccess, ""); err != nil {
-		return nil, err
 	}
 	return &MemberCaseListResponse{Cases: responses, Total: page.Total, Limit: limit, Offset: offset}, nil
 }
@@ -121,9 +138,6 @@ func (s *CaseService) GetMemberCase(ctx context.Context, caseID, memberDiscordUs
 	if item.TargetDiscordUserID != memberDiscordUserID {
 		_ = s.memberReadAudit(ctx, item.GuildID, memberDiscordUserID, "member_case.read", "case", item.ID, AuditResultDenied, "not_case_target")
 		return nil, ErrCaseNotFound
-	}
-	if err := s.memberReadAudit(ctx, item.GuildID, memberDiscordUserID, "member_case.read", "case", item.ID, AuditResultSuccess, ""); err != nil {
-		return nil, err
 	}
 	evidence, attachments, err := s.store.ListCaseEvidence(ctx, item.ID)
 	if err != nil {
@@ -157,11 +171,16 @@ func (s *CaseService) GetMemberCase(ctx context.Context, caseID, memberDiscordUs
 	if err != nil {
 		return nil, err
 	}
+	guild, err := s.store.GetGuildByID(ctx, item.GuildID)
+	if err != nil {
+		return nil, err
+	}
 	detail := &MemberCaseDetail{
 		ID:                item.ID,
 		GuildID:           item.GuildID,
 		CaseNumber:        item.CaseNumber,
 		TemplateID:        item.TemplateID,
+		RuleName:          snapshotRuleName(item.TemplateSnapshotJSON),
 		Reason:            item.Reason,
 		Validity:          item.Validity,
 		VoidedReason:      item.VoidedReason,
@@ -175,12 +194,16 @@ func (s *CaseService) GetMemberCase(ctx context.Context, caseID, memberDiscordUs
 		Notification:      caseNotificationResponse(notification, true),
 		Appealable:        canAppeal(*item, appeal),
 	}
+	if guild != nil {
+		detail.GuildName, detail.GuildIconURL = guild.Name, guild.IconURL
+	}
 	if appeal != nil {
 		detail.AppealID, detail.AppealStatus = appeal.ID, appeal.Status
 	}
 	return detail, nil
 }
 
+// memberReadAudit records a member's denied attempt to read a case.
 func (s *CaseService) memberReadAudit(ctx context.Context, guildID, memberID, action, resourceType, resourceID string, result AuditResult, failureReason string) error {
 	entry := webAudit(ctx, guildID, memberID, 0, action, resourceType, resourceID, result)
 	entry.FailureReason = failureReason

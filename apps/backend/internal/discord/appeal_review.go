@@ -152,7 +152,7 @@ func (a appeals) decision(i *discordgo.InteractionCreate, action, appealID, reas
 		case err != nil:
 			return fail("I couldn’t save your decision. Please try again.")
 		}
-		message := appealStaffPage(decided, 1, i.AppID)
+		message := appealStaffPage(decided, 1, i.AppID, a.staffURL(i, decided))
 		if ephemeralSource(i) {
 			message.Components = append(message.Components, Row(
 				Button(appealCustomID(appealPageAction, "1"), "Next pending appeal", discordgo.SecondaryButton, false),
@@ -189,7 +189,7 @@ func (a appeals) statementPage(delta int) Handler {
 				_, err = responder.EditOriginal(ErrorEdit("I couldn’t open that appeal. Check that you have Moderate Members permission, then try /appeals."))
 				return err
 			}
-			message := appealStaffPage(appeal, page+delta, i.AppID)
+			message := appealStaffPage(appeal, page+delta, i.AppID, a.staffURL(i, appeal))
 			message.Ephemeral = false
 			message.Components = append(message.Components, Row(
 				Button(appealCustomID(appealPageAction, "1"), "Pending appeals", discordgo.SecondaryButton, false),
@@ -250,7 +250,7 @@ func (a appeals) queue(i *discordgo.InteractionCreate, page int, update bool) Ta
 		}
 		message := Signal("appeal", "No appeals are waiting for review.", false)
 		if len(list.Appeals) > 0 {
-			message = appealStaffPage(&list.Appeals[0], 1, i.AppID)
+			message = appealStaffPage(&list.Appeals[0], 1, i.AppID, a.staffURL(i, &list.Appeals[0]))
 			message.Ephemeral = false
 			message.Content += fmt.Sprintf("\nPending appeal %d of %d", page, list.Total)
 			message.Components = append(message.Components, Row(

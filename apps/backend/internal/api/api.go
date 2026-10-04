@@ -53,8 +53,8 @@ type TemplateChangeHandler interface {
 	HandleTemplateChange(ctx context.Context, guildID, templateID string)
 }
 
-// Deps are the Server's collaborators. Modules and TemplateChanges may be
-// nil; everything else is required.
+// Deps are the Server's collaborators. Modules, TemplateChanges, and
+// Directory may be nil; everything else is required.
 type Deps struct {
 	Services *quack.Services
 	Store    Storage
@@ -65,6 +65,9 @@ type Deps struct {
 	// Modules mounts the optional modules' routes.
 	Modules         func(mux *ModuleMux)
 	TemplateChanges TemplateChangeHandler
+	// Directory backs the /directory display routes. Without one they
+	// answer 503 dependency_unavailable.
+	Directory Directory
 }
 
 // Server is the HTTP API. It is an http.Handler; Run serves it on the
@@ -75,6 +78,7 @@ type Server struct {
 	store           Storage
 	discord         DiscordStatus
 	templateChanges TemplateChangeHandler
+	directory       Directory
 	limiter         *rateLimiter
 	idempotency     *idempotencyStore
 	oauth           oauthClient
@@ -103,6 +107,7 @@ func New(cfg config.Config, deps Deps) (*Server, error) {
 		store:           deps.Store,
 		discord:         deps.Discord,
 		templateChanges: deps.TemplateChanges,
+		directory:       deps.Directory,
 		limiter:         newRateLimiter(deps.Redis),
 		idempotency:     newIdempotencyStore(deps.Redis),
 		oauth:           defaultOAuthClient(),

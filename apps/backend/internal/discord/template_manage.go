@@ -106,7 +106,7 @@ func (t templates) manage(i *discordgo.InteractionCreate, option *discordgo.Appl
 		var message string
 		switch option.Name {
 		case "view":
-			_, err := Publish(responder, templatePolicyMessage(selected))
+			_, err := Publish(responder, t.withRuleLink(templatePolicyMessage(selected), i, selected.ID))
 			return err
 		case "archive":
 			_, err = t.services.Templates.Archive(ctx, staff, selected.ID)
@@ -162,7 +162,7 @@ func (t templates) manage(i *discordgo.InteractionCreate, option *discordgo.Appl
 		if err != nil {
 			return fail("I couldn’t save that change. Check the options and try again.")
 		}
-		_, err = Publish(responder, Signal("settings", message, true))
+		_, err = Publish(responder, t.withRuleLink(Signal("settings", message, true), i, selected.ID))
 		return err
 	})
 }

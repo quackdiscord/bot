@@ -13,6 +13,40 @@ func LinkButton(url, label string) discordgo.Button {
 	return discordgo.Button{URL: url, Label: Truncate(label, 80), Style: discordgo.LinkButton}
 }
 
+// Labels of dashboard link buttons. Staff views use the generic label unless
+// a more specific one says what the page is for.
+const (
+	dashboardLabel       = "Open in dashboard"
+	dashboardCaseLabel   = "Open case"
+	dashboardAppealLabel = "View appeal"
+	dashboardReplyLabel  = "Reply on the dashboard"
+	dashboardRuleLabel   = "Open rule"
+	dashboardSetupLabel  = "Open settings"
+)
+
+// withLink returns message with a link button to url, labelled label, in a
+// row of its own below its other components. An empty url, from a
+// DashboardLinks without a dashboard or with an unsafe ID, or a message
+// already at Discord's five rows, returns message unchanged. The
+// components are copied, so message itself is never modified.
+func withLink(message Message, url, label string) Message {
+	if url == "" || len(message.Components) >= 5 {
+		return message
+	}
+	message.Components = append(append([]discordgo.MessageComponent(nil), message.Components...),
+		Row(LinkButton(url, label)))
+	return message
+}
+
+// appendLink returns buttons with a link button to url added at the end, or
+// buttons unchanged when url is empty or a row could not hold another.
+func appendLink(buttons []discordgo.MessageComponent, url, label string) []discordgo.MessageComponent {
+	if url == "" || len(buttons) >= 5 {
+		return buttons
+	}
+	return append(buttons, LinkButton(url, label))
+}
+
 // Row puts up to five components in one action row; extras are dropped.
 func Row(components ...discordgo.MessageComponent) discordgo.ActionsRow {
 	if len(components) > 5 {

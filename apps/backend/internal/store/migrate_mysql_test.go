@@ -35,7 +35,7 @@ func TestMySQL(t *testing.T) {
 		t.Fatalf("concurrent migrate: %v", err)
 	}
 	assertSchema(t, db, true)
-	if version, err := s.MigrationReadiness(context.Background()); err != nil || version != 1 {
+	if version, err := s.MigrationReadiness(context.Background()); err != nil || version != 2 {
 		t.Fatalf("MigrationReadiness = %d, %v", version, err)
 	}
 
@@ -103,6 +103,39 @@ func TestMySQL(t *testing.T) {
 		}
 	})
 
+	t.Run("audit mirror claim", func(t *testing.T) {
+		ctx := context.Background()
+		guildID := addGuild(t, s, "mysql-mirror")
+		if err := db.Exec(`INSERT INTO guild_settings (id, created_at, updated_at, guild_id, audit_mirror_channel_discord_id,
+			notification_introduction, notification_footer, starter_policy_notice_pending)
+			VALUES (?, UTC_TIMESTAMP(), UTC_TIMESTAMP(), ?, '123', '', '', false)`, quack.NewID(), guildID).Error; err != nil {
+			t.Fatal(err)
+		}
+		entry := quack.AuditLogEntry{GuildID: guildID, Source: quack.AuditSourceAPI, Action: string(quack.AuditActionCaseCreate),
+			ResourceType: "case", ResourceID: "case-1", Result: quack.AuditResultSuccess}
+		if err := s.CreateAuditLogEntry(ctx, &entry); err != nil {
+			t.Fatal(err)
+		}
+		claimed, err := s.ClaimAuditMirrorDeliveries(ctx, 10)
+		if err != nil || len(claimed) != 1 || claimed[0].Entry.ID != entry.ID {
+			t.Fatalf("claim = %+v, %v", claimed, err)
+		}
+		if err := s.BeginAuditMirrorDelivery(ctx, entry.ID, claimed[0].LeaseToken); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.CompleteAuditMirrorDelivery(ctx, quack.CompleteAuditMirrorDeliveryParams{
+			AuditEntryID: entry.ID, LeaseToken: claimed[0].LeaseToken, Status: quack.AuditMirrorDelivered,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	if err := s.Rollback(true); !errors.Is(err, store.ErrIrreversible) {
+		t.Fatalf("Rollback past audit_mirror_deliveries = %v, want ErrIrreversible", err)
+	}
+	if err := db.Exec("DELETE FROM quack_schema_migrations WHERE version = 2").Error; err != nil {
+		t.Fatal(err)
+	}
 	if err := s.Rollback(false); !errors.Is(err, store.ErrBaselineRollback) {
 		t.Fatalf("Rollback(false) = %v, want ErrBaselineRollback", err)
 	}

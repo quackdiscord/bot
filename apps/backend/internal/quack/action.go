@@ -20,22 +20,25 @@ type ActionService struct {
 	enforcer  Enforcer
 	messenger Messenger
 	// guilds re-checks Discord before staff retries and reversals.
-	guilds           *GuildService
-	scheduler        Scheduler
-	dashboardBaseURL string
+	guilds    *GuildService
+	scheduler Scheduler
+	// dashboard builds the appeal link in case notifications.
+	dashboard DashboardLinks
 }
 
 // NewActionService returns an ActionService. enforcer, messenger, and
 // scheduler may be nil: actions then fail for review, notifications fail,
-// and requeued work waits for the poller.
-func NewActionService(store ActionStore, enforcer Enforcer, messenger Messenger, guilds *GuildService, scheduler Scheduler, dashboardBaseURL string) *ActionService {
+// and requeued work waits for the poller. dashboardURL is the dashboard
+// that appealable case notifications link to (see NewDashboardLinks); ""
+// leaves the link out.
+func NewActionService(store ActionStore, enforcer Enforcer, messenger Messenger, guilds *GuildService, scheduler Scheduler, dashboardURL string) *ActionService {
 	return &ActionService{
-		store:            store,
-		enforcer:         enforcer,
-		messenger:        messenger,
-		guilds:           guilds,
-		scheduler:        scheduler,
-		dashboardBaseURL: strings.TrimSpace(dashboardBaseURL),
+		store:     store,
+		enforcer:  enforcer,
+		messenger: messenger,
+		guilds:    guilds,
+		scheduler: scheduler,
+		dashboard: NewDashboardLinks(dashboardURL),
 	}
 }
 
@@ -180,26 +183,17 @@ func nextRetryTime(execution CaseActionExecution) time.Time {
 }
 
 // ListFailures returns a page of the guild's failed executions awaiting
-// review.
+// review. Only denials are audited.
 func (s *ActionService) ListFailures(ctx context.Context, guildContext *GuildStaffContext, limit, offset int) (*FailedCaseActionResult, error) {
-	const action = string(AuditActionActionFailureRead)
 	if guildContext == nil || guildContext.Guild == nil || !guildContext.Can(PermissionActionCaseRead) {
-		_ = s.audit(ctx, guildContext, action, "list", AuditResultDenied, "permission_denied")
+		_ = s.audit(ctx, guildContext, string(AuditActionActionFailureRead), "list", AuditResultDenied, "permission_denied")
 		return nil, ErrCasePermissionDenied
 	}
-	result, err := s.store.ListFailedCaseActions(ctx, FailedCaseActionFilter{
+	return s.store.ListFailedCaseActions(ctx, FailedCaseActionFilter{
 		GuildID: guildContext.Guild.ID,
 		Limit:   limit,
 		Offset:  offset,
 	})
-	if err != nil {
-		_ = s.audit(ctx, guildContext, action, "list", AuditResultFailure, "query_failed")
-		return nil, err
-	}
-	if err := s.audit(ctx, guildContext, action, "list", AuditResultSuccess, ""); err != nil {
-		return nil, err
-	}
-	return result, nil
 }
 
 // Retry requeues a failed execution after re-checking Discord. Staff use it

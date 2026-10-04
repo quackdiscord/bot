@@ -15,7 +15,8 @@ import (
 var errNotFailed = errors.New("action is not failed")
 
 // ListFailedCaseActions returns a page of a guild's failed, undismissed
-// executions, most recently updated first: the staff review queue.
+// executions, most recently updated first: the staff review queue. The
+// page's cases are loaded in one more query so each row can be named.
 func (s *Store) ListFailedCaseActions(ctx context.Context, filter quack.FailedCaseActionFilter) (*quack.FailedCaseActionResult, error) {
 	limit, offset := page(filter.Limit, filter.Offset)
 	query := s.db.WithContext(ctx).Model(&executionRecord{}).
@@ -29,7 +30,33 @@ func (s *Store) ListFailedCaseActions(ctx context.Context, filter quack.FailedCa
 	if err := query.Order("updated_at DESC, id DESC").Limit(limit).Offset(offset).Find(&records).Error; err != nil {
 		return nil, fmt.Errorf("list failed case actions: %w", err)
 	}
-	return &quack.FailedCaseActionResult{Executions: modelsOf(records, executionRecord.model), Total: total}, nil
+	cases, err := s.failedActionCases(ctx, filter.GuildID, records)
+	if err != nil {
+		return nil, err
+	}
+	return &quack.FailedCaseActionResult{Executions: modelsOf(records, executionRecord.model), Cases: cases, Total: total}, nil
+}
+
+// failedActionCases returns the case number and member of every case behind
+// records, keyed by case ID.
+func (s *Store) failedActionCases(ctx context.Context, guildID string, records []executionRecord) (map[string]quack.FailedActionCase, error) {
+	cases := make(map[string]quack.FailedActionCase, len(records))
+	if len(records) == 0 {
+		return cases, nil
+	}
+	ids := make([]string, 0, len(records))
+	for _, record := range records {
+		ids = append(ids, record.CaseID)
+	}
+	var rows []caseRecord
+	if err := s.db.WithContext(ctx).Select("id", "case_number", "target_discord_user_id").
+		Where("guild_id = ? AND id IN ?", guildID, ids).Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("load failed action cases: %w", err)
+	}
+	for _, row := range rows {
+		cases[row.ID] = quack.FailedActionCase{CaseNumber: row.CaseNumber, TargetDiscordUserID: row.TargetDiscordUserID}
+	}
+	return cases, nil
 }
 
 // RetryCaseAction requeues a failed execution after staff confirmed it is

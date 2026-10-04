@@ -1317,6 +1317,7 @@ paths:
       - appeals
   /guilds/{discordGuildID}/audit-log:
     get:
+      description: Newest first.
       operationId: listAuditLog
       parameters:
       - in: path
@@ -1912,6 +1913,239 @@ paths:
       summary: Mark a case invalid
       tags:
       - cases
+  /guilds/{discordGuildID}/directory/channels:
+    get:
+      description: Already in Discord's sidebar order. Threads are left out.
+      operationId: listChannels
+      parameters:
+      - in: path
+        name: discordGuildID
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiChannelListResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Not Found
+        "429":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Too Many Requests
+        "502":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Bad Gateway
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Service Unavailable
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Any other error, such as a 500
+      security:
+      - sessionCookie: []
+      - sessionBearer: []
+      summary: The guild's channels, for channel pickers
+      tags:
+      - directory
+  /guilds/{discordGuildID}/directory/members:
+    get:
+      description: Matches the start of a username or nickname. limit defaults to
+        10 and is capped at 25.
+      operationId: searchMembers
+      parameters:
+      - in: path
+        name: discordGuildID
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: query
+        required: true
+        schema:
+          minLength: 1
+          type: string
+      - in: query
+        name: limit
+        schema:
+          default: 10
+          maximum: 100
+          minimum: 1
+          type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiMemberSearchResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Not Found
+        "429":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Too Many Requests
+        "502":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Bad Gateway
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Service Unavailable
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Any other error, such as a 500
+      security:
+      - sessionCookie: []
+      - sessionBearer: []
+      summary: Search the guild's current members by name
+      tags:
+      - directory
+  /guilds/{discordGuildID}/directory/users:
+    get:
+      description: Users come back in the order asked, as guild members when they
+        are one. Unknown users are left out.
+      operationId: lookupUsers
+      parameters:
+      - in: path
+        name: discordGuildID
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: ids
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiUserLookupResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Not Found
+        "429":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Too Many Requests
+        "502":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Bad Gateway
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Service Unavailable
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Any other error, such as a 500
+      security:
+      - sessionCookie: []
+      - sessionBearer: []
+      summary: Display names and avatars for Discord user IDs
+      tags:
+      - directory
   /guilds/{discordGuildID}/me:
     get:
       operationId: getGuildMe
@@ -5282,6 +5516,24 @@ components:
       required:
       - case
       type: object
+    ApiChannelListResponse:
+      properties:
+        channels:
+          items:
+            $ref: '#/components/schemas/ApiDirectoryChannel'
+          type: array
+      required:
+      - channels
+      type: object
+    ApiChannelType:
+      enum:
+      - text
+      - announcement
+      - forum
+      - voice
+      - stage
+      - category
+      type: string
     ApiConnectionStatus:
       properties:
         connected:
@@ -5293,6 +5545,53 @@ components:
           type: string
       required:
       - connected
+      type: object
+    ApiDirectoryChannel:
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        parent_id:
+          type: string
+        position:
+          type: integer
+        type:
+          $ref: '#/components/schemas/ApiChannelType'
+      required:
+      - id
+      - name
+      - type
+      - parent_id
+      - position
+      type: object
+    ApiDirectoryUser:
+      properties:
+        avatar_url:
+          type: string
+        bot:
+          type: boolean
+        display_name:
+          type: string
+        global_name:
+          type: string
+        id:
+          type: string
+        in_guild:
+          type: boolean
+        nick:
+          type: string
+        username:
+          type: string
+      required:
+      - id
+      - username
+      - global_name
+      - nick
+      - display_name
+      - avatar_url
+      - bot
+      - in_guild
       type: object
     ApiErrorCode:
       enum:
@@ -5361,6 +5660,9 @@ components:
           type: integer
         case_id:
           type: string
+        case_number:
+          minimum: 0
+          type: integer
         created_at:
           format: date-time
           type: string
@@ -5377,12 +5679,16 @@ components:
           type: boolean
         status:
           $ref: '#/components/schemas/QuackActionExecutionStatus'
+        target_discord_user_id:
+          type: string
         updated_at:
           format: date-time
           type: string
       required:
       - id
       - case_id
+      - case_number
+      - target_discord_user_id
       - action_type
       - status
       - attempt_count
@@ -5469,6 +5775,15 @@ components:
           $ref: '#/components/schemas/QuackMemberCaseDetail'
       required:
       - case
+      type: object
+    ApiMemberSearchResponse:
+      properties:
+        members:
+          items:
+            $ref: '#/components/schemas/ApiDirectoryUser'
+          type: array
+      required:
+      - members
       type: object
     ApiReadinessCheck:
       properties:
@@ -5627,6 +5942,15 @@ components:
           $ref: '#/components/schemas/QuackTemplatePolicy'
       required:
       - policy
+      type: object
+    ApiUserLookupResponse:
+      properties:
+        users:
+          items:
+            $ref: '#/components/schemas/ApiDirectoryUser'
+          type: array
+      required:
+      - users
       type: object
     ApiVoidCaseRequest:
       properties:
@@ -5880,6 +6204,8 @@ components:
           type: integer
         offset:
           type: integer
+        review_reason_required:
+          type: boolean
         total:
           format: int64
           type: integer
@@ -5910,6 +6236,8 @@ components:
           items:
             $ref: '#/components/schemas/QuackAppealReversalOffer'
           type: array
+        review_reason_required:
+          type: boolean
         reviewed_by_discord_user_id:
           type: string
         statement:
@@ -6797,7 +7125,11 @@ components:
           type:
           - array
           - "null"
+        guild_icon_url:
+          type: string
         guild_id:
+          type: string
+        guild_name:
           type: string
         history:
           items:
@@ -6815,6 +7147,8 @@ components:
           type:
           - "null"
           - string
+        rule_name:
+          type: string
         selected_outcome:
           anyOf:
           - type: "null"
@@ -6858,11 +7192,17 @@ components:
         created_at:
           format: date-time
           type: string
+        guild_icon_url:
+          type: string
         guild_id:
+          type: string
+        guild_name:
           type: string
         id:
           type: string
         official_reason:
+          type: string
+        rule_name:
           type: string
         selected_outcome:
           $ref: '#/components/schemas/QuackCaseSelectedLevel'
@@ -6871,7 +7211,10 @@ components:
       required:
       - id
       - guild_id
+      - guild_name
+      - guild_icon_url
       - case_number
+      - rule_name
       - official_reason
       - validity
       - created_at

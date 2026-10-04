@@ -95,8 +95,22 @@ func TestAppealQueuePostIsEditedInPlaceAndDecisionsCarryIntent(t *testing.T) {
 	}
 
 	reviewer := templateGuildContext(t, store, updateGuildDiscordID, "mod-2", uint64(discordgo.PermissionModerateMembers))
-	if _, err := appeals.RequestInformation(ctx, reviewer, appeal.ID, "Which message?"); err != nil {
+	// Reviewers can't read settings, so staff views carry the reason rule.
+	if staffView, err := appeals.GetStaff(ctx, reviewer, appeal.ID); err != nil || !staffView.ReviewReasonRequired {
+		t.Fatalf("staff appeal reason required = %+v, %v", staffView, err)
+	}
+	if queue, err := appeals.ListStaff(ctx, reviewer, quack.AppealStatusPending, 10, 0); err != nil || !queue.ReviewReasonRequired {
+		t.Fatalf("staff queue reason required = %+v, %v", queue, err)
+	}
+	if appeal.ReviewReasonRequired {
+		t.Fatal("member appeal response carries the staff reason rule")
+	}
+	asked, err := appeals.RequestInformation(ctx, reviewer, appeal.ID, "Which message?")
+	if err != nil {
 		t.Fatal(err)
+	}
+	if !asked.ReviewReasonRequired {
+		t.Fatal("decision response lost the reason rule")
 	}
 	if _, err := appeals.SubmitInformation(ctx, appeal.ID, "target-1", quack.AppealInformationInput{Body: "The first one."}); err != nil {
 		t.Fatal(err)

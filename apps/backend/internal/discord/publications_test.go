@@ -114,6 +114,28 @@ func TestPublicationRefreshSettlesAndWakesOnChange(t *testing.T) {
 	}
 }
 
+// TestPublicationRefreshLinksTheDashboard links a receipt that recorded
+// its Discord guild to the case's dashboard page, and leaves receipts
+// recorded before that without a link.
+func TestPublicationRefreshLinksTheDashboard(t *testing.T) {
+	for presentation, want := range map[string]string{
+		`{"view":"case_receipt","discord_guild_id":"discord-guild"}`: "https://dash.example/guilds/discord-guild/cases/case",
+		`{"view":"case_receipt"}`:                                    "",
+	} {
+		source, editor, refresher := newPublicationFixture()
+		source.publication.PresentationJSON = presentation
+		refresher.dashboard = quack.NewDashboardLinks("https://dash.example")
+		if err := refresher.RefreshDue(context.Background()); err != nil || len(editor.edits) != 1 {
+			t.Fatalf("refresh: %v, %d edits", err, len(editor.edits))
+		}
+		row := editor.edits[0].Components[0].(discordgo.ActionsRow).Components
+		last := row[len(row)-1].(discordgo.Button)
+		if got := last.URL; got != want {
+			t.Fatalf("%s: link %q, want %q", presentation, got, want)
+		}
+	}
+}
+
 // TestPublicationRefreshFollowsPendingEnforcement keeps a receipt due while
 // its enforcement runs, and shows a confirmed timeout's end once it lands.
 func TestPublicationRefreshFollowsPendingEnforcement(t *testing.T) {

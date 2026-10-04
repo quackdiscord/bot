@@ -63,10 +63,13 @@ func TestOperationalMetricSnapshot(t *testing.T) {
 		"quack_notifications_total":   1,
 		"quack_action_failures_total": 1,
 		"quack_appeals_total":         0,
+
+		"quack_audit_mirror_deliveries_total": 0,
+		"quack_audit_mirror_failures_total":   0,
 	}
 	for metric, value := range want {
-		if metrics[metric] != value {
-			t.Errorf("%s = %d, want %d", metric, metrics[metric], value)
+		if got, ok := metrics[metric]; !ok || got != value {
+			t.Errorf("%s = %d (reported %v), want %d", metric, got, ok, value)
 		}
 	}
 	if _, ok := metrics["quack_escalation_levels_total"]; ok {

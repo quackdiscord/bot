@@ -41,10 +41,20 @@ func TestAuditServiceListPermissionsAndFilters(t *testing.T) {
 		}
 	}
 
+	// Older databases hold mirror bookkeeping rows; they list like any entry.
+	bookkeeping := quack.AuditLogEntry{GuildID: adminContext.Guild.ID, Source: quack.AuditSourceSystem, Action: string(quack.AuditActionMirrorSkipped), ResourceType: "audit_entry", ResourceID: entries[0].ID, Result: quack.AuditResultSuccess, MetadataJSON: "{}"}
+	if err := store.CreateAuditLogEntry(ctx, &bookkeeping); err != nil {
+		t.Fatal(err)
+	}
+
 	service := quack.NewAuditService(store)
 	moderatorList, err := service.List(ctx, modContext, quack.AuditListInput{})
-	if err != nil || moderatorList.Total != 2 {
-		t.Fatalf("expected moderator complete audit access, list=%+v err=%v", moderatorList, err)
+	if err != nil || moderatorList.Total != 3 {
+		t.Fatalf("expected moderator audit access to every entry, list=%+v err=%v", moderatorList, err)
+	}
+	mirrorList, err := service.List(ctx, modContext, quack.AuditListInput{Action: string(quack.AuditActionMirrorSkipped)})
+	if err != nil || mirrorList.Total != 1 || mirrorList.Entries[0].ID != bookkeeping.ID {
+		t.Fatalf("historical mirror entry not reachable by action filter: list=%+v err=%v", mirrorList, err)
 	}
 
 	list, err := service.List(ctx, adminContext, quack.AuditListInput{Result: string(quack.AuditResultFailure), Limit: "10"})
@@ -99,21 +109,25 @@ func TestAuditServiceRedactsAndFiltersCompleteContract(t *testing.T) {
 	if err != nil || len(secondPage.Entries) != 1 || secondPage.Entries[0].ID == firstPage.Entries[0].ID {
 		t.Fatalf("cursor repeated or skipped page: first=%+v second=%+v err=%v", firstPage, secondPage, err)
 	}
-	audits, err := repository.ListAuditLogEntriesFiltered(ctx, quack.ListAuditLogEntriesParams{GuildID: moderator.Guild.ID, Action: string(quack.AuditActionAuditRead), Limit: 10})
-	foundDiscordRead := false
-	if err == nil {
-		for _, audit := range audits.Entries {
-			if audit.Source == quack.AuditSourceDiscord && audit.RequestID == "request-1" && audit.CorrelationID == "trace-1" {
-				foundDiscordRead = true
-			}
+	readAudits := func() []quack.AuditLogEntry {
+		t.Helper()
+		audits, err := repository.ListAuditLogEntriesFiltered(ctx, quack.ListAuditLogEntriesParams{GuildID: moderator.Guild.ID, Action: string(quack.AuditActionAuditRead), Limit: 10})
+		if err != nil {
+			t.Fatal(err)
 		}
+		return audits.Entries
 	}
-	if !foundDiscordRead {
-		t.Fatalf("missing trace-linked Discord read audit: %+v err=%v", audits, err)
+	if audits := readAudits(); len(audits) != 0 {
+		t.Fatalf("successful reads were audited: %+v", audits)
 	}
 
 	ordinary := templateGuildContext(t, repository, "audit-guild", "ordinary", uint64(discordgo.PermissionSendMessages))
 	if _, err := service.List(ctx, ordinary, quack.AuditListInput{ReadSource: quack.AuditSourceDiscord}); !errors.Is(err, quack.ErrAuditPermissionDenied) {
 		t.Fatalf("expected moderator permission denial, got %v", err)
+	}
+	audits := readAudits()
+	if len(audits) != 1 || audits[0].Result != quack.AuditResultDenied || audits[0].Source != quack.AuditSourceDiscord ||
+		audits[0].RequestID != "request-1" || audits[0].CorrelationID != "trace-1" {
+		t.Fatalf("want one trace-linked Discord denial audit, got %+v", audits)
 	}
 }

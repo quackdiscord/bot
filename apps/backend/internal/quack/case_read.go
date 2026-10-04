@@ -158,13 +158,13 @@ type CaseNotificationResponse struct {
 	SentAt        *time.Time         `json:"sent_at,omitempty"`
 }
 
-// List returns a filtered page of the guild's cases.
+// List returns a filtered page of the guild's cases. Only denials are
+// audited.
 func (s *CaseService) List(ctx context.Context, guildContext *GuildStaffContext, input CaseListInput) (*CaseListResponse, error) {
-	const action = string(AuditActionCaseSearch)
 	params, err := caseListParams(guildContext, input)
 	if err != nil {
 		if errors.Is(err, ErrCasePermissionDenied) {
-			_ = s.audit(ctx, guildContext, staffAttribution, action, "case", "list", AuditResultDenied, "permission_denied")
+			_ = s.audit(ctx, guildContext, staffAttribution, string(AuditActionCaseSearch), "case", "list", AuditResultDenied, "permission_denied")
 		}
 		return nil, err
 	}
@@ -174,9 +174,6 @@ func (s *CaseService) List(ctx context.Context, guildContext *GuildStaffContext,
 	}
 	responses, err := s.caseResponses(ctx, page.Cases)
 	if err != nil {
-		return nil, err
-	}
-	if err := s.audit(ctx, guildContext, staffAttribution, action, "case", "list", AuditResultSuccess, ""); err != nil {
 		return nil, err
 	}
 	return &CaseListResponse{Cases: responses, Total: page.Total, Limit: params.Limit, Offset: params.Offset}, nil
@@ -198,11 +195,6 @@ func (s *CaseService) UserHistory(ctx context.Context, guildContext *GuildStaffC
 	if err != nil {
 		return nil, err
 	}
-	err = s.audit(ctx, guildContext, staffAttribution, string(AuditActionCaseHistoryRead),
-		"member", targetDiscordUserID, AuditResultSuccess, "")
-	if err != nil {
-		return nil, err
-	}
 	byValidity := make(map[string]int64, len(summary.ByValidity))
 	for validity, count := range summary.ByValidity {
 		byValidity[string(validity)] = count
@@ -217,7 +209,7 @@ func (s *CaseService) UserHistory(ctx context.Context, guildContext *GuildStaffC
 	}, nil
 }
 
-// Actions returns a case's executions without auditing a read. Adapters use
+// Actions returns a case's executions without checking access. Adapters use
 // it to follow enforcement progress on a case they just created.
 func (s *CaseService) Actions(ctx context.Context, caseID string) ([]CaseActionExecution, error) {
 	return s.store.ListCaseActionExecutions(ctx, caseID)

@@ -3,7 +3,6 @@ package discord
 import (
 	"errors"
 	"fmt"
-	"net/url"
 	"strconv"
 	"strings"
 
@@ -20,8 +19,9 @@ const statementPageLimit = 1700
 // is split into pages with Prev and Next buttons instead of an attachment,
 // and every page keeps the decision controls. Icons are resolved for
 // applicationID first, so pages are measured as Discord will count them.
-func appealStaffPage(appeal *quack.AppealResponse, page int, applicationID string) Message {
-	message := appealStaffMessage(appeal)
+// appealURL is the appeal's staff dashboard page, or "" to leave it out.
+func appealStaffPage(appeal *quack.AppealResponse, page int, applicationID, appealURL string) Message {
+	message := appealStaffMessage(appeal, appealURL)
 	if appeal == nil {
 		return message
 	}
@@ -40,9 +40,10 @@ func appealStaffPage(appeal *quack.AppealResponse, page int, applicationID strin
 
 // appealStaffMessage is the staff view of an appeal: who appealed, where it
 // stands, the decision reason, the member's quoted statement, Accept and
-// Reject while it is pending, and a confirmation button for each reversal
-// still on offer after acceptance.
-func appealStaffMessage(appeal *quack.AppealResponse) Message {
+// Reject while it is pending, a link to appealURL (its staff dashboard
+// page, when set), and a confirmation button for each reversal still on
+// offer after acceptance.
+func appealStaffMessage(appeal *quack.AppealResponse, appealURL string) Message {
 	if appeal == nil {
 		return Signal("error", "That appeal couldn’t be found.", true)
 	}
@@ -69,10 +70,10 @@ func appealStaffMessage(appeal *quack.AppealResponse) Message {
 	message := Conversation("appeal", lead, "", strings.Join(body, "\n\n"), meta, false)
 	message.Components = []discordgo.MessageComponent{}
 	if appeal.Status == quack.AppealStatusPending {
-		message.Components = append(message.Components, Row(
+		message.Components = append(message.Components, Row(appendLink([]discordgo.MessageComponent{
 			Button(appealCustomID(appealAcceptAction, appeal.ID), "Accept", discordgo.SuccessButton, false),
 			Button(appealCustomID(appealRejectAction, appeal.ID), "Reject", discordgo.DangerButton, false),
-		))
+		}, appealURL, dashboardLabel)...))
 	}
 	for _, offer := range appeal.ReversalOffers {
 		customID, err := EncodeCustomID(CustomID{
@@ -87,17 +88,24 @@ func appealStaffMessage(appeal *quack.AppealResponse) Message {
 		label := "Confirm " + strings.ToLower(offer.ActionType.Label())
 		message.Components = append(message.Components, Row(Button(customID, label, discordgo.DangerButton, false)))
 	}
+	if appeal.Status != quack.AppealStatusPending {
+		message = withLink(message, appealURL, dashboardLabel)
+	}
 	return message
 }
 
 // appealDecisionMessage is the DM telling a member what staff decided. It
 // quotes the staff reason but never names the reviewer. An accepted appeal
-// with a rejoin invite gets a Rejoin Server button.
-func appealDecisionMessage(intent quack.AppealDecisionIntent) Message {
+// with a rejoin invite gets a Rejoin Server button. appealURL, when set, is
+// the member's appeal page in the dashboard: a request for information
+// links it as the place to reply, and any other decision as the appeal.
+func appealDecisionMessage(intent quack.AppealDecisionIntent, appealURL string) Message {
 	icon, lead, next := "appeal", "Your appeal was closed.", ""
+	label := dashboardAppealLabel
 	switch intent.Status {
 	case quack.AppealStatusNeedsInformation:
 		icon, lead, next = "reply", "Staff need a little more information to review your appeal.", "You can reply from your Quack dashboard."
+		label = dashboardReplyLabel
 	case quack.AppealStatusAccepted:
 		icon, lead, next = "accept", "Your appeal was accepted.", "Your case was voided. Quack will try to remove any ban or timeout from it."
 	case quack.AppealStatusRejected:
@@ -117,26 +125,27 @@ func appealDecisionMessage(intent quack.AppealDecisionIntent) Message {
 		body += "\n\nIf you left or were banned, you can rejoin once any ban has been removed: " + intent.RejoinURL
 	}
 	message := Signal("appeal", body, false)
+	var buttons []discordgo.MessageComponent
 	if intent.Status == quack.AppealStatusAccepted && intent.RejoinURL != "" {
-		message.Components = []discordgo.MessageComponent{Row(LinkButton(intent.RejoinURL, "Rejoin Server"))}
+		buttons = append(buttons, LinkButton(intent.RejoinURL, "Rejoin Server"))
+	}
+	if buttons = appendLink(buttons, appealURL, label); len(buttons) > 0 {
+		message.Components = []discordgo.MessageComponent{Row(buttons...)}
 	}
 	return message
 }
 
 // appealEntryMessage invites the member to appeal from a case notification,
-// with a button that opens the case's appeal page in the dashboard. Only an
-// https dashboard is accepted, and any query or fragment on it is dropped.
+// with a button that opens the case's appeal page in the dashboard at
+// baseURL. The base comes from quack.ActionService, whose DashboardLinks
+// already applied the environment's scheme rule; one that is not a plain
+// http(s) URL, or IDs that are not safe path segments, are an error.
 func appealEntryMessage(baseURL, guildID, caseID string) (Message, error) {
-	parsed, err := url.Parse(strings.TrimSpace(baseURL))
-	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
-		return Message{}, errors.New("secure dashboard base URL is required")
+	link := quack.NewDashboardLinks(baseURL).MemberAppeal(guildID, caseID)
+	if link == "" {
+		return Message{}, errors.New("dashboard appeal link is unavailable")
 	}
-	parsed.Path = strings.TrimRight(parsed.Path, "/") +
-		"/guilds/" + url.PathEscape(guildID) +
-		"/cases/" + url.PathEscape(caseID) + "/appeal"
-	parsed.RawQuery = ""
-	parsed.Fragment = ""
 	message := Signal("appeal", "You can ask staff to review this decision.", false)
-	message.Components = []discordgo.MessageComponent{Row(LinkButton(parsed.String(), "Appeal decision"))}
+	message.Components = []discordgo.MessageComponent{Row(LinkButton(link, "Appeal decision"))}
 	return message, nil
 }

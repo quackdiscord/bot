@@ -33,7 +33,7 @@ type AuditListInput struct {
 	CreatedAfter        string
 	CreatedBefore       string
 	// ReadSource is the adapter performing the read, recorded on the
-	// audit.read entry.
+	// audit.read entry when the read is denied.
 	ReadSource AuditSource
 	BeforeID   string
 }
@@ -67,14 +67,14 @@ type AuditEntryResponse struct {
 	Metadata            any         `json:"metadata"`
 }
 
-// List returns a filtered page of the guild's audit log. Every read,
-// including denied and failed ones, is itself audited.
+// List returns a filtered page of the guild's audit log. Only denied reads
+// are audited.
 func (s *AuditService) List(ctx context.Context, guildContext *GuildStaffContext, input AuditListInput) (*AuditListResponse, error) {
 	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
 		return nil, auditValidationError("missing guild context")
 	}
 	if !guildContext.Can(PermissionActionAuditRead) {
-		_ = s.recordRead(ctx, guildContext, input, AuditResultDenied, "permission_denied")
+		_ = s.recordDenied(ctx, guildContext, input)
 		return nil, ErrAuditPermissionDenied
 	}
 
@@ -128,7 +128,6 @@ func (s *AuditService) List(ctx context.Context, guildContext *GuildStaffContext
 		Offset:              offset,
 	})
 	if err != nil {
-		_ = s.recordRead(ctx, guildContext, input, AuditResultFailure, "query_failed")
 		return nil, err
 	}
 
@@ -157,9 +156,6 @@ func (s *AuditService) List(ctx context.Context, guildContext *GuildStaffContext
 	if len(entries) == limit {
 		nextCursor = entries[len(entries)-1].ID
 	}
-	if err := s.recordRead(ctx, guildContext, input, AuditResultSuccess, ""); err != nil {
-		return nil, err
-	}
 	return &AuditListResponse{
 		Entries:    entries,
 		Total:      page.Total,
@@ -169,9 +165,9 @@ func (s *AuditService) List(ctx context.Context, guildContext *GuildStaffContext
 	}, nil
 }
 
-// recordRead audits an audit log read. The metadata says which filters were
-// used, never their values or the results.
-func (s *AuditService) recordRead(ctx context.Context, guildContext *GuildStaffContext, input AuditListInput, result AuditResult, failure string) error {
+// recordDenied audits a denied audit log read. The metadata says which
+// filters were used, never their values.
+func (s *AuditService) recordDenied(ctx context.Context, guildContext *GuildStaffContext, input AuditListInput) error {
 	if guildContext == nil || guildContext.Guild == nil {
 		return nil
 	}
@@ -203,8 +199,8 @@ func (s *AuditService) recordRead(ctx context.Context, guildContext *GuildStaffC
 		Action:              string(AuditActionAuditRead),
 		ResourceType:        "audit_log",
 		ResourceID:          "list",
-		Result:              result,
-		FailureReason:       failure,
+		Result:              AuditResultDenied,
+		FailureReason:       "permission_denied",
 		RequestID:           requestID,
 		CorrelationID:       correlationID,
 		MetadataJSON:        string(metadata),

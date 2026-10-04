@@ -26,6 +26,9 @@ type AppealQueueReceipt struct{ ChannelID, MessageID string }
 // appeal, validated before it reaches the notifier.
 type AppealDecisionNotice struct {
 	Intent AppealDecisionIntent
+	// GuildID is Quack's ID for the appeal's guild, which with
+	// Intent.CaseID locates the member's appeal page in the dashboard.
+	GuildID string
 }
 
 // AppealDecisionSender is implemented by notifiers that render a member's
@@ -104,6 +107,7 @@ func (d *AppealNotificationDispatcher) deliver(ctx context.Context, item AppealN
 		if sender, ok := d.client.(AppealDecisionSender); ok && item.DecisionIntentJSON != "" {
 			var notice AppealDecisionNotice
 			if notice, err = decodeDecisionNotice(item.DecisionIntentJSON); err == nil {
+				notice.GuildID = item.GuildID
 				messageID, err = sender.SendAppealDecision(ctx, item.TargetDiscordUserID, notice)
 			}
 		} else {

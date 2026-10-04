@@ -40,6 +40,18 @@ func appealCustomID(action, payload string) string {
 // /appeals.
 type appeals struct {
 	services *quack.Services
+	// dashboard links staff views to the appeal's page and the member's
+	// confirmation to their appeal page.
+	dashboard quack.DashboardLinks
+}
+
+// staffURL is the staff dashboard page of appeal in the interaction's
+// guild, or "" without one.
+func (a appeals) staffURL(i *discordgo.InteractionCreate, appeal *quack.AppealResponse) string {
+	if appeal == nil {
+		return ""
+	}
+	return a.dashboard.Staff(i.GuildID, "appeals", appeal.ID)
 }
 
 // register installs /appeals and the appeal components and forms on r.
@@ -88,7 +100,9 @@ func (a appeals) openForm(ctx context.Context, i *discordgo.InteractionCreate) R
 
 // submit saves the member's statement. Submit checks ownership and
 // eligibility again, since the case may have changed while the form was
-// open. Guild membership is not needed, so a banned member can appeal.
+// open. Guild membership is not needed, so a banned member can appeal. The
+// confirmation links the member's appeal page, where staff questions and
+// the decision show up too.
 func (a appeals) submit(_ context.Context, i *discordgo.InteractionCreate) Result {
 	memberID := appellant(i)
 	if memberID == "" {
@@ -101,12 +115,16 @@ func (a appeals) submit(_ context.Context, i *discordgo.InteractionCreate) Resul
 	}
 	statement := ModalValue(data, "reason")
 	return Async(DeferEphemeral(), func(ctx context.Context, responder Responder) error {
-		_, err := a.services.Appeals.Submit(ctx, id.Payload, memberID, quack.AppealSubmissionInput{Statement: statement})
+		submitted, err := a.services.Appeals.Submit(ctx, id.Payload, memberID, quack.AppealSubmissionInput{Statement: statement})
 		if err != nil {
 			_, err = responder.EditOriginal(ErrorEdit(appealSubmissionError(err)))
 			return err
 		}
-		_, err = Publish(responder, Signal("appeal", "Your appeal was submitted. We’ll DM you when the moderators decide.", true))
+		confirmation := Signal("appeal", "Your appeal was submitted. We’ll DM you when the moderators decide.", true)
+		if submitted != nil {
+			confirmation = withLink(confirmation, a.dashboard.MemberAppeal(submitted.GuildID, submitted.CaseID), dashboardAppealLabel)
+		}
+		_, err = Publish(responder, confirmation)
 		return err
 	})
 }

@@ -76,21 +76,25 @@ func (b *Bot) ValidateStaffChannel(ctx context.Context, guildID, channelID strin
 
 // SendAuditMirror posts one audit entry to the guild's audit mirror channel
 // after re-checking that the channel is still staff-only. It shares nothing
-// with the optional general-logging module.
-func (b *Bot) SendAuditMirror(ctx context.Context, message quack.AuditMirrorMessage) error {
+// with the optional general-logging module. It returns the posted message's
+// ID.
+func (b *Bot) SendAuditMirror(ctx context.Context, message quack.AuditMirrorMessage) (string, error) {
 	if err := ctx.Err(); err != nil {
-		return err
+		return "", err
 	}
 	if err := b.ValidateStaffChannel(ctx, message.DiscordGuildID, message.ChannelDiscordID); err != nil {
-		return fmt.Errorf("%w: private destination validation failed", quack.ErrAuditMirrorChannelUnavailable)
+		return "", fmt.Errorf("%w: private destination validation failed", quack.ErrAuditMirrorChannelUnavailable)
 	}
-	_, err := b.Send(ctx, message.ChannelDiscordID, auditMirrorMessage(message))
+	sent, err := b.Send(ctx, message.ChannelDiscordID, auditMirrorMessage(message, b.Dashboard))
 	switch {
 	case err == nil:
-		return nil
+		if sent == nil {
+			return "", nil
+		}
+		return sent.ID, nil
 	case statusCode(err) == http.StatusForbidden || statusCode(err) == http.StatusNotFound:
-		return fmt.Errorf("%w: Discord rejected configured channel", quack.ErrAuditMirrorChannelUnavailable)
+		return "", fmt.Errorf("%w: Discord rejected configured channel", quack.ErrAuditMirrorChannelUnavailable)
 	default:
-		return errors.New("discord audit mirror delivery failed")
+		return "", errors.New("discord audit mirror delivery failed")
 	}
 }

@@ -24,6 +24,7 @@ func TestFailedActionListHidesInternals(t *testing.T) {
 			IdempotencyKey: "internal-key",
 			LeaseToken:     "internal-lease",
 		}},
+		Cases: map[string]quack.FailedActionCase{"case-1": {CaseNumber: 12, TargetDiscordUserID: "123"}},
 		Total: 1,
 	}))
 	if err != nil {
@@ -38,6 +39,9 @@ func TestFailedActionListHidesInternals(t *testing.T) {
 	action := decoded.Executions[0]
 	if action["id"] != "execution-1" || action["case_id"] != "case-1" || action["action_type"] != string(quack.ActionBanUser) {
 		t.Fatalf("action = %+v", action)
+	}
+	if action["case_number"] != float64(12) || action["target_discord_user_id"] != "123" {
+		t.Errorf("case = %v / %v, want #12 for 123", action["case_number"], action["target_discord_user_id"])
 	}
 	for _, field := range []string{"CaseID", "IdempotencyKey", "LeaseToken", "idempotency_key", "lease_token"} {
 		if _, ok := action[field]; ok {

@@ -109,12 +109,12 @@ type Router struct {
 // their /setup subcommands with HandleSetup, before the gateway opens.
 func NewRouter(bot *Bot, services *quack.Services, deduper Deduper) *Router {
 	r := newRouter(bot.Session, deduper)
-	newCases(services, bot, bot.DashboardURL).register(r)
-	appeals{services: services}.register(r)
-	templates{services: services}.register(r)
-	r.commands[helpCommandName] = help
+	newCases(services, bot, bot.Dashboard).register(r)
+	appeals{services: services, dashboard: bot.Dashboard}.register(r)
+	templates{services: services, dashboard: bot.Dashboard}.register(r)
+	r.commands[helpCommandName] = help(bot.Dashboard)
 	r.commands[uiPreviewCommandName] = uiPreview(bot)
-	r.commands[setupCommandName] = (&setup{session: bot.Session, services: services, modules: r.setups}).command
+	r.commands[setupCommandName] = (&setup{session: bot.Session, services: services, modules: r.setups, dashboard: bot.Dashboard}).command
 	bot.Session.AddHandler(r.handle)
 	return r
 }

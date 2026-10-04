@@ -3,7 +3,6 @@ package discord
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"strconv"
 	"strings"
 
@@ -230,49 +229,13 @@ func (c *cases) historyButton(_ context.Context, i *discordgo.InteractionCreate)
 	})
 }
 
-// webLink adds an "Open on web" button linking the dashboard page for
-// resource ("cases" or "members") and recordID, when a dashboard is
-// configured and the message has room for another row. Dashboard access is
-// checked by the dashboard; the link carries only IDs, never evidence or
-// context.
-func (c *cases) webLink(message Message, guildID, resource, recordID string) Message {
-	if c.dashboardURL == "" || len(message.Components) >= 5 {
-		return message
-	}
-	destination, err := url.Parse(c.dashboardURL)
-	if err != nil || destination.Scheme != "https" || destination.Hostname() == "" || destination.User != nil ||
-		destination.RawQuery != "" || destination.ForceQuery || destination.Fragment != "" || destination.Opaque != "" {
-		return message
-	}
-	if !webSegment(guildID) || (recordID != "" && !webSegment(recordID)) ||
-		(resource != "cases" && resource != "members") || (resource == "members" && recordID == "") {
-		return message
-	}
-	destination.Path = strings.TrimRight(destination.Path, "/") + "/guilds/" + guildID + "/" + resource
-	if recordID != "" {
-		destination.Path += "/" + recordID
-	}
-	destination.RawPath = ""
-	if len(destination.String()) > 512 {
-		return message
-	}
-	message.Components = append(append([]discordgo.MessageComponent(nil), message.Components...),
-		Row(LinkButton(destination.String(), "Open on web")))
-	return message
-}
-
-// webSegment reports whether value is an opaque ID safe to put in a URL
-// path, so a crafted payload cannot add URL syntax or traverse paths.
-func webSegment(value string) bool {
-	if value == "" {
-		return false
-	}
-	for _, char := range value {
-		if !(char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' || char == '-' || char == '_') {
-			return false
-		}
-	}
-	return true
+// webLink adds an "Open in dashboard" button linking the staff dashboard
+// page of the guild named by page, such as ("cases", caseID) or
+// ("members", userID), when a dashboard is configured and the message has
+// room for another row. Dashboard access is checked by the dashboard; the
+// link carries only IDs, never evidence or context.
+func (c *cases) webLink(message Message, guildID string, page ...string) Message {
+	return withLink(message, c.dashboard.Staff(guildID, page...), dashboardLabel)
 }
 
 // parseCount parses a non-negative page or position number from a custom

@@ -11,18 +11,23 @@ import (
 
 // failedActionResponse is the recovery queue's view of an action execution.
 // Leases, config snapshots, and idempotency keys stay internal.
+// In the queue list, CaseNumber and TargetDiscordUserID name the case so a
+// client needs no lookup per row; retry and dismiss responses leave them
+// zero.
 type failedActionResponse struct {
-	ID            string                      `json:"id"`
-	CaseID        string                      `json:"case_id"`
-	ActionType    quack.ActionType            `json:"action_type"`
-	Status        quack.ActionExecutionStatus `json:"status"`
-	AttemptCount  uint8                       `json:"attempt_count"`
-	MaxRetries    uint8                       `json:"max_retries"`
-	SafeForRetry  bool                        `json:"safe_for_retry"`
-	LastErrorCode string                      `json:"last_error_code,omitempty"`
-	LastError     string                      `json:"last_error,omitempty"`
-	CreatedAt     time.Time                   `json:"created_at"`
-	UpdatedAt     time.Time                   `json:"updated_at"`
+	ID                  string                      `json:"id"`
+	CaseID              string                      `json:"case_id"`
+	CaseNumber          uint64                      `json:"case_number"`
+	TargetDiscordUserID string                      `json:"target_discord_user_id"`
+	ActionType          quack.ActionType            `json:"action_type"`
+	Status              quack.ActionExecutionStatus `json:"status"`
+	AttemptCount        uint8                       `json:"attempt_count"`
+	MaxRetries          uint8                       `json:"max_retries"`
+	SafeForRetry        bool                        `json:"safe_for_retry"`
+	LastErrorCode       string                      `json:"last_error_code,omitempty"`
+	LastError           string                      `json:"last_error,omitempty"`
+	CreatedAt           time.Time                   `json:"created_at"`
+	UpdatedAt           time.Time                   `json:"updated_at"`
 }
 
 // failedActionListResponse is one page of the recovery queue.
@@ -108,7 +113,11 @@ func newFailedActionList(result *quack.FailedCaseActionResult) failedActionListR
 	}
 	response.Total = result.Total
 	for _, execution := range result.Executions {
-		response.Executions = append(response.Executions, newFailedAction(execution))
+		item := newFailedAction(execution)
+		if c, ok := result.Cases[execution.CaseID]; ok {
+			item.CaseNumber, item.TargetDiscordUserID = c.CaseNumber, c.TargetDiscordUserID
+		}
+		response.Executions = append(response.Executions, item)
 	}
 	return response
 }

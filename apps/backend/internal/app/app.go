@@ -125,7 +125,7 @@ type quackApp struct {
 // and touches the network only through st and rdb, so tests can call it.
 func build(ctx context.Context, cfg config.Config, st *store.Store, rdb *redis.Client, bot *discord.Bot) (*quackApp, error) {
 	w := worker.New(cfg.Queue.Size, cfg.Queue.Workers)
-	bot.DashboardURL = quack.DashboardBaseURL(cfg.API.CORSOrigins)
+	bot.Dashboard = quack.NewDashboardLinks(cfg.DashboardURL())
 	registry := modules.NewRegistry(st.DB())
 	services := quack.New(quack.Deps{
 		Store:            st,
@@ -136,7 +136,7 @@ func build(ctx context.Context, cfg config.Config, st *store.Store, rdb *redis.C
 		Channels:         bot,
 		Scheduler:        w,
 		Modules:          registry,
-		DashboardBaseURL: quack.DashboardBaseURL(cfg.API.CORSOrigins),
+		DashboardBaseURL: bot.Dashboard.Base(),
 	})
 
 	audit := modules.NewAuditLog(st)
@@ -178,6 +178,7 @@ func build(ctx context.Context, cfg config.Config, st *store.Store, rdb *redis.C
 		Discord:         bot,
 		Modules:         mountModules(q.tickets, q.logging, q.honeypot),
 		TemplateChanges: q.honeypot,
+		Directory:       directory{bot: bot},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("build HTTP API: %w", err)

@@ -19,8 +19,9 @@ const pageBudget = 1750
 // who, which rule, what Quack did about it, and the context staff gave,
 // never evidence. Member notifications have their own wording. A receipt
 // too long for one message shows its first page and a "View full case"
-// button.
-func caseReceiptMessage(receipt *quack.CaseReceipt) Message {
+// button. caseURL, when set, is the case's staff dashboard page, linked
+// beside the case controls.
+func caseReceiptMessage(receipt *quack.CaseReceipt, caseURL string) Message {
 	if receipt == nil {
 		return Signal("case_add", "Case added.", false)
 	}
@@ -60,7 +61,8 @@ func caseReceiptMessage(receipt *quack.CaseReceipt) Message {
 		lead = "**Voided** · " + lead
 	}
 	message := Conversation(icon, lead, PlainText(receipt.Reason), status, strings.Join(meta, " · "), false)
-	message.Components = []discordgo.MessageComponent{Row(casePrimaryControls(receipt.CaseID, receipt.TargetDiscordUserID, voided)...)}
+	controls := appendLink(casePrimaryControls(receipt.CaseID, receipt.TargetDiscordUserID, voided), caseURL, dashboardLabel)
+	message.Components = []discordgo.MessageComponent{Row(controls...)}
 	if pages := TextPages(message.Content, pageBudget); len(pages) > 1 {
 		message.Content = pages[0]
 		message.Components = append(message.Components, Row(caseButton("view", receipt.CaseID, "View full case", discordgo.SecondaryButton, false)))

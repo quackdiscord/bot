@@ -13,12 +13,14 @@ type AppealDecisionInput struct {
 	Reason string `json:"reason"`
 }
 
-// AppealListResponse is a page of appeals.
+// AppealListResponse is a page of appeals. ReviewReasonRequired reports
+// whether the guild makes staff write a reason for each decision.
 type AppealListResponse struct {
-	Appeals []AppealResponse `json:"appeals"`
-	Total   int64            `json:"total"`
-	Limit   int              `json:"limit"`
-	Offset  int              `json:"offset"`
+	Appeals              []AppealResponse `json:"appeals"`
+	Total                int64            `json:"total"`
+	Limit                int              `json:"limit"`
+	Offset               int              `json:"offset"`
+	ReviewReasonRequired bool             `json:"review_reason_required"`
 }
 
 // GetStaff returns an appeal to staff who can review appeals.
@@ -33,10 +35,20 @@ func (s *AppealService) GetStaff(ctx context.Context, guildContext *GuildStaffCo
 	if item == nil || item.GuildID != guildContext.Guild.ID {
 		return nil, ErrAppealNotFound
 	}
-	if err := s.auditStaff(ctx, guildContext, string(AuditActionAppealRead), item.ID); err != nil {
+	return s.staffResponse(ctx, item)
+}
+
+// staffResponse builds the staff view of one appeal, including whether a
+// decision needs a written reason.
+func (s *AppealService) staffResponse(ctx context.Context, item *Appeal) (*AppealResponse, error) {
+	response, err := s.response(ctx, item, false)
+	if err != nil {
 		return nil, err
 	}
-	return s.response(ctx, item, false)
+	if response.ReviewReasonRequired, err = s.reviewReasonRequired(ctx, item.GuildID); err != nil {
+		return nil, err
+	}
+	return response, nil
 }
 
 // ListStaff returns a page of the guild's appeals, optionally filtered by
@@ -65,10 +77,11 @@ func (s *AppealService) ListStaff(ctx context.Context, guildContext *GuildStaffC
 		}
 		responses = append(responses, *response)
 	}
-	if err := s.auditStaff(ctx, guildContext, string(AuditActionAppealQueueRead), "list"); err != nil {
+	required, err := s.reviewReasonRequired(ctx, guildContext.Guild.ID)
+	if err != nil {
 		return nil, err
 	}
-	return &AppealListResponse{Appeals: responses, Total: page.Total, Limit: limit, Offset: offset}, nil
+	return &AppealListResponse{Appeals: responses, Total: page.Total, Limit: limit, Offset: offset, ReviewReasonRequired: required}, nil
 }
 
 // appealTransition is one staff decision: the states it applies to, the
@@ -200,7 +213,7 @@ func (s *AppealService) transition(ctx context.Context, guildContext *GuildStaff
 		return nil, err
 	}
 	slog.InfoContext(ctx, "Appeal decision recorded", "guild_id", updated.GuildID, "appeal_id", updated.ID, "status", updated.Status)
-	return s.response(ctx, updated, false)
+	return s.staffResponse(ctx, updated)
 }
 
 // decisionIntent freezes what the member's notice about a decision says:
@@ -243,13 +256,6 @@ func memberNotificationBody(status AppealStatus, reason string) string {
 	default:
 		return "Your appeal was closed: " + reason
 	}
-}
-
-// auditStaff records a successful staff read of the guild's appeals.
-func (s *AppealService) auditStaff(ctx context.Context, guildContext *GuildStaffContext, action, resourceID string) error {
-	entry := webAudit(ctx, guildContext.Guild.ID, guildContext.Staff.DiscordUserID, guildContext.PermissionBits,
-		action, "appeal", resourceID, AuditResultSuccess)
-	return recordAudit(ctx, s.store, &entry)
 }
 
 func requireAppealReview(guildContext *GuildStaffContext) error {

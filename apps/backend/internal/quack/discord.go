@@ -60,10 +60,11 @@ type StaffChannelValidator interface {
 	ValidateStaffChannel(ctx context.Context, discordGuildID, channelID string) error
 }
 
-// AuditMirrorSender posts a mirrored audit entry. It returns an error
-// wrapping ErrAuditMirrorChannelUnavailable when the channel is gone.
+// AuditMirrorSender posts a mirrored audit entry and returns the Discord
+// message ID. It returns an error wrapping ErrAuditMirrorChannelUnavailable
+// when the channel is gone.
 type AuditMirrorSender interface {
-	SendAuditMirror(context.Context, AuditMirrorMessage) error
+	SendAuditMirror(context.Context, AuditMirrorMessage) (string, error)
 }
 
 // AppealNotifier delivers appeal notifications and returns the Discord

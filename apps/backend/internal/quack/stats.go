@@ -65,25 +65,18 @@ type StaffStatistics struct {
 }
 
 // Get returns the guild's statistics for the requested range, which may
-// span at most 366 days. It needs audit read access and is audited.
+// span at most 366 days. It needs audit read access; only denials are
+// audited.
 func (s *StaffStatisticsService) Get(ctx context.Context, guildContext *GuildStaffContext, input StatisticsInput) (*StaffStatistics, error) {
 	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil || !guildContext.Can(PermissionActionAuditRead) {
-		_ = s.auditRead(ctx, guildContext, AuditResultDenied, "permission_denied")
+		_ = s.auditDenied(ctx, guildContext)
 		return nil, ErrStatisticsPermissionDenied
 	}
 	from, to, err := statisticsRange(input, time.Now().UTC())
 	if err != nil {
 		return nil, err
 	}
-	result, err := s.store.DeriveStaffStatistics(ctx, StaffStatisticsParams{GuildID: guildContext.Guild.ID, From: from, To: to})
-	if err != nil {
-		_ = s.auditRead(ctx, guildContext, AuditResultFailure, "query_failed")
-		return nil, err
-	}
-	if err := s.auditRead(ctx, guildContext, AuditResultSuccess, ""); err != nil {
-		return nil, err
-	}
-	return result, nil
+	return s.store.DeriveStaffStatistics(ctx, StaffStatisticsParams{GuildID: guildContext.Guild.ID, From: from, To: to})
 }
 
 func statisticsRange(input StatisticsInput, now time.Time) (from, to time.Time, err error) {
@@ -106,7 +99,8 @@ func statisticsRange(input StatisticsInput, now time.Time) (from, to time.Time, 
 	return from, to, nil
 }
 
-func (s *StaffStatisticsService) auditRead(ctx context.Context, guildContext *GuildStaffContext, result AuditResult, failure string) error {
+// auditDenied records a denied statistics request.
+func (s *StaffStatisticsService) auditDenied(ctx context.Context, guildContext *GuildStaffContext) error {
 	if guildContext == nil || guildContext.Guild == nil {
 		return nil
 	}
@@ -125,8 +119,8 @@ func (s *StaffStatisticsService) auditRead(ctx context.Context, guildContext *Gu
 		Action:              string(AuditActionStatisticsRead),
 		ResourceType:        "statistics",
 		ResourceID:          "guild",
-		Result:              result,
-		FailureReason:       failure,
+		Result:              AuditResultDenied,
+		FailureReason:       "permission_denied",
 		RequestID:           requestID,
 		CorrelationID:       correlationID,
 		MetadataJSON:        "{}",

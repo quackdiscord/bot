@@ -30,6 +30,26 @@ func TestLoadDefaults(t *testing.T) {
 	}
 }
 
+func TestDashboardURL(t *testing.T) {
+	for _, test := range []struct {
+		environment string
+		origins     []string
+		want        string
+	}{
+		{"dev", []string{"http://localhost:3000", "http://127.0.0.1:3000"}, "http://localhost:3000"},
+		{"dev", []string{"http://localhost:3000", "https://dash.example/"}, "http://localhost:3000"},
+		{"production", []string{"http://dash.example", "https://dash.example/"}, "https://dash.example"},
+		{"staging", []string{"http://dash.example"}, ""},
+		{"test", []string{"http://localhost:3000"}, ""},
+		{"dev", nil, ""},
+	} {
+		cfg := Config{Environment: test.environment, API: API{CORSOrigins: test.origins}}
+		if got := cfg.DashboardURL(); got != test.want {
+			t.Errorf("%s %v: got %q, want %q", test.environment, test.origins, got, test.want)
+		}
+	}
+}
+
 func TestLoadEnvironment(t *testing.T) {
 	t.Chdir(t.TempDir())
 	cfg, err := load("", []string{

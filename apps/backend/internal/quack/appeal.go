@@ -201,8 +201,13 @@ type AppealResponse struct {
 	ReviewedByDiscordUserID string                `json:"reviewed_by_discord_user_id,omitempty"`
 	Events                  []AppealEventResponse `json:"events"`
 	ReversalOffers          []AppealReversalOffer `json:"reversal_offers,omitempty"`
-	CreatedAt               time.Time             `json:"created_at"`
-	UpdatedAt               time.Time             `json:"updated_at"`
+	// ReviewReasonRequired reports whether the guild makes staff write a
+	// reason for each decision, so a reviewer who can't read the guild's
+	// settings still knows. It is set on staff responses for one appeal and
+	// omitted for members and in lists, which carry it once instead.
+	ReviewReasonRequired bool      `json:"review_reason_required,omitempty"`
+	CreatedAt            time.Time `json:"created_at"`
+	UpdatedAt            time.Time `json:"updated_at"`
 }
 
 // Submit files an appeal for a case targeting the member. Each case can be
@@ -287,11 +292,11 @@ func (s *AppealService) eligibleCase(ctx context.Context, caseID, memberDiscordU
 		return nil, ErrAppealNotFound
 	}
 	if item.TargetDiscordUserID != memberDiscordUserID {
-		_ = s.auditMember(ctx, item.GuildID, memberDiscordUserID, action, item.ID, AuditResultDenied)
+		_ = s.auditMember(ctx, item.GuildID, memberDiscordUserID, string(AuditActionAppealRead), item.ID, AuditResultDenied)
 		return nil, ErrAppealNotFound
 	}
 	if !canAppeal(*item, nil) {
-		_ = s.auditMember(ctx, item.GuildID, memberDiscordUserID, action, item.ID, AuditResultDenied)
+		_ = s.auditMember(ctx, item.GuildID, memberDiscordUserID, string(AuditActionAppealRead), item.ID, AuditResultDenied)
 		return nil, ErrAppealCaseIneligible
 	}
 	existing, err := s.store.GetAppealByCaseID(ctx, item.ID)
@@ -312,16 +317,22 @@ func (s *AppealService) ReviewReasonRequired(ctx context.Context, discordGuildID
 	if err != nil || guild == nil {
 		return false, err
 	}
-	settings, err := s.store.GetGuildSettings(ctx, guild.ID)
+	return s.reviewReasonRequired(ctx, guild.ID)
+}
+
+// reviewReasonRequired reads the guild's decision reason setting by
+// Quack's guild ID. Callers check appeal review permission first.
+func (s *AppealService) reviewReasonRequired(ctx context.Context, guildID string) (bool, error) {
+	settings, err := s.store.GetGuildSettings(ctx, guildID)
 	if err != nil {
 		return false, err
 	}
 	return settings != nil && settings.AppealReviewReasonRequired, nil
 }
 
-// GetMember returns an appeal to the member who filed it.
+// GetMember returns an appeal to the member who filed it. Only another
+// member's attempt to read it is audited.
 func (s *AppealService) GetMember(ctx context.Context, appealID, memberDiscordUserID string) (*AppealResponse, error) {
-	const action = string(AuditActionAppealRead)
 	item, err := s.store.GetAppealByID(ctx, strings.TrimSpace(appealID))
 	if err != nil {
 		return nil, err
@@ -330,11 +341,8 @@ func (s *AppealService) GetMember(ctx context.Context, appealID, memberDiscordUs
 		return nil, ErrAppealNotFound
 	}
 	if item.TargetDiscordUserID != strings.TrimSpace(memberDiscordUserID) {
-		_ = s.auditMember(ctx, item.GuildID, memberDiscordUserID, action, item.ID, AuditResultDenied)
+		_ = s.auditMember(ctx, item.GuildID, memberDiscordUserID, string(AuditActionAppealRead), item.ID, AuditResultDenied)
 		return nil, ErrAppealNotFound
-	}
-	if err := s.auditMember(ctx, item.GuildID, memberDiscordUserID, action, item.ID, AuditResultSuccess); err != nil {
-		return nil, err
 	}
 	return s.response(ctx, item, true)
 }

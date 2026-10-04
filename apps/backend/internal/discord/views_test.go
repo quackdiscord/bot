@@ -68,7 +68,7 @@ func TestMessagesMatchGolden(t *testing.T) {
 		{ID: "exec-1", CaseID: "case-1", ActionType: quack.ActionKickUser, LastErrorCode: "kick_permission_or_hierarchy_denied"},
 		{ID: "exec-2", CaseID: "case-2", ActionType: quack.ActionBanUser},
 	}}
-	entry, err := appealEntryMessage("https://dash.example/base/", "guild", "case 1")
+	entry, err := appealEntryMessage("https://dash.example/base/", "guild", "case-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,12 +85,13 @@ func TestMessagesMatchGolden(t *testing.T) {
 	}
 	audit := func(message quack.AuditMirrorMessage) Message {
 		message.OccurredAt = time.Unix(1700000000, 0)
-		return auditMirrorMessage(message)
+		message.DiscordGuildID = "discord-guild"
+		return auditMirrorMessage(message, quack.NewDashboardLinks("https://dash.example"))
 	}
 	out := map[string]any{
-		"case_receipt":          caseReceiptMessage(receipt),
-		"case_receipt_voided":   caseReceiptMessage(&voidedReceipt),
-		"case_receipt_nil":      caseReceiptMessage(nil),
+		"case_receipt":          caseReceiptMessage(receipt, "https://dash.example/guilds/discord-guild/cases/case-1"),
+		"case_receipt_voided":   caseReceiptMessage(&voidedReceipt, ""),
+		"case_receipt_nil":      caseReceiptMessage(nil, ""),
 		"case_voided":           caseVoidedMessage(voided),
 		"case_detail":           caseDetailPage(detail, 1, ""),
 		"case_detail_nil":       caseDetailMessage(nil),
@@ -117,17 +118,25 @@ func TestMessagesMatchGolden(t *testing.T) {
 	AssertGolden(t, "testdata/views.golden.json", string(body))
 }
 
-func TestAppealEntryRequiresHTTPSAndDropsQuery(t *testing.T) {
-	if _, err := appealEntryMessage("http://dashboard.example", "guild", "case"); err == nil {
-		t.Fatal("insecure appeal entry URL was accepted")
+func TestAppealEntryLinksOnlySafeDestinations(t *testing.T) {
+	for _, test := range []struct{ base, guild, caseID string }{
+		{"", "guild", "case"},
+		{"ftp://dashboard.example", "guild", "case"},
+		{"https://dashboard.example/base?secret=drop", "guild", "case"},
+		{"https://dashboard.example", "guild id", "case"},
+		{"https://dashboard.example", "guild", "../case"},
+	} {
+		if _, err := appealEntryMessage(test.base, test.guild, test.caseID); err == nil {
+			t.Fatalf("unsafe appeal entry accepted: %+v", test)
+		}
 	}
-	message, err := appealEntryMessage("https://dashboard.example/base?secret=drop", "guild id", "case/id")
+	message, err := appealEntryMessage("https://dashboard.example/base/", "guild", "case")
 	if err != nil {
 		t.Fatal(err)
 	}
 	button := message.Components[0].(discordgo.ActionsRow).Components[0].(discordgo.Button)
-	if button.Style != discordgo.LinkButton || !strings.HasPrefix(button.URL, "https://dashboard.example/") || strings.Contains(button.URL, "secret") {
-		t.Fatalf("unsafe appeal link: %+v", button)
+	if button.Style != discordgo.LinkButton || button.URL != "https://dashboard.example/base/guilds/guild/cases/case/appeal" {
+		t.Fatalf("unexpected appeal link: %+v", button)
 	}
 }
 
@@ -167,7 +176,7 @@ func TestReceiptShowsDecisionNotStaffDetails(t *testing.T) {
 		Actions:       []quack.CaseReceiptAction{{ActionType: quack.ActionTimeoutUser, Status: quack.ActionExecutionFailed}},
 		Notification:  &sent, EvidenceIncomplete: true,
 	}
-	message := caseReceiptMessage(receipt)
+	message := caseReceiptMessage(receipt, "")
 	for _, hidden := range []string{"STAFF LEVEL", "DM"} {
 		if strings.Contains(message.Content, hidden) {
 			t.Fatalf("receipt shows %q: %s", hidden, message.Content)
@@ -179,7 +188,7 @@ func TestReceiptShowsDecisionNotStaffDetails(t *testing.T) {
 		}
 	}
 	receipt.Validity = quack.CaseValidityVoided
-	message = caseReceiptMessage(receipt)
+	message = caseReceiptMessage(receipt, "")
 	if !strings.Contains(strings.SplitN(message.Content, "\n", 2)[0], "**Voided**") {
 		t.Fatalf("void not visible in the lead: %s", message.Content)
 	}
@@ -194,7 +203,7 @@ func TestLongReceiptOffersFullCase(t *testing.T) {
 	receipt := &quack.CaseReceipt{CaseID: "case", CaseNumber: 4, ContextValues: []quack.CaseContextValueResponse{
 		{Label: "Context", Value: strings.Repeat("context ", 400)},
 	}}
-	message := caseReceiptMessage(receipt).ForApplication("")
+	message := caseReceiptMessage(receipt, "").ForApplication("")
 	if len(message.Files) != 0 || utf16Len(message.Content) > contentLimit || len(message.Components) != 2 {
 		t.Fatalf("long receipt left Discord's limits: %d units, %d files", utf16Len(message.Content), len(message.Files))
 	}
@@ -376,7 +385,7 @@ func TestAuditMirrorEntries(t *testing.T) {
 		ActorDiscordUserID: "quack-system", Action: "case_action.failed", Result: quack.AuditResultFailure,
 		CaseID: "case", CaseNumber: 42, TargetDiscordUserID: "123", RuleName: "Spam", ActionType: quack.ActionBanUser,
 		RetryExecutionID: "execution", CorrelationID: "internal-correlation", MetadataJSON: `{"private":"not-for-display"}`,
-	})
+	}, quack.DashboardLinks{})
 	for _, want := range []string{"Ban action failed.", "-# Case #42 · <@123> · Spam", "-# By Quack"} {
 		if !strings.Contains(failed.Content, want) {
 			t.Fatalf("missing %q: %s", want, failed.Content)
@@ -396,7 +405,7 @@ func TestAuditMirrorEntries(t *testing.T) {
 		ActorDiscordUserID: "moderator", Action: "case.create", Result: quack.AuditResultSuccess, CaseID: "case",
 		CaseNumber: 42, TargetDiscordUserID: "member", RuleName: "Spam", SelectedLevelName: "Third case",
 		SelectedOutcome: "Timeout (24h)", OccurredAt: time.Unix(1700000000, 0),
-	})
+	}, quack.DashboardLinks{})
 	for _, want := range []string{"<@moderator> added a case.", "Level: Third case", "Outcome: Timeout (24h)", "<t:1700000000:R>"} {
 		if !strings.Contains(created.Content, want) {
 			t.Fatalf("missing %q: %s", want, created.Content)
@@ -408,11 +417,11 @@ func TestAuditMirrorEntries(t *testing.T) {
 			t.Fatalf("detail is not adjacent subtext: %q", created.Content)
 		}
 	}
-	noop := auditMirrorMessage(quack.AuditMirrorMessage{Action: "case_action.succeeded", ActionType: quack.ActionRemoveTimeout, Result: quack.AuditResultSuccess, ReversalNoop: true})
+	noop := auditMirrorMessage(quack.AuditMirrorMessage{Action: "case_action.succeeded", ActionType: quack.ActionRemoveTimeout, Result: quack.AuditResultSuccess, ReversalNoop: true}, quack.DashboardLinks{})
 	if !strings.Contains(noop.Content, "had already ended") || strings.Contains(noop.Content, "completed") {
 		t.Fatal(noop.Content)
 	}
-	settings := auditMirrorMessage(quack.AuditMirrorMessage{ActorDiscordUserID: "moderator", Action: "guild_settings.update", Result: quack.AuditResultSuccess, ResourceType: "guild_settings", ResourceID: "internal-settings-id"})
+	settings := auditMirrorMessage(quack.AuditMirrorMessage{ActorDiscordUserID: "moderator", Action: "guild_settings.update", Result: quack.AuditResultSuccess, ResourceType: "guild_settings", ResourceID: "internal-settings-id"}, quack.DashboardLinks{})
 	if !strings.Contains(settings.Content, "updated Quack settings") || strings.Contains(settings.Content, "internal-settings-id") {
 		t.Fatal(settings.Content)
 	}
@@ -420,22 +429,71 @@ func TestAuditMirrorEntries(t *testing.T) {
 
 func TestWebLinkAcceptsOnlySafeDestinations(t *testing.T) {
 	message := Message{Content: "case"}
-	for _, base := range []string{"", "http://dash.example", "https://user:pw@dash.example", "https://dash.example?x=1", "https://dash.example#frag"} {
-		if got := (&cases{dashboardURL: base}).webLink(message, "guild", "cases", "case"); len(got.Components) != 0 {
+	for _, base := range []string{"", "ftp://dash.example", "https://user:pw@dash.example", "https://dash.example?x=1", "https://dash.example#frag"} {
+		if got := (&cases{dashboard: quack.NewDashboardLinks(base)}).webLink(message, "guild", "cases", "case"); len(got.Components) != 0 {
 			t.Fatalf("%q produced a link", base)
 		}
 	}
-	c := &cases{dashboardURL: "https://dash.example/app/"}
+	c := &cases{dashboard: quack.NewDashboardLinks("https://dash.example/app/")}
 	if got := c.webLink(message, "guild", "cases", "../evil"); len(got.Components) != 0 {
 		t.Fatal("path traversal produced a link")
 	}
 	if got := c.webLink(message, "guild", "members", ""); len(got.Components) != 0 {
 		t.Fatal("member link without a member")
 	}
+	full := Message{Components: make([]discordgo.MessageComponent, 5)}
+	if got := c.webLink(full, "guild", "cases"); len(got.Components) != 5 {
+		t.Fatal("link added past Discord's five rows")
+	}
 	got := c.webLink(message, "guild", "members", "member")
 	button := got.Components[0].(discordgo.ActionsRow).Components[0].(discordgo.Button)
-	if button.URL != "https://dash.example/app/guilds/guild/members/member" || button.Label != "Open on web" || len(message.Components) != 0 {
+	if button.URL != "https://dash.example/app/guilds/guild/members/member" || button.Label != "Open in dashboard" || len(message.Components) != 0 {
 		t.Fatalf("unexpected link: %+v", button)
+	}
+}
+
+// TestAuditMirrorLinksDashboardPages links each entry to the page it is
+// about, next to the Retry action control when there is one.
+func TestAuditMirrorLinksDashboardPages(t *testing.T) {
+	dashboard := quack.NewDashboardLinks("https://dash.example")
+	const guild = "https://dash.example/guilds/discord-guild"
+	for _, test := range []struct {
+		entry      quack.AuditMirrorMessage
+		url, label string
+	}{
+		{quack.AuditMirrorMessage{Action: "appeal.accepted", ResourceType: "appeal", ResourceID: "appeal-1", CaseID: "case-1"}, guild + "/appeals/appeal-1", "View appeal"},
+		{quack.AuditMirrorMessage{Action: "appeal.submit", ResourceType: "appeal"}, guild + "/appeals", "Open in dashboard"},
+		{quack.AuditMirrorMessage{Action: "case.void", ResourceType: "case", ResourceID: "case-1", CaseID: "case-1"}, guild + "/cases/case-1", "Open case"},
+		{quack.AuditMirrorMessage{Action: "case_template.update", ResourceType: "case_template", ResourceID: "rule-1"}, guild + "/rules/rule-1", "Open rule"},
+		{quack.AuditMirrorMessage{Action: "case_template.import", ResourceType: "case_template"}, guild + "/rules", "Open in dashboard"},
+		{quack.AuditMirrorMessage{Action: "guild_settings.update", ResourceType: "guild_settings", ResourceID: "settings-1"}, guild + "/settings", "Open settings"},
+		{quack.AuditMirrorMessage{Action: "ticket.open", ResourceType: "ticket", ResourceID: "ticket-1"}, guild + "/modules/tickets", "Open in dashboard"},
+		{quack.AuditMirrorMessage{Action: "general_logging.settings.update"}, guild + "/modules/logging", "Open settings"},
+		{quack.AuditMirrorMessage{Action: "honeypot.settings.update"}, guild + "/modules/honeypot", "Open settings"},
+		{quack.AuditMirrorMessage{Action: "guild.lifecycle.bootstrap", ResourceType: "guild"}, "", ""},
+	} {
+		test.entry.DiscordGuildID, test.entry.Result = "discord-guild", quack.AuditResultSuccess
+		message := auditMirrorMessage(test.entry, dashboard)
+		if test.url == "" {
+			if len(message.Components) != 0 {
+				t.Fatalf("%s: unexpected link %+v", test.entry.Action, message.Components)
+			}
+			continue
+		}
+		button := message.Components[0].(discordgo.ActionsRow).Components[0].(discordgo.Button)
+		if button.URL != test.url || button.Label != test.label || button.Style != discordgo.LinkButton {
+			t.Fatalf("%s: got %+v", test.entry.Action, button)
+		}
+	}
+	failed := auditMirrorMessage(quack.AuditMirrorMessage{
+		DiscordGuildID: "discord-guild", Action: "case_action.failed", Result: quack.AuditResultFailure,
+		ResourceType: "case_action_execution", CaseID: "case-1", RetryExecutionID: "execution",
+	}, dashboard)
+	row := failed.Components[0].(discordgo.ActionsRow)
+	if len(failed.Components) != 1 || len(row.Components) != 2 ||
+		row.Components[0].(discordgo.Button).CustomID != "case:retry:v1:execution" ||
+		row.Components[1].(discordgo.Button).URL != guild+"/cases/case-1" {
+		t.Fatalf("failed action controls: %+v", failed.Components)
 	}
 }
 

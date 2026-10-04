@@ -111,7 +111,7 @@ func TestAuditMirrorSendsOnlyToStaffChannels(t *testing.T) {
 				return jsonResponse(request, &discordgo.Guild{ID: "guild"}), nil
 			}
 		})
-		err := bot.SendAuditMirror(context.Background(), quack.AuditMirrorMessage{
+		_, err := bot.SendAuditMirror(context.Background(), quack.AuditMirrorMessage{
 			DiscordGuildID:   "guild",
 			ChannelDiscordID: "channel",
 			Result:           quack.AuditResultSuccess,

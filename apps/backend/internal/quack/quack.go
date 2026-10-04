@@ -4,7 +4,8 @@
 // Admins define case templates with escalation levels. Moderators apply a
 // template to a member, and Quack picks the level from the member's history,
 // records the case, and enforces it in Discord. Members are notified once per
-// case and can appeal. Everything is audited.
+// case and can appeal. Every change and every denied request is audited;
+// successful reads are not.
 //
 // Case creation runs under a per-guild lock so case numbers and escalation
 // counts stay consistent. Enforcement is durable: each action is a stored
@@ -17,10 +18,7 @@
 // them (see ports.go and discord.go).
 package quack
 
-import (
-	"context"
-	"strings"
-)
+import "context"
 
 // systemActorID attributes audit entries written by Quack itself.
 const systemActorID = "quack-system"
@@ -65,8 +63,9 @@ type Deps struct {
 	// Modules holds the optional modules' on/off switches. Without it the
 	// settings API reports every module off and cannot switch one on.
 	Modules ModuleToggles
-	// DashboardBaseURL is the dashboard origin linked from appealable case
-	// notifications. Without it, notifications carry no appeal button.
+	// DashboardBaseURL is the dashboard linked from appealable case
+	// notifications, usually config.Config.DashboardURL. Without it,
+	// notifications carry no appeal link.
 	DashboardBaseURL string
 }
 
@@ -116,15 +115,4 @@ func New(deps Deps) *Services {
 
 		Publications: NewCasePublicationService(deps.Store),
 	}
-}
-
-// DashboardBaseURL returns the first https origin in origins, without a
-// trailing slash, for use as Deps.DashboardBaseURL.
-func DashboardBaseURL(origins []string) string {
-	for _, origin := range origins {
-		if value := strings.TrimSpace(origin); strings.HasPrefix(value, "https://") {
-			return strings.TrimRight(value, "/")
-		}
-	}
-	return ""
 }

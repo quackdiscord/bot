@@ -87,9 +87,9 @@ func (s *ActionService) sendNotification(ctx context.Context, workerID, caseID s
 		receipt, sendErr = sender.DeliverCaseNotification(ctx, request)
 		message = receipt.RenderedMessage
 		response = map[string]any{"message_id": receipt.MessageID}
-	case snapshotAppealable(item.TemplateSnapshotJSON) && s.dashboardBaseURL != "":
+	case snapshotAppealable(item.TemplateSnapshotJSON) && s.dashboard.MemberAppeal(item.GuildID, item.ID) != "":
 		response, sendErr = s.messenger.SendCaseNotification(ctx, item.TargetDiscordUserID,
-			claimed.PreparedChannelDiscordID, message, s.dashboardBaseURL, item.GuildID, item.ID)
+			claimed.PreparedChannelDiscordID, message, s.dashboard.Base(), item.GuildID, item.ID)
 	case claimed.PreparedChannelDiscordID != "":
 		response, sendErr = s.messenger.SendPreparedDM(ctx, claimed.PreparedChannelDiscordID, message)
 	default:
@@ -196,8 +196,8 @@ func (s *ActionService) caseNotificationRequest(ctx context.Context, item Case, 
 		request.Introduction = settings.NotificationIntroduction
 		request.Footer = settings.NotificationFooter
 	}
-	if request.Appealable && s.dashboardBaseURL != "" {
-		request.AppealURL = fmt.Sprintf("%s/guilds/%s/cases/%s/appeal", s.dashboardBaseURL, item.GuildID, item.ID)
+	if request.Appealable {
+		request.AppealURL = s.dashboard.MemberAppeal(item.GuildID, item.ID)
 	}
 	var timeouts []string
 	for _, action := range actions {

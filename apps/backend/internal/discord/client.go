@@ -55,19 +55,17 @@ func (b *Bot) BotGuilds(context.Context) ([]quack.DiscordBotGuild, error) {
 	return guilds, nil
 }
 
-// GuildAuthorization fetches the guild, the bot, the actor, and optionally
-// the target fresh from Discord for one protected operation.
+// GuildAuthorization reads the guild, the bot, the actor, and optionally the
+// target as Discord has them now, for one protected operation. Gateway state
+// answers while the session is live; REST fills in whatever it lacks (see
+// live.go).
 func (b *Bot) GuildAuthorization(ctx context.Context, guildID, actorID, targetID string) (*quack.DiscordGuildAuthorization, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	guild, err := b.Session.Guild(guildID, rest(ctx)...)
+	guild, err := b.authorizationGuild(ctx, guildID)
 	if err != nil {
-		switch statusCode(err) {
-		case http.StatusForbidden, http.StatusNotFound:
-			return nil, quack.ErrBotNotInGuild
-		}
-		return nil, quack.ErrAuthorizationUnavailable
+		return nil, err
 	}
 	botID, err := b.botID(ctx)
 	if err != nil {
@@ -265,8 +263,27 @@ func sentResult(channelID string, sent *discordgo.Message) map[string]any {
 	return result
 }
 
-// member fetches one member's current standing. Discord's unknown-member
-// response means the user is not in the guild, which is not an error.
+// authorizationGuild returns the guild and its roles from gateway state, or
+// from REST when state cannot answer.
+func (b *Bot) authorizationGuild(ctx context.Context, guildID string) (*discordgo.Guild, error) {
+	if guild, ok := b.stateGuild(guildID); ok {
+		return guild, nil
+	}
+	guild, err := b.Session.Guild(guildID, rest(ctx)...)
+	if err != nil {
+		switch statusCode(err) {
+		case http.StatusForbidden, http.StatusNotFound:
+			return nil, quack.ErrBotNotInGuild
+		}
+		return nil, quack.ErrAuthorizationUnavailable
+	}
+	return guild, nil
+}
+
+// member reads one member's current standing, from gateway state when it
+// has them and from REST otherwise. Discord's unknown-member response means
+// the user is not in the guild, which is not an error; absence is never
+// cached.
 func (b *Bot) member(ctx context.Context, guild *discordgo.Guild, userID string) (quack.DiscordMemberAuthorization, error) {
 	userID = strings.TrimSpace(userID)
 	absent := quack.DiscordMemberAuthorization{DiscordUserID: userID}
@@ -276,6 +293,10 @@ func (b *Bot) member(ctx context.Context, guild *discordgo.Guild, userID string)
 	if err := ctx.Err(); err != nil {
 		return absent, err
 	}
+	if member, ok := b.liveMember(guild.ID, userID); ok {
+		return memberAuthorization(guild, member), nil
+	}
+	generation := b.live.generation(guild.ID)
 	member, err := b.Session.GuildMember(guild.ID, userID, rest(ctx)...)
 	if err != nil {
 		if statusCode(err) == http.StatusNotFound {
@@ -283,6 +304,10 @@ func (b *Bot) member(ctx context.Context, guild *discordgo.Guild, userID string)
 		}
 		return absent, quack.ErrAuthorizationUnavailable
 	}
+	if member.GuildID == "" {
+		member.GuildID = guild.ID
+	}
+	b.live.remember(member, generation, time.Now())
 	return memberAuthorization(guild, member), nil
 }
 

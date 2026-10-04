@@ -91,7 +91,6 @@ const (
 	AuditActionCaseCreate                 AuditAction = "case.create"
 	AuditActionCaseRead                   AuditAction = "case.read"
 	AuditActionCaseSearch                 AuditAction = "case.search"
-	AuditActionCaseHistoryRead            AuditAction = "case.history.read"
 	AuditActionCaseVoid                   AuditAction = "case.void"
 	AuditActionCaseUpdate                 AuditAction = "case.update"
 	AuditActionEvidenceCapture            AuditAction = "evidence.capture"
@@ -119,7 +118,6 @@ const (
 	AuditActionAppealRead                 AuditAction = "appeal.read"
 	AuditActionAppealSubmit               AuditAction = "appeal.submit"
 	AuditActionAppealInformationSubmit    AuditAction = "appeal.information.submit"
-	AuditActionAppealQueueRead            AuditAction = "appeal.queue.read"
 	AuditActionAppealInformationRequested AuditAction = "appeal.information_requested"
 	AuditActionAppealReopened             AuditAction = "appeal.reopened"
 	AuditActionAppealAccepted             AuditAction = "appeal.accepted"
@@ -127,12 +125,17 @@ const (
 	AuditActionAppealClose                AuditAction = "appeal.close"
 	AuditActionAppealClosed               AuditAction = "appeal.closed"
 	AuditActionCaseVoidAppeal             AuditAction = "case.void.appeal"
-	AuditActionMirrorDelivered            AuditAction = "audit_mirror.delivered"
-	AuditActionMirrorFailed               AuditAction = "audit_mirror.failed"
-	AuditActionMirrorRepaired             AuditAction = "audit_mirror.repaired"
-	AuditActionMirrorSkipped              AuditAction = "audit_mirror.skipped"
-	AuditActionImportBatch                AuditAction = "v4_import.batch"
-	AuditActionHoneypotTrigger            AuditAction = "honeypot.trigger"
+	// The mirror writes AuditActionMirrorFailed once per outage, when it
+	// gives up on an entry, and AuditActionMirrorRepaired when it clears a
+	// channel that is gone. Delivered and skipped are no longer written:
+	// delivery state lives in audit_mirror_deliveries. Older rows with them
+	// stay in the log.
+	AuditActionMirrorDelivered AuditAction = "audit_mirror.delivered"
+	AuditActionMirrorFailed    AuditAction = "audit_mirror.failed"
+	AuditActionMirrorRepaired  AuditAction = "audit_mirror.repaired"
+	AuditActionMirrorSkipped   AuditAction = "audit_mirror.skipped"
+	AuditActionImportBatch     AuditAction = "v4_import.batch"
+	AuditActionHoneypotTrigger AuditAction = "honeypot.trigger"
 )
 
 // importantAuditActions are mirrored to a guild's audit channel when one is
@@ -198,6 +201,13 @@ func ImportantAuditActions() []string {
 	}
 	slices.Sort(actions)
 	return actions
+}
+
+// IsImportantAuditAction reports whether action is one the mirror sends to a
+// guild's audit channel. The store queues a delivery for such an entry when
+// it writes it.
+func IsImportantAuditAction(action string) bool {
+	return slices.Contains(importantAuditActions, AuditAction(action))
 }
 
 // AuditMetadataRedactedValue replaces sensitive values in stored audit

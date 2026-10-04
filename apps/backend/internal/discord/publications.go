@@ -49,11 +49,14 @@ type messageEditor interface {
 type PublicationRefresher struct {
 	source publicationSource
 	editor messageEditor
+	// dashboard builds each receipt's dashboard link.
+	dashboard quack.DashboardLinks
 }
 
-// NewPublicationRefresher returns a refresher that edits through bot.
+// NewPublicationRefresher returns a refresher that edits through bot and
+// links receipts to bot's dashboard.
 func NewPublicationRefresher(bot *Bot, publications *quack.CasePublicationService) *PublicationRefresher {
-	return &PublicationRefresher{source: publications, editor: bot}
+	return &PublicationRefresher{source: publications, editor: bot, dashboard: bot.Dashboard}
 }
 
 // RefreshDue rerenders every publication that is due and edits the ones
@@ -120,7 +123,7 @@ func (r *PublicationRefresher) refresh(ctx context.Context, publication quack.Ca
 	if err != nil {
 		return "", false, err
 	}
-	message := caseReceiptMessage(receipt)
+	message := caseReceiptMessage(receipt, r.dashboard.Staff(presentation.DiscordGuildID, "cases", receipt.CaseID))
 	encoded, err := json.Marshal(message)
 	if err != nil {
 		return "", false, err

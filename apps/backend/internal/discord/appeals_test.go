@@ -98,15 +98,15 @@ func (v *stubStaffChannel) ValidateStaffChannel(_ context.Context, guildID, chan
 func TestAppealQueueChannelIsRevalidated(t *testing.T) {
 	validator := &stubStaffChannel{err: errors.New("destination is public")}
 	channels := appealChannels{store: appealSettingsStore{channelID: "queue"}, validator: validator}
-	channel, err := channels.queueChannel(context.Background(), "internal-guild")
-	if !errors.Is(err, quack.ErrAppealDeliveryDeferred) || channel != "" {
+	channel, discordGuild, err := channels.queueChannel(context.Background(), "internal-guild")
+	if !errors.Is(err, quack.ErrAppealDeliveryDeferred) || channel != "" || discordGuild != "" {
 		t.Fatalf("public appeal destination accepted: %q, %v", channel, err)
 	}
 	if validator.guildID != "discord-guild" || validator.channelID != "queue" {
 		t.Fatalf("validated the wrong destination: %+v", validator)
 	}
 	unset := appealChannels{store: appealSettingsStore{}, validator: &stubStaffChannel{}}
-	if _, err := unset.queueChannel(context.Background(), "internal-guild"); !errors.Is(err, quack.ErrAppealDeliveryDeferred) {
+	if _, _, err := unset.queueChannel(context.Background(), "internal-guild"); !errors.Is(err, quack.ErrAppealDeliveryDeferred) {
 		t.Fatalf("missing queue channel was not deferred: %v", err)
 	}
 }
@@ -194,7 +194,7 @@ func TestAppealDecisionCopy(t *testing.T) {
 			intent.RejoinURL = "https://discord.gg/original"
 			want += "\n\nIf you left or were banned, you can rejoin once any ban has been removed: " + intent.RejoinURL
 		}
-		if got := appealDecisionMessage(intent).Content; got != want {
+		if got := appealDecisionMessage(intent, "").Content; got != want {
 			t.Fatalf("got %q, want %q", got, want)
 		}
 	}
@@ -205,7 +205,7 @@ func TestAppealDecisionCopy(t *testing.T) {
 func TestAppealDecisionContext(t *testing.T) {
 	for _, status := range []quack.AppealStatus{quack.AppealStatusAccepted, quack.AppealStatusRejected} {
 		intent := quack.AppealDecisionIntent{Version: 1, Status: status, Reason: "Thanks for explaining.", CaseNumber: 42, CaseID: "case-id", GuildName: "Duck Pond"}
-		message := appealDecisionMessage(intent)
+		message := appealDecisionMessage(intent, "")
 		for _, want := range []string{"Your appeal was " + string(status), "Case #42 · Duck Pond", "Thanks for explaining."} {
 			if !strings.Contains(message.Content, want) {
 				t.Fatalf("missing %q: %s", want, message.Content)
@@ -215,7 +215,7 @@ func TestAppealDecisionContext(t *testing.T) {
 			t.Fatal("member DM is ephemeral")
 		}
 		intent.CaseNumber = 0
-		if !strings.Contains(appealDecisionMessage(intent).Content, "case-id") {
+		if !strings.Contains(appealDecisionMessage(intent, "").Content, "case-id") {
 			t.Fatal("case ID fallback missing")
 		}
 	}
@@ -233,7 +233,7 @@ func TestAppealDecisionRejoinButton(t *testing.T) {
 			case "rejected":
 				intent.Status = quack.AppealStatusRejected
 			}
-			message := appealDecisionMessage(intent)
+			message := appealDecisionMessage(intent, "")
 			if kind == "accepted" {
 				if len(message.Components) != 1 {
 					t.Fatal("button missing")
@@ -291,7 +291,7 @@ func TestLongAppealStatementUsesPages(t *testing.T) {
 	const app = "968198214450831370"
 	var all strings.Builder
 	for page := 1; ; page++ {
-		message := appealStaffPage(appeal, page, app).ForApplication(app)
+		message := appealStaffPage(appeal, page, app, "").ForApplication(app)
 		if len(message.Files) != 0 || len(utf16.Encode([]rune(message.Content))) > contentLimit || len(message.Components) != 2 {
 			t.Fatalf("statement page %d lost paging: %+v", page, message)
 		}
@@ -313,7 +313,7 @@ func TestLongAppealStatementUsesPages(t *testing.T) {
 }
 
 func TestAppealStaffMessageOffersOnlyExplicitReversalControls(t *testing.T) {
-	message := appealStaffMessage(&quack.AppealResponse{ID: "appeal", CaseID: "case", TargetDiscordUserID: "target", Status: quack.AppealStatusAccepted, ReversalOffers: []quack.AppealReversalOffer{{OriginalExecutionID: "execution", ActionType: quack.ActionUnbanUser}}})
+	message := appealStaffMessage(&quack.AppealResponse{ID: "appeal", CaseID: "case", TargetDiscordUserID: "target", Status: quack.AppealStatusAccepted, ReversalOffers: []quack.AppealReversalOffer{{OriginalExecutionID: "execution", ActionType: quack.ActionUnbanUser}}}, "")
 	if len(message.Components) != 1 || len(message.Embeds) != 0 || !strings.Contains(message.Content, "<@target>") {
 		t.Fatalf("expected one explicit reversal offer: %+v", message)
 	}
@@ -325,7 +325,7 @@ func TestAppealStaffMessageOffersOnlyExplicitReversalControls(t *testing.T) {
 
 func TestAppealStaffMessageDecisionControls(t *testing.T) {
 	appeal := &quack.AppealResponse{ID: "appeal", CaseID: "case", CaseNumber: 12, TemplateName: "Spam", TargetDiscordUserID: "member", Status: quack.AppealStatusPending, Statement: "I am sorry for repeating messages."}
-	pending := appealStaffMessage(appeal)
+	pending := appealStaffMessage(appeal, "")
 	for _, want := range []string{"Received an appeal from <@member>", "I am sorry", "Case #12 · Spam"} {
 		if !strings.Contains(pending.Content, want) {
 			t.Fatalf("missing %q: %s", want, pending.Content)
@@ -339,7 +339,7 @@ func TestAppealStaffMessageDecisionControls(t *testing.T) {
 	}
 	for _, status := range []quack.AppealStatus{quack.AppealStatusAccepted, quack.AppealStatusRejected} {
 		appeal.Status, appeal.ReviewedByDiscordUserID, appeal.DecisionReason = status, "reviewer", "Thanks for explaining."
-		decided := appealStaffMessage(appeal)
+		decided := appealStaffMessage(appeal, "")
 		for _, want := range []string{"Appeal " + string(status), "Reviewed by <@reviewer>", appeal.DecisionReason} {
 			if !strings.Contains(decided.Content, want) {
 				t.Fatalf("missing %q: %s", want, decided.Content)
@@ -361,16 +361,27 @@ func TestAppealViewsMatchGolden(t *testing.T) {
 		Status: quack.AppealStatusAccepted, ReviewedByDiscordUserID: "moderator", DecisionReason: "Fair point.",
 		ReversalOffers: []quack.AppealReversalOffer{{OriginalExecutionID: "execution", ActionType: quack.ActionUnbanUser}},
 	}
+	const (
+		staffURL  = "https://dash.example/guilds/discord-guild/appeals/appeal"
+		memberURL = "https://dash.example/guilds/guild/cases/case/appeal"
+	)
 	out := map[string]any{
-		"appeal_staff_pending":  appealStaffMessage(pending),
-		"appeal_staff_accepted": appealStaffMessage(accepted),
+		"appeal_staff_pending":  appealStaffMessage(pending, staffURL),
+		"appeal_staff_accepted": appealStaffMessage(accepted, staffURL),
+		"appeal_staff_no_link":  appealStaffMessage(pending, ""),
 		"appeal_decision_accepted": appealDecisionMessage(quack.AppealDecisionIntent{
 			Version: 1, Status: quack.AppealStatusAccepted, Reason: "Fair point.", CaseNumber: 12,
 			GuildName: "Duck Pond", RejoinURL: "https://discord.gg/pond",
-		}),
+		}, memberURL),
 		"appeal_decision_rejected": appealDecisionMessage(quack.AppealDecisionIntent{
 			Version: 1, Status: quack.AppealStatusRejected, Reason: "The case stands.", CaseNumber: 12, GuildName: "Duck Pond",
-		}),
+		}, memberURL),
+		"appeal_decision_needs_information": appealDecisionMessage(quack.AppealDecisionIntent{
+			Version: 1, Status: quack.AppealStatusNeedsInformation, Reason: "Which message do you mean?", CaseNumber: 12, GuildName: "Duck Pond",
+		}, memberURL),
+		"appeal_decision_no_link": appealDecisionMessage(quack.AppealDecisionIntent{
+			Version: 1, Status: quack.AppealStatusRejected, Reason: "The case stands.", CaseNumber: 12, GuildName: "Duck Pond",
+		}, ""),
 		"template_view": templatePolicyMessage(quack.TemplateResponse{
 			Name: "Spam", ReasonTemplate: "Keep chat readable.", Appealable: true, CaseDecayDays: 30,
 			Levels: []quack.TemplateLevelResponse{

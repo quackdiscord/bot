@@ -12,10 +12,14 @@ import (
 )
 
 // receiptPresentation is what Quack stores with a case publication: which
-// view it is. Everything shown comes from the case's current receipt, so a
+// view it is, and the Discord guild it was posted in, for the dashboard
+// link. Everything shown comes from the case's current receipt, so a
 // refresh never restores stale context.
 type receiptPresentation struct {
 	View string `json:"view"`
+	// DiscordGuildID is empty on receipts recorded before it was stored;
+	// they refresh without a dashboard link.
+	DiscordGuildID string `json:"discord_guild_id,omitempty"`
 }
 
 // caseReceiptView names the public /case add receipt.
@@ -25,14 +29,14 @@ const caseReceiptView = "case_receipt"
 // receipt and records it for refresh. The case is already committed, so
 // failures only change what the moderator is told.
 func (c *cases) publishInPlace(ctx context.Context, responder Responder, i *discordgo.InteractionCreate, created *quack.CaseResponse) {
-	message, err := editWithRetry(ctx, responder, caseReceiptMessage(c.receipt(ctx, created)))
+	message, err := editWithRetry(ctx, responder, c.receiptMessage(ctx, i, created))
 	c.recordReceipt(ctx, responder, i, created, message, err)
 }
 
 // publishToChannel posts the case receipt to the interaction's channel as a
 // standalone message and removes the private reply that started the flow.
 func (c *cases) publishToChannel(ctx context.Context, responder Responder, i *discordgo.InteractionCreate, created *quack.CaseResponse) {
-	message, err := c.poster.Send(ctx, i.ChannelID, caseReceiptMessage(c.receipt(ctx, created)))
+	message, err := c.poster.Send(ctx, i.ChannelID, c.receiptMessage(ctx, i, created))
 	if err == nil {
 		if err := responder.DeleteOriginal(); err != nil {
 			_, _ = responder.EditOriginal(EditMessage(Content(fmt.Sprintf("Case #%d created.", created.CaseNumber), true)))
@@ -54,7 +58,7 @@ func (c *cases) recordReceipt(
 			"Case #%d was saved, but I couldn’t post the result. Check `/case view` before trying again.", created.CaseNumber), true))
 		return
 	}
-	presentation, _ := json.Marshal(receiptPresentation{View: caseReceiptView})
+	presentation, _ := json.Marshal(receiptPresentation{View: caseReceiptView, DiscordGuildID: i.GuildID})
 	channelID := message.ChannelID
 	if channelID == "" {
 		channelID = i.ChannelID
@@ -70,6 +74,12 @@ func (c *cases) recordReceipt(
 		_, _ = responder.Followup(Signal("error", fmt.Sprintf(
 			"Case #%d was saved, but its live updates aren’t working. Check `/case view` for the result.", created.CaseNumber), true))
 	}
+}
+
+// receiptMessage renders the receipt of a case the moderator just created,
+// linked to its dashboard page.
+func (c *cases) receiptMessage(ctx context.Context, i *discordgo.InteractionCreate, created *quack.CaseResponse) Message {
+	return caseReceiptMessage(c.receipt(ctx, created), c.dashboard.Staff(i.GuildID, "cases", created.ID))
 }
 
 // receipt loads the committed receipt of a case the moderator just created,

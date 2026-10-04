@@ -251,3 +251,34 @@ func TestSetupDispatchesModulesAndRejectsMixedToggles(t *testing.T) {
 		t.Fatalf("module ran for a refused request: %d", len(requests))
 	}
 }
+
+// TestSetupLinksTheMatchingDashboardPage links core setup to the settings
+// page and each module to its own page.
+func TestSetupLinksTheMatchingDashboardPage(t *testing.T) {
+	h := newSetupHarness(t, uint64(discordgo.PermissionManageGuild), staffChannels{})
+	module := func(context.Context, discord.SetupRequest) (discord.Message, error) {
+		return discord.Signal("settings", "Ready.", false), nil
+	}
+	handler := discord.NewSetupWithDashboard(h.services, map[string]discord.SetupHandler{"honeypot": module}, "http://localhost:3000")
+	for _, test := range []struct {
+		interaction *discordgo.InteractionCreate
+		want        string
+	}{
+		{setupInteraction("audit", option("channel", discordgo.ApplicationCommandOptionChannel, "123456789012345678")), "http://localhost:3000/guilds/guild-1/settings"},
+		{setupInteraction("honeypot", option("channel", discordgo.ApplicationCommandOptionChannel, "trap")), "http://localhost:3000/guilds/guild-1/modules/honeypot"},
+		{setupInteraction("logging", option("enabled", discordgo.ApplicationCommandOptionBoolean, false)), "http://localhost:3000/guilds/guild-1/modules/logging"},
+	} {
+		result := handler(context.Background(), test.interaction)
+		responder := &fakeResponder{}
+		if err := result.Task(context.Background(), responder); err != nil {
+			t.Fatal(err)
+		}
+		if responder.edit.Components == nil || len(*responder.edit.Components) != 1 {
+			t.Fatalf("%s: no link: %+v", test.want, responder.edit)
+		}
+		button := (*responder.edit.Components)[0].(discordgo.ActionsRow).Components[0].(discordgo.Button)
+		if button.URL != test.want || button.Label != "Open settings" {
+			t.Fatalf("got %+v, want %s", button, test.want)
+		}
+	}
+}

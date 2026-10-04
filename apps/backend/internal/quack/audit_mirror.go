@@ -10,8 +10,67 @@ import (
 	"time"
 )
 
-// auditMirrorBatch is how many pending entries one poll mirrors.
+// auditMirrorBatch is how many due deliveries one poll claims.
 const auditMirrorBatch = 50
+
+// auditMirrorBackoff is how long a delivery waits after its nth failed try
+// (auditMirrorBackoff[n-1]). One more failure after the last step gives up,
+// about eight and a half hours after the first.
+var auditMirrorBackoff = []time.Duration{
+	time.Minute, 5 * time.Minute, 30 * time.Minute, 2 * time.Hour, 6 * time.Hour,
+}
+
+// auditMirrorMaxAttempts is how many failed tries a delivery gets before it
+// is marked failed for good.
+var auditMirrorMaxAttempts = len(auditMirrorBackoff) + 1
+
+// AuditMirrorDeliveryStatus is where an important audit entry is on its way
+// to the guild's audit channel.
+type AuditMirrorDeliveryStatus string
+
+// Audit mirror delivery statuses. Pending, claimed, and sending are in
+// flight; the rest are final.
+const (
+	// AuditMirrorPending waits for its next attempt time.
+	AuditMirrorPending AuditMirrorDeliveryStatus = "pending"
+	// AuditMirrorClaimed is leased by a poll that has not sent it yet. A
+	// lapsed claim is due again.
+	AuditMirrorClaimed AuditMirrorDeliveryStatus = "claimed"
+	// AuditMirrorSending may already be in Discord. It is never claimed
+	// again: a lapsed send fails as delivery_outcome_unknown.
+	AuditMirrorSending AuditMirrorDeliveryStatus = "sending"
+	// AuditMirrorDelivered was posted.
+	AuditMirrorDelivered AuditMirrorDeliveryStatus = "delivered"
+	// AuditMirrorSkipped had no channel to go to by the time it was due.
+	AuditMirrorSkipped AuditMirrorDeliveryStatus = "skipped"
+	// AuditMirrorFailed was given up on.
+	AuditMirrorFailed AuditMirrorDeliveryStatus = "failed"
+)
+
+// AuditMirrorDelivery is a claimed delivery: the entry to send, how many
+// tries have failed so far, and the lease that lets the claimer settle it.
+type AuditMirrorDelivery struct {
+	Entry      AuditLogEntry
+	Attempts   int
+	LeaseToken string
+}
+
+// CompleteAuditMirrorDeliveryParams settles a claimed or sending delivery.
+type CompleteAuditMirrorDeliveryParams struct {
+	AuditEntryID, LeaseToken string
+	// Status is delivered, skipped, failed (given up), or pending to try
+	// again at NextAttemptAt.
+	Status        AuditMirrorDeliveryStatus
+	Attempts      int
+	NextAttemptAt time.Time
+	// LastError is a short failure classification, never a raw error.
+	LastError          string
+	DeliveredMessageID string
+	// GiveUpAudit goes with Status failed. The store writes it unless the
+	// guild already has a delivery that failed since its last successful
+	// one, so an outage is audited once rather than once per entry.
+	GiveUpAudit *AuditLogEntry
+}
 
 // AuditMirrorMessage is an important audit entry, already redacted, ready to
 // post in a guild's audit channel.
@@ -53,10 +112,11 @@ type AuditMirrorMessage struct {
 }
 
 // AuditMirror copies important audit entries to each guild's audit
-// channel. It polls the audit log (the worker calls PollOnce on a timer)
-// instead of hooking writes, so a Discord outage never blocks the operation
-// being audited. Each delivery outcome is itself audited, which is also how
-// the mirror knows an entry is done.
+// channel. The store queues a delivery row with each important entry; the
+// worker calls PollOnce on a timer to send due rows, so a Discord outage
+// never blocks the operation being audited. Delivery state stays out of the
+// audit log, which gets an entry only when a dead channel is cleared or
+// delivery is given up on.
 type AuditMirror struct {
 	store  AuditMirrorStore
 	sender AuditMirrorSender
@@ -69,44 +129,57 @@ func NewAuditMirror(store AuditMirrorStore, sender AuditMirrorSender) *AuditMirr
 	return &AuditMirror{store: store, sender: sender}
 }
 
-// PollOnce mirrors one batch of pending entries. Concurrent calls run one at
-// a time so an entry is never sent twice.
+// PollOnce claims a batch of due deliveries and sends them. Concurrent calls
+// run one at a time; the store's leases keep separate processes apart.
+// Delivery failures are recorded on the rows, not returned. Once a send to
+// a guild fails, the rest of that guild's batch counts the same failure
+// without calling Discord again.
 func (m *AuditMirror) PollOnce(ctx context.Context) error {
 	m.pollMu.Lock()
 	defer m.pollMu.Unlock()
-	entries, err := m.store.ListPendingAuditMirrorEntries(ctx, auditMirrorBatch)
+	deliveries, err := m.store.ClaimAuditMirrorDeliveries(ctx, auditMirrorBatch)
 	if err != nil {
 		return err
 	}
+	failing := map[string]string{}
 	var failures []error
-	for _, entry := range entries {
-		if err := m.mirror(ctx, entry); err != nil {
+	for _, delivery := range deliveries {
+		// Unsent claims left behind lapse and are claimed again later.
+		if ctx.Err() != nil {
+			break
+		}
+		var err error
+		if reason, ok := failing[delivery.Entry.GuildID]; ok {
+			err = m.retry(ctx, delivery, reason)
+		} else {
+			err = m.mirror(ctx, delivery, failing)
+		}
+		if err != nil && !errors.Is(err, ErrAuditMirrorLeaseLost) {
 			failures = append(failures, err)
-			if ctx.Err() != nil {
-				break
-			}
 		}
 	}
 	return errors.Join(failures...)
 }
 
-// mirror sends one entry and records the outcome. When Discord reports the
-// channel gone, the channel is cleared from settings so later entries are
-// skipped instead of failing one by one.
-func (m *AuditMirror) mirror(ctx context.Context, entry AuditLogEntry) error {
+// mirror sends one delivery and records the outcome. When Discord reports
+// the channel gone, the channel is cleared from settings so the guild's
+// later deliveries are skipped instead of failing one by one. A failed send
+// marks the guild in failing.
+func (m *AuditMirror) mirror(ctx context.Context, delivery AuditMirrorDelivery, failing map[string]string) error {
+	entry := delivery.Entry
 	settings, err := m.store.GetGuildSettings(ctx, entry.GuildID)
 	if err != nil {
-		return m.recordOutcome(ctx, entry, AuditActionMirrorFailed, AuditResultFailure, "settings_unavailable")
+		return m.retry(ctx, delivery, "settings_unavailable")
 	}
 	if settings == nil || strings.TrimSpace(settings.AuditMirrorChannelDiscordID) == "" {
-		return m.recordOutcome(ctx, entry, AuditActionMirrorSkipped, AuditResultSuccess, "not_configured")
+		return m.settle(ctx, delivery, AuditMirrorSkipped, "not_configured", "")
 	}
 	guild, err := m.store.GetGuildByID(ctx, entry.GuildID)
 	if err != nil || guild == nil {
-		return m.recordOutcome(ctx, entry, AuditActionMirrorFailed, AuditResultFailure, "guild_unavailable")
+		return m.retry(ctx, delivery, "guild_unavailable")
 	}
 	if m.sender == nil {
-		return m.recordOutcome(ctx, entry, AuditActionMirrorFailed, AuditResultFailure, "sender_unavailable")
+		return m.retry(ctx, delivery, "sender_unavailable")
 	}
 	message := AuditMirrorMessage{
 		AuditEntryID:       entry.ID,
@@ -124,14 +197,17 @@ func (m *AuditMirror) mirror(ctx context.Context, entry AuditLogEntry) error {
 		MetadataJSON:       RedactAuditMetadata(entry.MetadataJSON),
 	}
 	if err := m.describeCase(ctx, entry, &message); err != nil {
-		return m.recordOutcome(ctx, entry, AuditActionMirrorFailed, AuditResultFailure, "case_details_unavailable")
+		return m.retry(ctx, delivery, "case_details_unavailable")
 	}
-	err = m.sender.SendAuditMirror(ctx, message)
+	if err := m.store.BeginAuditMirrorDelivery(ctx, entry.ID, delivery.LeaseToken); err != nil {
+		return err
+	}
+	messageID, err := m.sender.SendAuditMirror(ctx, message)
 	switch {
 	case err == nil:
-		return m.recordOutcome(ctx, entry, AuditActionMirrorDelivered, AuditResultSuccess, "")
+		return m.settle(ctx, delivery, AuditMirrorDelivered, "", messageID)
 	case errors.Is(err, ErrAuditMirrorChannelUnavailable):
-		if err := m.recordOutcome(ctx, entry, AuditActionMirrorFailed, AuditResultFailure, "channel_unavailable"); err != nil {
+		if err := m.settle(ctx, delivery, AuditMirrorSkipped, "channel_unavailable", ""); err != nil {
 			return err
 		}
 		repair := &AuditLogEntry{
@@ -151,8 +227,58 @@ func (m *AuditMirror) mirror(ctx context.Context, entry AuditLogEntry) error {
 		_, err := m.store.ClearGuildChannelReferences(ctx, entry.GuildID, settings.AuditMirrorChannelDiscordID, repair)
 		return err
 	default:
-		return m.recordOutcome(ctx, entry, AuditActionMirrorFailed, AuditResultFailure, "delivery_failed")
+		failing[entry.GuildID] = "delivery_failed"
+		return m.retry(ctx, delivery, "delivery_failed")
 	}
+}
+
+// retry counts a failed try at delivery and schedules the next one after
+// auditMirrorBackoff, or gives up once auditMirrorMaxAttempts have failed.
+// Giving up audits audit_mirror.failed, at most once per guild outage.
+func (m *AuditMirror) retry(ctx context.Context, delivery AuditMirrorDelivery, reason string) error {
+	attempts := delivery.Attempts + 1
+	params := CompleteAuditMirrorDeliveryParams{
+		AuditEntryID: delivery.Entry.ID,
+		LeaseToken:   delivery.LeaseToken,
+		Attempts:     attempts,
+		LastError:    reason,
+	}
+	if attempts < auditMirrorMaxAttempts {
+		params.Status = AuditMirrorPending
+		params.NextAttemptAt = time.Now().UTC().Add(auditMirrorBackoff[attempts-1])
+		return m.store.CompleteAuditMirrorDelivery(ctx, params)
+	}
+	entry := delivery.Entry
+	params.Status = AuditMirrorFailed
+	params.GiveUpAudit = &AuditLogEntry{
+		GuildID:            entry.GuildID,
+		ActorDiscordUserID: systemActorID,
+		Source:             AuditSourceSystem,
+		Action:             string(AuditActionMirrorFailed),
+		ResourceType:       "audit_entry",
+		ResourceID:         entry.ID,
+		Result:             AuditResultFailure,
+		FailureReason:      reason,
+		RequestID:          entry.RequestID,
+		CorrelationID:      entry.CorrelationID,
+		MetadataJSON: marshalJSONObject(map[string]any{
+			"audit_entry_id": entry.ID,
+			"attempts":       attempts,
+		}),
+	}
+	return m.store.CompleteAuditMirrorDelivery(ctx, params)
+}
+
+// settle records a final outcome other than giving up.
+func (m *AuditMirror) settle(ctx context.Context, delivery AuditMirrorDelivery, status AuditMirrorDeliveryStatus, reason, messageID string) error {
+	return m.store.CompleteAuditMirrorDelivery(ctx, CompleteAuditMirrorDeliveryParams{
+		AuditEntryID:       delivery.Entry.ID,
+		LeaseToken:         delivery.LeaseToken,
+		Status:             status,
+		Attempts:           delivery.Attempts,
+		LastError:          reason,
+		DeliveredMessageID: messageID,
+	})
 }
 
 // describeCase fills in the case an entry is about, found through the case,
@@ -244,22 +370,4 @@ func selectedOutcome(snapshotJSON string) (level, outcome string) {
 		outcomes = append(outcomes, "Warning")
 	}
 	return snapshot.SelectedLevel.Name, strings.Join(outcomes, ", ")
-}
-
-// recordOutcome audits what happened to original. The outcome entry is what
-// takes original off the pending list.
-func (m *AuditMirror) recordOutcome(ctx context.Context, original AuditLogEntry, action AuditAction, result AuditResult, failure string) error {
-	return recordAudit(ctx, m.store, &AuditLogEntry{
-		GuildID:            original.GuildID,
-		ActorDiscordUserID: systemActorID,
-		Source:             AuditSourceSystem,
-		Action:             string(action),
-		ResourceType:       "audit_entry",
-		ResourceID:         original.ID,
-		Result:             result,
-		FailureReason:      failure,
-		RequestID:          original.RequestID,
-		CorrelationID:      original.CorrelationID,
-		MetadataJSON:       marshalJSONObject(map[string]any{"audit_entry_id": original.ID}),
-	})
 }

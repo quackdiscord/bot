@@ -20,6 +20,9 @@ func TestReviewControlsAreIdempotent(t *testing.T) {
 	if err != nil || queue.Total != 1 || queue.Executions[0].ID != failed.ID {
 		t.Fatalf("review queue = %+v, %v", queue, err)
 	}
+	if got := queue.Cases[created.Case.ID]; got.CaseNumber != created.Case.CaseNumber || got.TargetDiscordUserID != created.Case.TargetDiscordUserID {
+		t.Errorf("queue case = %+v, want #%d for %s", got, created.Case.CaseNumber, created.Case.TargetDiscordUserID)
+	}
 	if _, err := s.RetryCaseAction(ctx, quack.RetryCaseActionParams{GuildID: guildID, ExecutionID: succeeded.ID}); err == nil {
 		t.Error("retried a succeeded execution")
 	}

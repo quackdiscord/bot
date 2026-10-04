@@ -29,7 +29,7 @@ type Cases struct {
 }
 
 func NewCases(services *quack.Services, poster ChannelPoster, dashboardURL string) Cases {
-	c := newCases(services, poster, dashboardURL)
+	c := newCases(services, poster, quack.NewDashboardLinks(dashboardURL))
 	router := newRouter(nil, nil)
 	c.register(router)
 	return Cases{c, router}
@@ -82,7 +82,13 @@ func (c Cases) ReverseButton(ctx context.Context, i *discordgo.InteractionCreate
 // NewSetup returns the /setup command handler with modules' setup routes and
 // no Discord session, so tests must pass every channel explicitly.
 func NewSetup(services *quack.Services, modules map[string]SetupHandler) Handler {
-	return (&setup{services: services, modules: modules}).command
+	return NewSetupWithDashboard(services, modules, "")
+}
+
+// NewSetupWithDashboard is NewSetup with confirmations linked to the
+// dashboard at dashboardURL.
+func NewSetupWithDashboard(services *quack.Services, modules map[string]SetupHandler, dashboardURL string) Handler {
+	return (&setup{services: services, modules: modules, dashboard: quack.NewDashboardLinks(dashboardURL)}).command
 }
 
 // Lifecycle exposes the guild lifecycle gateway handlers.

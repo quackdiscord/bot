@@ -113,34 +113,10 @@ func metadataMatch(key, value string) (string, []any) {
 	}
 }
 
-// ListPendingAuditMirrorEntries returns important entries with no successful
-// mirror outcome, oldest first. An entry whose delivery failed comes back
-// once the failure is a minute old.
-func (s *Store) ListPendingAuditMirrorEntries(ctx context.Context, limit int) ([]quack.AuditLogEntry, error) {
-	limit, _ = page(limit, 0)
-	retryAfter := time.Now().UTC().Add(-time.Minute)
-	outcomes := []string{string(quack.AuditActionMirrorDelivered), string(quack.AuditActionMirrorSkipped)}
-	var records []auditRecord
-	err := s.db.WithContext(ctx).
-		Where("action IN ?", quack.ImportantAuditActions()).
-		Where(`NOT EXISTS (SELECT 1 FROM audit_log_entries outcomes
-			WHERE outcomes.guild_id = audit_log_entries.guild_id AND outcomes.action IN ?
-			AND outcomes.resource_type = 'audit_entry' AND outcomes.resource_id = audit_log_entries.id
-			AND outcomes.result = ?)`, outcomes, quack.AuditResultSuccess).
-		Where(`NOT EXISTS (SELECT 1 FROM audit_log_entries failures
-			WHERE failures.guild_id = audit_log_entries.guild_id AND failures.action = ?
-			AND failures.resource_type = 'audit_entry' AND failures.resource_id = audit_log_entries.id
-			AND failures.created_at > ?)`, string(quack.AuditActionMirrorFailed), retryAfter).
-		Order("created_at ASC, id ASC").Limit(limit).Find(&records).Error
-	if err != nil {
-		return nil, fmt.Errorf("list pending audit mirror entries: %w", err)
-	}
-	return modelsOf(records, auditRecord.model), nil
-}
-
 // createAuditLogEntry appends entry inside db, which may be a transaction. It
 // redacts the metadata and failure reason and fills in the entry's ID and
-// timestamps.
+// timestamps. An important entry (quack.IsImportantAuditAction) also queues
+// its audit mirror delivery, committed together with it.
 func createAuditLogEntry(db *gorm.DB, entry *quack.AuditLogEntry, now time.Time) error {
 	if entry == nil {
 		return nil
@@ -150,10 +126,19 @@ func createAuditLogEntry(db *gorm.DB, entry *quack.AuditLogEntry, now time.Time)
 	entry.FailureReason = redactFailureReason(entry.FailureReason)
 	stamp(&entry.ULIDModel, now)
 	record := newAuditRecord(*entry)
-	if err := db.Create(&record).Error; err != nil {
-		return fmt.Errorf("create audit log entry: %w", err)
+	if !quack.IsImportantAuditAction(record.Action) {
+		if err := db.Create(&record).Error; err != nil {
+			return fmt.Errorf("create audit log entry: %w", err)
+		}
+		return nil
 	}
-	return nil
+	// Inside a caller's transaction this is a savepoint.
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&record).Error; err != nil {
+			return fmt.Errorf("create audit log entry: %w", err)
+		}
+		return queueAuditMirrorDelivery(tx, record, now)
+	})
 }
 
 // writeAudit appends a copy of entry about resourceID. A nil entry is a

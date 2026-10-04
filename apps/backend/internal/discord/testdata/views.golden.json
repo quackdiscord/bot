@@ -9,7 +9,7 @@
             "label": "Appeal decision",
             "style": 5,
             "disabled": false,
-            "url": "https://dash.example/base/guilds/guild/cases/case%25201/appeal",
+            "url": "https://dash.example/base/guilds/guild/cases/case-1/appeal",
             "type": 2
           }
         ],
@@ -32,6 +32,13 @@
             "disabled": false,
             "custom_id": "case:retry:v1:execution",
             "type": 2
+          },
+          {
+            "label": "Open case",
+            "style": 5,
+            "disabled": false,
+            "url": "https://dash.example/guilds/discord-guild/cases/case",
+            "type": 2
           }
         ],
         "type": 1
@@ -44,7 +51,20 @@
   "audit_case_create": {
     "Content": "{{quack:case_add}} \u003c@moderator\u003e added a case.\n-# Case #42 · \u003c@member\u003e · Spam\n-# Level: Third case\n-# Outcome: Timeout (24h)\n-# \u003ct:1700000000:R\u003e",
     "Embeds": null,
-    "Components": null,
+    "Components": [
+      {
+        "components": [
+          {
+            "label": "Open case",
+            "style": 5,
+            "disabled": false,
+            "url": "https://dash.example/guilds/discord-guild/cases/case",
+            "type": 2
+          }
+        ],
+        "type": 1
+      }
+    ],
     "Files": null,
     "Ephemeral": false,
     "AllowedMentions": null
@@ -333,6 +353,13 @@
             "style": 4,
             "disabled": false,
             "custom_id": "case:void:v1:case-1",
+            "type": 2
+          },
+          {
+            "label": "Open in dashboard",
+            "style": 5,
+            "disabled": false,
+            "url": "https://dash.example/guilds/discord-guild/cases/case-1",
             "type": 2
           }
         ],

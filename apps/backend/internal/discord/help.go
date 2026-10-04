@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/internal/quack"
 )
 
 const helpCommandName = "help"
@@ -55,15 +56,28 @@ var helpTopics = map[string]string{
 		"For tickets, honeypot, or logging, use `enabled:false` to pause the feature and `enabled:true` to turn it back on. Use that option on its own; saved channels are kept.",
 }
 
-// help answers /help publicly with the chosen topic, or the overview.
-func help(_ context.Context, i *discordgo.InteractionCreate) Result {
-	topic := ""
-	if option := i.ApplicationCommandData().GetOption("topic"); option != nil {
-		topic = option.StringValue()
+// helpPages is the staff dashboard page each /help topic links to; the
+// overview links the guild's dashboard home.
+var helpPages = map[string][]string{
+	"":        nil,
+	"rules":   {"rules"},
+	"cases":   {"cases"},
+	"appeals": {"appeals"},
+	"setup":   {"settings"},
+}
+
+// help answers /help publicly with the chosen topic, or the overview. In a
+// server, the answer links the topic's page in the dashboard.
+func help(dashboard quack.DashboardLinks) Handler {
+	return func(_ context.Context, i *discordgo.InteractionCreate) Result {
+		topic := ""
+		if option := i.ApplicationCommandData().GetOption("topic"); option != nil {
+			topic = option.StringValue()
+		}
+		body, ok := helpTopics[topic]
+		if !ok {
+			topic, body = "", helpTopics[""]
+		}
+		return Immediate(Public(withLink(Content(body, false), dashboard.Staff(i.GuildID, helpPages[topic]...), dashboardLabel)))
 	}
-	body, ok := helpTopics[topic]
-	if !ok {
-		body = helpTopics[""]
-	}
-	return Immediate(Public(Content(body, false)))
 }

@@ -28,8 +28,8 @@ func TestBuildWiresEverySurface(t *testing.T) {
 	if err := st.DB().Raw("SELECT version, name FROM quack_schema_migrations ORDER BY version").Scan(&ledger).Error; err != nil {
 		t.Fatal(err)
 	}
-	if len(ledger) != 1 || ledger[0].Version != 1 || ledger[0].Name != "baseline" {
-		t.Fatalf("migration ledger = %+v, want only the baseline", ledger)
+	if len(ledger) != 2 || ledger[0].Name != "baseline" || ledger[1].Name != "audit_mirror_deliveries" {
+		t.Fatalf("migration ledger = %+v, want the baseline and audit_mirror_deliveries", ledger)
 	}
 
 	bot, err := discord.New("Bot offline")

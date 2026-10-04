@@ -27,6 +27,10 @@ type migration struct {
 // never edit one that has shipped.
 var migrations = []migration{
 	{version: 1, name: "baseline", up: createBaseline, down: dropBaseline},
+	// Irreversible: the binary before it finds mirror work by scanning the
+	// audit log for entries with no delivered outcome row, so after a
+	// rollback it would post everything mirrored since again.
+	{version: 2, name: "audit_mirror_deliveries", up: createAuditMirrorDeliveries},
 }
 
 // ErrIrreversible means the newest migration has no down step.
@@ -173,6 +177,18 @@ func oneDefaultLevel(db *gorm.DB) error {
 		}
 	}
 	return db.Exec("CREATE UNIQUE INDEX " + index + " ON case_template_levels (default_template_id)").Error
+}
+
+// createAuditMirrorDeliveries moves audit mirror state out of the audit log
+// into its own table. Nothing is backfilled: entries written before this
+// step get no delivery row and are never sent, so none can be posted twice.
+// Most were already delivered or skipped. Those still waiting (written in
+// the last few seconds before the upgrade, or failing to send) are not
+// mirrored, which errs toward a missing post over a duplicate one. Their
+// history stays in audit_log_entries. Fresh databases already have the
+// table from the baseline, so this is then a no-op.
+func createAuditMirrorDeliveries(db *gorm.DB) error {
+	return withTableOptions(db).AutoMigrate(&auditMirrorDeliveryRecord{})
 }
 
 // retireAppealForms removes what custom appeal forms left in a database

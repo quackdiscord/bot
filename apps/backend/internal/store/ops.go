@@ -66,6 +66,8 @@ func (s *Store) OperationalMetricSnapshot(ctx context.Context) (map[string]int64
 		{"quack_action_failures_total", "case_action_executions", "status = ?", []any{quack.ActionExecutionFailed}},
 		{"quack_action_retries_total", "case_action_attempts", "attempt_number > ?", []any{1}},
 		{"quack_audit_mirror_events_total", "audit_log_entries", "action LIKE ?", []any{"audit_mirror.%"}},
+		{"quack_audit_mirror_deliveries_total", "audit_mirror_deliveries", "status = ?", []any{quack.AuditMirrorDelivered}},
+		{"quack_audit_mirror_failures_total", "audit_mirror_deliveries", "status = ?", []any{quack.AuditMirrorFailed}},
 		{"quack_optional_module_events_total", "audit_log_entries", "action LIKE ? OR action LIKE ? OR action LIKE ?",
 			[]any{"ticket.%", "general_logging.%", "honeypot.%"}},
 	}
