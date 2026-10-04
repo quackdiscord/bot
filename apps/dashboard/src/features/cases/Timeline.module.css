@@ -1,0 +1,57 @@
+.list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  position: relative;
+  display: flex;
+  gap: 12px;
+  padding-bottom: 18px;
+  animation: rise-in var(--slow) var(--ease-out) both;
+}
+
+.item:last-child {
+  padding-bottom: 0;
+}
+
+/* The line that joins one event to the next. */
+.item:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  top: 26px;
+  bottom: 2px;
+  left: 9px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--border-strong);
+}
+
+.rail {
+  position: relative;
+  display: flex;
+  padding-top: 1px;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.text {
+  font-size: 14px;
+  color: var(--text);
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}

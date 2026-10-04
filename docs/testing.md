@@ -1,53 +1,56 @@
 # Testing
 
-## Current Test Harness
+Run everything from `apps/backend`:
 
-The current test suite is driven through `go test ./...`.
+```sh
+gofmt -l .
+go vet ./...
+go test ./...
+```
 
-Many storage and route tests use in-memory SQLite through GORM and, when Redis
-behavior matters, a `miniredis` server through `internal/testutil/storage.go`.
-This keeps most tests fast and self-contained.
+While working, run the narrowest package first, for example
+`go test ./internal/quack -run Escalation`, then the whole suite.
+`go test -race ./...` is worth running after touching the worker, router, or
+anything with locks or leases. `staticcheck ./...` is optional.
 
-`internal/testutil/config.go` also installs a minimal test config so auth and
-cookie-dependent code can run without the full production environment.
+## How the tests are built
 
-## Scope Limits
+- **Storage.** Most tests use a real `store.Store` over in-memory SQLite with
+  the full schema migrated, plus miniredis when Redis matters. The helpers are
+  in `internal/testutil/store.go`. The SQLite database holds a single
+  connection, so code that opens a second query outside its own transaction
+  hangs the test instead of passing by accident.
+- **Discord.** Tests swap in fakes for the `quack` Discord ports and the
+  router's interaction client; no test talks to Discord. The `/case` command
+  definitions and rendered messages are pinned by golden files in
+  `internal/discord/testdata/`. Their custom IDs are part of messages already
+  posted in Discord, so an unexpected diff there is a real break.
+- **HTTP.** `internal/api` tests drive the real `api.Server` with
+  `httptest`. They pin the JSON contract the dashboard uses: routes, status
+  codes, the error envelope, cookies, CSRF, and idempotency.
+- **Config.** `internal/config` tests pass the environment in explicitly, so
+  they don't depend on your shell.
+- **Fuzz.** `internal/quack/fuzz_test.go` has fuzz targets for template
+  policy JSON and context values (`go test ./internal/quack -fuzz <name>`).
 
-SQLite-backed tests are intended to catch:
+## MySQL tests
 
-- schema model registration
-- migration execution
-- repository wiring
-- route behavior
-- case/template business rules
-- action execution control flow
+SQLite does not behave like MySQL for locking, generated columns, or the
+migration lock. A few tests need a real MySQL and skip unless
+`QUACK_TEST_MYSQL_DSN` is set:
 
-They are not a replacement for MySQL coverage. Any behavior that depends on
-MySQL-specific SQL, indexes, locking, JSON semantics, unsigned integers, or
-transaction isolation should be covered later with a real MySQL-backed
-integration test.
+- `TestMySQL` in `internal/store/migrate_mysql_test.go`: concurrent
+  migration under the named lock, the default-level index, rollback, and the
+  raw SQL behind polling and statistics.
+- `TestMySQL*` in `internal/quack/mysql_integration_test.go`: concurrent case
+  creation and escalation under the guild lock.
 
-## Current Coverage Pressure Points
+Each test creates and drops its own uniquely named database, so the DSN's
+user needs `CREATE` and `DROP` privileges. With the Compose MySQL, use root:
 
-The current backend has a few areas where targeted tests matter more than broad
-end-to-end setup:
+```sh
+QUACK_TEST_MYSQL_DSN='root:quack-root@tcp(127.0.0.1:3306)/?parseTime=true' \
+  go test ./internal/store ./internal/quack -run MySQL
+```
 
-- template validation and level normalization in `internal/quack/templates.go`
-- case level selection and snapshotting in `internal/quack/cases.go`
-- action retries, notifications, and failure handling in `internal/quack/actions.go`
-- route auth and guild-context wiring in `internal/httpapi/routes/router_test.go`
-- interaction dispatch, deferred responses, and component/modal routing in
-  `internal/discordbot/interactions/dispatcher_test.go`
-- Discord response helper output shape in `internal/discordbot/ui/responses_test.go`
-
-Relevant files:
-
-- `internal/testutil/storage.go`
-- `internal/testutil/config.go`
-- `internal/httpapi/routes/router_test.go`
-- `internal/quack/templates_test.go`
-- `internal/quack/cases_test.go`
-- `internal/quack/actions_test.go`
-- `internal/discordbot/interactions/dispatcher_test.go`
-- `internal/discordbot/ui/responses_test.go`
-- `internal/store/migrations_test.go`
+CI does not set this variable, so these tests only run locally.

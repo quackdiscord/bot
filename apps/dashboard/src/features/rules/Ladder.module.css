@@ -1,0 +1,138 @@
+.list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  --tone: var(--warning);
+  --tone-soft: var(--warning-soft);
+  display: flex;
+  gap: 12px;
+  animation: rise-in var(--base) var(--ease-out) both;
+  transition: opacity var(--base) var(--ease);
+}
+
+.step[data-action="timeout_user"],
+.chip[data-action="timeout_user"] {
+  --tone: var(--purple);
+  --tone-soft: var(--purple-soft);
+}
+
+.step[data-action="kick_user"],
+.chip[data-action="kick_user"] {
+  --tone: var(--orange);
+  --tone-soft: var(--orange-soft);
+}
+
+.step[data-action="ban_user"],
+.chip[data-action="ban_user"] {
+  --tone: var(--danger);
+  --tone-soft: var(--danger-soft);
+}
+
+.step[data-unreachable] {
+  opacity: 0.45;
+}
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.node {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-full);
+  background: var(--tone-soft);
+  box-shadow: inset 0 0 0 1px var(--border);
+  transition: background-color var(--base) var(--ease);
+}
+
+.line {
+  flex-grow: 1;
+  width: 2px;
+  min-height: 12px;
+  margin-block: 4px;
+  border-radius: var(--radius-full);
+  background: var(--border-strong);
+}
+
+.step:last-child .line {
+  visibility: hidden;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  padding-bottom: 16px;
+}
+
+.step:last-child .body {
+  padding-bottom: 0;
+}
+
+.range {
+  padding-top: 1px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--tone);
+}
+
+.outcome {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.meta {
+  font-size: 13px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.chip {
+  --tone: var(--warning);
+  --tone-soft: var(--warning-soft);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding-inline: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: var(--surface-sunken);
+  white-space: nowrap;
+}
+
+.chipRange {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--tone);
+}
+
+.arrow {
+  flex-shrink: 0;
+  color: var(--text-faint);
+}

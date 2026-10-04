@@ -1,0 +1,71 @@
+.dock {
+  position: sticky;
+  bottom: 20px;
+  z-index: 3;
+  margin-top: -12px;
+  pointer-events: none;
+}
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 10px 10px 18px;
+  border-radius: var(--radius-lg);
+  background: var(--floating);
+  box-shadow: var(--shadow-lg);
+  opacity: 0;
+  transform: translateY(calc(100% + 28px));
+  transition:
+    transform var(--slow) var(--spring),
+    opacity var(--base) var(--ease);
+}
+
+.bar[data-visible] {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.bar[data-nudged] {
+  animation: shake 420ms var(--ease);
+  box-shadow:
+    var(--shadow-lg),
+    0 0 0 2px var(--danger-strong);
+}
+
+.text {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.error {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--danger);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+@keyframes shake {
+  0%,
+  100% {
+    translate: 0;
+  }
+  20%,
+  60% {
+    translate: -8px;
+  }
+  40%,
+  80% {
+    translate: 8px;
+  }
+}

@@ -1,0 +1,35 @@
+.tip {
+  position: fixed;
+  z-index: 200;
+  max-width: 260px;
+  padding: 7px 11px;
+  border-radius: var(--radius-sm);
+  background: #0b0c0e;
+  color: var(--text-strong);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  pointer-events: none;
+  animation: tip-in 120ms var(--ease-out);
+}
+
+.tip[data-side="right"] {
+  transform: translateY(-50%);
+  transform-origin: left center;
+}
+
+.tip[data-side="top"] {
+  transform: translate(-50%, -100%);
+}
+
+.tip[data-side="bottom"] {
+  transform: translateX(-50%);
+}
+
+@keyframes tip-in {
+  from {
+    opacity: 0;
+    scale: 0.94;
+  }
+}

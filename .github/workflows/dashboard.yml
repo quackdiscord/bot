@@ -1,0 +1,49 @@
+name: Dashboard
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/dashboard
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/dashboard/go.mod
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: API types match the contract
+        run: |
+          bun run api
+          git diff --exit-code src/api/schema.gen.ts
+
+      - name: Check
+        run: bun run check
+
+      - name: Test
+        run: bun run test
+
+      - name: Build
+        run: bun run build
+
+      - name: Server
+        run: |
+          go vet ./...
+          go test ./...
+          go build -o /dev/null .

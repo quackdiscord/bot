@@ -1,0 +1,24 @@
+.avatar {
+  flex-shrink: 0;
+  object-fit: cover;
+  background: var(--surface-sunken);
+}
+
+.round {
+  border-radius: var(--radius-full);
+}
+
+.square {
+  border-radius: 30%;
+}
+
+.fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  color: #fff;
+  font-weight: 600;
+  white-space: nowrap;
+  user-select: none;
+}

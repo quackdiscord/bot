@@ -1,0 +1,81 @@
+.region {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  z-index: 100;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  gap: 8px;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.toast {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(480px, calc(100vw - 32px));
+  padding: 11px 16px 11px 12px;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--floating);
+  color: var(--text-strong);
+  box-shadow: var(--shadow-lg);
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  pointer-events: auto;
+  animation: toast-in 380ms var(--spring) both;
+}
+
+.toast[data-leaving] {
+  animation: toast-out 200ms var(--ease) forwards;
+}
+
+.message {
+  min-width: 0;
+}
+
+.timer {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 100%;
+  transform-origin: left;
+  background: var(--success);
+  opacity: 0.7;
+  animation: drain linear forwards;
+}
+
+.toast[data-tone="error"] .timer {
+  background: var(--danger);
+}
+
+.toast[data-tone="info"] .timer {
+  background: var(--info);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.94);
+  }
+}
+
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+}
+
+@keyframes drain {
+  to {
+    transform: scaleX(0);
+  }
+}

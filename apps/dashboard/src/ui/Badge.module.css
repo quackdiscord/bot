@@ -1,0 +1,83 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding-inline: 9px;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--fg);
+  background: var(--bg-tone);
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: var(--radius-full);
+  background: var(--fg);
+}
+
+.neutral {
+  --fg: var(--text-muted);
+  --bg-tone: rgb(255 255 255 / 0.07);
+}
+.brand {
+  --fg: var(--accent);
+  --bg-tone: var(--accent-soft);
+}
+.success {
+  --fg: var(--success);
+  --bg-tone: var(--success-soft);
+}
+.danger {
+  --fg: var(--danger);
+  --bg-tone: var(--danger-soft);
+}
+.warning {
+  --fg: var(--warning);
+  --bg-tone: var(--warning-soft);
+}
+.info {
+  --fg: var(--info);
+  --bg-tone: var(--info-soft);
+}
+.purple {
+  --fg: var(--purple);
+  --bg-tone: var(--purple-soft);
+}
+.orange {
+  --fg: var(--orange);
+  --bg-tone: var(--orange-soft);
+}
+
+.count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding-inline: 5px;
+  border-radius: var(--radius-full);
+  background: var(--danger-strong);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  animation: pop-in var(--slow) var(--spring);
+}
+
+.countBrand {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+@keyframes pop-in {
+  from {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+}

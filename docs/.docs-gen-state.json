@@ -1,5 +1,0 @@
-{
-  "last_successful_update_at": "2026-07-11T22:50:45Z",
-  "last_processed_commit": "f2ed90ec328215a31a31a80e93d05acd78e1ec31",
-  "notes": "Rebuilt TODO.md as the comprehensive backend-only checklist for remaining v5 product alignment, core workflows, optional modules, migration, reliability, security, testing, and release readiness."
-}

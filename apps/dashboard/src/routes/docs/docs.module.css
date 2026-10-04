@@ -1,0 +1,119 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  background: var(--bg);
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 56px;
+  flex-grow: 1;
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 48px 20px 88px;
+}
+
+.sidebar {
+  position: sticky;
+  top: 92px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  align-self: start;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.groupTitle {
+  margin-bottom: 4px;
+  padding-inline: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.link {
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-muted);
+  transition:
+    color var(--fast) var(--ease),
+    background-color var(--fast) var(--ease);
+}
+
+.link:hover {
+  color: var(--text-strong);
+  background: var(--hover);
+}
+
+.link[data-status="active"] {
+  background: var(--selected);
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.help {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-inline: 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.help a {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.help a:hover {
+  text-decoration: underline;
+}
+
+.main {
+  min-width: 0;
+}
+
+/* Small screens: the sidebar becomes a row of chips above the page. */
+@media (max-width: 860px) {
+  .layout {
+    grid-template-columns: 1fr;
+    gap: 28px;
+    padding-top: 20px;
+  }
+  .sidebar {
+    position: static;
+    flex-direction: row;
+    gap: 6px;
+    margin-inline: -20px;
+    padding: 0 20px 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .group {
+    flex-direction: row;
+    gap: 6px;
+  }
+  .groupTitle,
+  .help {
+    display: none;
+  }
+  .link {
+    flex-shrink: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-full);
+    white-space: nowrap;
+  }
+  .link[data-status="active"] {
+    border-color: var(--border-strong);
+  }
+}

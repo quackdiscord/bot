@@ -1,0 +1,67 @@
+.summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  animation: rise-in var(--base) var(--ease-out);
+}
+
+.name {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-strong);
+}
+
+.description {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.reason {
+  margin-top: 4px;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.reasonLabel {
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.ladder {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  animation: rise-in var(--slow) var(--ease-out);
+}
+
+.mono {
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+.problems {
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 14px;
+  animation: rise-in var(--base) var(--ease-out);
+}
+
+.problemsTitle {
+  font-weight: 600;
+}
+
+.problemList {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}

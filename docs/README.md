@@ -1,38 +1,13 @@
 # Docs
 
-Internal maintainer docs for the Quack v5 backend.
+Maintainer docs for Quack v5. The product definition is
+[`v5.md`](../v5.md).
 
-This directory covers the code that exists in this checkout today. The
-authoritative product definition lives in [`v5.md`](../v5.md). When current code
-differs from that definition, [`v5-scope-drift.md`](v5-scope-drift.md) records
-the high-level mismatch without making the technical docs inaccurate.
-
-## Index
-
-- `architecture.md`: service layout, startup flow, request flow, Discord interaction flow, and action execution.
-- `configuration.md`: environment variables and runtime dependencies.
-- `development.md`: local workflow, Docker usage, commands, and where to make common changes.
-- `release-readiness.md`: current ops status, tracing, coexistence, and release checklist.
-- `v5-scope-drift.md`: high-level differences between the current backend and the intended v5 product.
-- `modules/README.md`: focused notes for core runtime modules and pipelines.
-- `testing.md`: current test harness and scope limits.
-
-## Current Surface
-
-The live backend currently has four main runtime surfaces:
-
-- Discord bot startup, slash-command registration, and interaction dispatch in `cmd/quack/main.go`, `internal/discordbot/commands/`, and `internal/discordbot/interactions/`.
-- HTTP API routes for status, ops status, auth, guild context, templates, case reads and creation, and guild audit reads in `internal/httpapi/server.go` and `internal/httpapi/routes/`.
-- Case-action queue processing in `internal/workqueue/queue.go` and `internal/workqueue/queue.go`.
-- Local container packaging for MySQL, Redis, and the app profile in `compose.yaml` and `Dockerfile`.
-
-Relevant files:
-
-- `cmd/quack/main.go`
-- `internal/httpapi/server.go`
-- `internal/httpapi/routes/router.go`
-- `internal/discordbot/commands/case.go`
-- `internal/discordbot/interactions/dispatcher.go`
-- `internal/discordbot/ui/message.go`
-- `internal/workqueue/queue.go`
-- `compose.yaml`
+- [`architecture.md`](architecture.md): package map, `/case add` flow, escalation, action engine, appeals, audit, HTTP API, modules, known gaps.
+- [`dashboard.md`](dashboard.md): the web dashboard, its Go server, sign-in through the `/api` proxy, deployment.
+- [`configuration.md`](configuration.md): settings, `QUACK_*` variables, Discord permissions and intents.
+- [`development.md`](development.md): local setup, commands, where code goes.
+- [`testing.md`](testing.md): how the tests are built, MySQL-backed tests.
+- [`migrations.md`](migrations.md): the migration ledger, adding a migration, rollback.
+- [`operations.md`](operations.md): deploying, health and metrics, security, incidents.
+- [`v4-import.md`](v4-import.md): importing v4 case history with `quack import-v4`.

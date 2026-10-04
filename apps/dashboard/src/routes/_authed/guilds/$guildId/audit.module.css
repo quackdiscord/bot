@@ -1,0 +1,89 @@
+.filters {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: -12px;
+}
+
+.line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.action {
+  width: 240px;
+}
+
+.source {
+  width: 160px;
+}
+
+.person {
+  width: 230px;
+}
+
+.dates {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dateLabel {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.date {
+  width: 150px;
+}
+
+.results {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.count {
+  font-size: 13px;
+  color: var(--text-faint);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  transition: opacity var(--base) var(--ease);
+}
+
+/* Entries rise in as they load, including each older page. */
+.list > li {
+  animation: rise-in var(--base) var(--ease-out) backwards;
+}
+
+.dim {
+  opacity: 0.7;
+}
+
+.more {
+  display: flex;
+  justify-content: center;
+  padding-top: 8px;
+}
+
+.end {
+  padding-top: 8px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-faint);
+}
+
+@media (max-width: 640px) {
+  .person {
+    flex-grow: 1;
+  }
+}

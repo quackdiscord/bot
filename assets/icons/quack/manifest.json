@@ -1,0 +1,554 @@
+{
+  "version": 5,
+  "family": "Quack Signals",
+  "grid": 64,
+  "discordSize": 128,
+  "applicationId": "968198214450831370",
+  "icons": [
+    {
+      "key": "warn",
+      "name": "quack_warn",
+      "label": "Warning",
+      "use": "A warning or a rule reminder.",
+      "svg": "svg/quack_warn.svg",
+      "png": "discord/quack_warn.png",
+      "color": "#F5BD4F",
+      "emojiIds": {
+        "968198214450831370": "1546624543018188840",
+        "819019613371236432": "1546626717848969397"
+      }
+    },
+    {
+      "key": "ban",
+      "name": "quack_ban",
+      "label": "Ban",
+      "use": "A server ban was applied.",
+      "svg": "svg/quack_ban.svg",
+      "png": "discord/quack_ban.png",
+      "color": "#F47785",
+      "emojiIds": {
+        "968198214450831370": "1546622597121314946",
+        "819019613371236432": "1546625076928061500"
+      }
+    },
+    {
+      "key": "timeout",
+      "name": "quack_timeout",
+      "label": "Timeout",
+      "use": "A temporary restriction with a known duration.",
+      "svg": "svg/quack_timeout.svg",
+      "png": "discord/quack_timeout.png",
+      "color": "#AE96ED",
+      "emojiIds": {
+        "968198214450831370": "1546624464534634516",
+        "819019613371236432": "1546626457311256606"
+      }
+    },
+    {
+      "key": "kick",
+      "name": "quack_kick",
+      "label": "Kick",
+      "use": "A member was removed from the server.",
+      "svg": "svg/quack_kick.svg",
+      "png": "discord/quack_kick.png",
+      "color": "#F5A265",
+      "emojiIds": {
+        "968198214450831370": "1546623253164851330",
+        "819019613371236432": "1546625766232428776"
+      }
+    },
+    {
+      "key": "unban",
+      "name": "quack_unban",
+      "label": "Ban lifted",
+      "use": "A ban has been removed.",
+      "svg": "svg/quack_unban.svg",
+      "png": "discord/quack_unban.png",
+      "color": "#65CDA6",
+      "emojiIds": {
+        "968198214450831370": "1546624480946692147",
+        "819019613371236432": "1546626558788374668"
+      }
+    },
+    {
+      "key": "untimeout",
+      "name": "quack_untimeout",
+      "label": "Timeout lifted",
+      "use": "A timeout has ended or been removed.",
+      "svg": "svg/quack_untimeout.svg",
+      "png": "discord/quack_untimeout.png",
+      "color": "#65CDA6",
+      "emojiIds": {
+        "968198214450831370": "1546624521522511963",
+        "819019613371236432": "1546626695094603839"
+      }
+    },
+    {
+      "key": "shield",
+      "name": "quack_shield",
+      "label": "Protected",
+      "use": "A protected resource or moderation policy.",
+      "svg": "svg/quack_shield.svg",
+      "png": "discord/quack_shield.png",
+      "color": "#78B4F5",
+      "emojiIds": {
+        "968198214450831370": "1546623879521370152",
+        "819019613371236432": "1546626329095569529"
+      }
+    },
+    {
+      "key": "case",
+      "name": "quack_case",
+      "label": "Case",
+      "use": "A case record.",
+      "svg": "svg/quack_case.svg",
+      "png": "discord/quack_case.png",
+      "color": "#78B4F5",
+      "emojiIds": {
+        "968198214450831370": "1546622628608086076",
+        "819019613371236432": "1546625125238177822"
+      }
+    },
+    {
+      "key": "case_add",
+      "name": "quack_case_add",
+      "label": "Case added",
+      "use": "A new case has been recorded.",
+      "svg": "svg/quack_case_add.svg",
+      "png": "discord/quack_case_add.png",
+      "color": "#78B4F5",
+      "emojiIds": {
+        "968198214450831370": "1546622680558735492",
+        "819019613371236432": "1546625233031532674"
+      }
+    },
+    {
+      "key": "case_void",
+      "name": "quack_case_void",
+      "label": "Case voided",
+      "use": "A case was voided; its history remains.",
+      "svg": "svg/quack_case_void.svg",
+      "png": "discord/quack_case_void.png",
+      "color": "#9EAFCA",
+      "emojiIds": {
+        "968198214450831370": "1546622697180504134",
+        "819019613371236432": "1546625253562781737"
+      }
+    },
+    {
+      "key": "history",
+      "name": "quack_history",
+      "label": "History",
+      "use": "Past cases or an event timeline.",
+      "svg": "svg/quack_history.svg",
+      "png": "discord/quack_history.png",
+      "color": "#78B4F5",
+      "emojiIds": {
+        "968198214450831370": "1546623032880144414",
+        "819019613371236432": "1546625505459966115"
+      }
+    },
+    {
+      "key": "note",
+      "name": "quack_note",
+      "label": "Note",
+      "use": "Additional context without a punishment.",
+      "svg": "svg/quack_note.svg",
+      "png": "discord/quack_note.png",
+      "color": "#F5BD4F",
+      "emojiIds": {
+        "968198214450831370": "1546623337202188288",
+        "819019613371236432": "1546625992418926693"
+      }
+    },
+    {
+      "key": "evidence",
+      "name": "quack_evidence",
+      "label": "Evidence",
+      "use": "A preserved message or attachment.",
+      "svg": "svg/quack_evidence.svg",
+      "png": "discord/quack_evidence.png",
+      "color": "#78B4F5",
+      "emojiIds": {
+        "968198214450831370": "1546623017235251220",
+        "819019613371236432": "1546625483410772070"
+      }
+    },
+    {
+      "key": "search",
+      "name": "quack_search",
+      "label": "Find a case",
+      "use": "Find records or inspect a result.",
+      "svg": "svg/quack_search.svg",
+      "png": "discord/quack_search.png",
+      "color": "#78B4F5",
+      "emojiIds": {
+        "968198214450831370": "1546623845392195604",
+        "819019613371236432": "1546626284656795708"
+      }
+    },
+    {
+      "key": "appeal",
+      "name": "quack_appeal",
+      "label": "Appeal",
+      "use": "Ask staff to review a decision.",
+      "svg": "svg/quack_appeal.svg",
+      "png": "discord/quack_appeal.png",
+      "color": "#AE96ED",
+      "emojiIds": {
+        "968198214450831370": "1546622582504034474",
+        "819019613371236432": "1546625055314804746"
+      }
+    },
+    {
+      "key": "review",
+      "name": "quack_review",
+      "label": "Under review",
+      "use": "Staff are examining a case or appeal.",
+      "svg": "svg/quack_review.svg",
+      "png": "discord/quack_review.png",
+      "color": "#AE96ED",
+      "emojiIds": {
+        "968198214450831370": "1546623760046497863",
+        "819019613371236432": "1546626099398709258"
+      }
+    },
+    {
+      "key": "accept",
+      "name": "quack_accept",
+      "label": "Appeal accepted",
+      "use": "A reviewed decision was accepted.",
+      "svg": "svg/quack_accept.svg",
+      "png": "discord/quack_accept.png",
+      "color": "#65CDA6",
+      "emojiIds": {
+        "968198214450831370": "1546622494662725702",
+        "819019613371236432": "1546625035425288192"
+      }
+    },
+    {
+      "key": "decline",
+      "name": "quack_decline",
+      "label": "Appeal declined",
+      "use": "A reviewed request was declined.",
+      "svg": "svg/quack_decline.svg",
+      "png": "discord/quack_decline.png",
+      "color": "#F47785",
+      "emojiIds": {
+        "968198214450831370": "1546622714519887963",
+        "819019613371236432": "1546625274588831795"
+      }
+    },
+    {
+      "key": "message",
+      "name": "quack_message",
+      "label": "Message",
+      "use": "A direct message or staff note.",
+      "svg": "svg/quack_message.svg",
+      "png": "discord/quack_message.png",
+      "color": "#78B4F5",
+      "emojiIds": {
+        "968198214450831370": "1546623319808151552",
+        "819019613371236432": "1546625853029482497"
+      }
+    },
+    {
+      "key": "reply",
+      "name": "quack_reply",
+      "label": "Reply",
+      "use": "A reply from staff or a member.",
+      "svg": "svg/quack_reply.svg",
+      "png": "discord/quack_reply.png",
+      "color": "#AE96ED",
+      "emojiIds": {
+        "968198214450831370": "1546623723790925844",
+        "819019613371236432": "1546626056419541072"
+      }
+    },
+    {
+      "key": "ticket",
+      "name": "quack_ticket",
+      "label": "Ticket",
+      "use": "A private support conversation.",
+      "svg": "svg/quack_ticket.svg",
+      "png": "discord/quack_ticket.png",
+      "color": "#AE96ED",
+      "emojiIds": {
+        "968198214450831370": "1546623931803242526",
+        "819019613371236432": "1546626430589345802"
+      }
+    },
+    {
+      "key": "success",
+      "name": "quack_success",
+      "label": "Done",
+      "use": "An operation completed successfully.",
+      "svg": "svg/quack_success.svg",
+      "png": "discord/quack_success.png",
+      "color": "#65CDA6",
+      "emojiIds": {
+        "968198214450831370": "1546623913591701545",
+        "819019613371236432": "1546626373659922493"
+      }
+    },
+    {
+      "key": "error",
+      "name": "quack_error",
+      "label": "Could not complete",
+      "use": "An operation failed and needs attention.",
+      "svg": "svg/quack_error.svg",
+      "png": "discord/quack_error.png",
+      "color": "#F47785",
+      "emojiIds": {
+        "968198214450831370": "1546622999090692167",
+        "819019613371236432": "1546625462623543296"
+      }
+    },
+    {
+      "key": "info",
+      "name": "quack_info",
+      "label": "Information",
+      "use": "Helpful, neutral information.",
+      "svg": "svg/quack_info.svg",
+      "png": "discord/quack_info.png",
+      "color": "#78B4F5",
+      "emojiIds": {
+        "968198214450831370": "1546623056250667089",
+        "819019613371236432": "1546625527421468732"
+      }
+    },
+    {
+      "key": "pending",
+      "name": "quack_pending",
+      "label": "Queued",
+      "use": "Work is waiting to start.",
+      "svg": "svg/quack_pending.svg",
+      "png": "discord/quack_pending.png",
+      "color": "#AE96ED",
+      "emojiIds": {
+        "968198214450831370": "1546623708221931651",
+        "819019613371236432": "1546626013755215995"
+      }
+    },
+    {
+      "key": "running",
+      "name": "quack_running",
+      "label": "Working",
+      "use": "An operation is in progress.",
+      "svg": "svg/quack_running.svg",
+      "png": "discord/quack_running.png",
+      "color": "#F5BD4F",
+      "emojiIds": {
+        "968198214450831370": "1546623778761482320",
+        "819019613371236432": "1546626203719573565"
+      }
+    },
+    {
+      "key": "retry",
+      "name": "quack_retry",
+      "label": "Retry",
+      "use": "An action is queued to be tried again.",
+      "svg": "svg/quack_retry.svg",
+      "png": "discord/quack_retry.png",
+      "color": "#AE96ED",
+      "emojiIds": {
+        "968198214450831370": "1546623742384541746",
+        "819019613371236432": "1546626078188249190"
+      }
+    },
+    {
+      "key": "member",
+      "name": "quack_member",
+      "label": "Member",
+      "use": "The person a message or case concerns.",
+      "svg": "svg/quack_member.svg",
+      "png": "discord/quack_member.png",
+      "color": "#78B4F5",
+      "emojiIds": {
+        "968198214450831370": "1546621336921575565",
+        "819019613371236432": "1546625835170275448"
+      }
+    },
+    {
+      "key": "join",
+      "name": "quack_join",
+      "label": "Member joined",
+      "use": "A member joined the server.",
+      "svg": "svg/quack_join.svg",
+      "png": "discord/quack_join.png",
+      "color": "#65CDA6",
+      "emojiIds": {
+        "968198214450831370": "1546623078707101766",
+        "819019613371236432": "1546625549944885299"
+      }
+    },
+    {
+      "key": "leave",
+      "name": "quack_leave",
+      "label": "Member left",
+      "use": "A member left the server.",
+      "svg": "svg/quack_leave.svg",
+      "png": "discord/quack_leave.png",
+      "color": "#F5A265",
+      "emojiIds": {
+        "968198214450831370": "1546623269262852147",
+        "819019613371236432": "1546625781713600593"
+      }
+    },
+    {
+      "key": "lock",
+      "name": "quack_lock",
+      "label": "Locked",
+      "use": "Restricted access or a closed conversation.",
+      "svg": "svg/quack_lock.svg",
+      "png": "discord/quack_lock.png",
+      "color": "#AE96ED",
+      "emojiIds": {
+        "968198214450831370": "1546623303840440370",
+        "819019613371236432": "1546625818367627295"
+      }
+    },
+    {
+      "key": "unlock",
+      "name": "quack_unlock",
+      "label": "Unlocked",
+      "use": "Access was restored.",
+      "svg": "svg/quack_unlock.svg",
+      "png": "discord/quack_unlock.png",
+      "color": "#65CDA6",
+      "emojiIds": {
+        "968198214450831370": "1546624500240752771",
+        "819019613371236432": "1546626673724624926"
+      }
+    },
+    {
+      "key": "delete",
+      "name": "quack_delete",
+      "label": "Deleted",
+      "use": "A message or record was deleted.",
+      "svg": "svg/quack_delete.svg",
+      "png": "discord/quack_delete.png",
+      "color": "#F47785",
+      "emojiIds": {
+        "968198214450831370": "1546622732123246733",
+        "819019613371236432": "1546625295287845075"
+      }
+    },
+    {
+      "key": "edit",
+      "name": "quack_edit",
+      "label": "Edited",
+      "use": "A message or record changed.",
+      "svg": "svg/quack_edit.svg",
+      "png": "discord/quack_edit.png",
+      "color": "#F5BD4F",
+      "emojiIds": {
+        "968198214450831370": "1546622981588000898",
+        "819019613371236432": "1546625442901925988"
+      }
+    },
+    {
+      "key": "link",
+      "name": "quack_link",
+      "label": "Link",
+      "use": "A source, related record, or dashboard destination.",
+      "svg": "svg/quack_link.svg",
+      "png": "discord/quack_link.png",
+      "color": "#78B4F5",
+      "emojiIds": {
+        "968198214450831370": "1546623286794780803",
+        "819019613371236432": "1546625800441172018"
+      }
+    },
+    {
+      "key": "calendar",
+      "name": "quack_calendar",
+      "label": "Date",
+      "use": "A scheduled date or expiry.",
+      "svg": "svg/quack_calendar.svg",
+      "png": "discord/quack_calendar.png",
+      "color": "#AE96ED",
+      "emojiIds": {
+        "968198214450831370": "1546622613265317928",
+        "819019613371236432": "1546625097601777735"
+      }
+    },
+    {
+      "key": "pin",
+      "name": "quack_pin",
+      "label": "Pinned",
+      "use": "An important or pinned note.",
+      "svg": "svg/quack_pin.svg",
+      "png": "discord/quack_pin.png",
+      "color": "#F47785",
+      "emojiIds": {
+        "968198214450831370": "1546622289683025960",
+        "819019613371236432": "1546626035267670127"
+      }
+    },
+    {
+      "key": "settings",
+      "name": "quack_settings",
+      "label": "Settings",
+      "use": "Server or rule configuration.",
+      "svg": "svg/quack_settings.svg",
+      "png": "discord/quack_settings.png",
+      "color": "#9EAFCA",
+      "emojiIds": {
+        "968198214450831370": "1546623863654449163",
+        "819019613371236432": "1546626307532787803"
+      }
+    },
+    {
+      "key": "spark",
+      "name": "quack_spark",
+      "label": "New",
+      "use": "A new feature or a useful highlight.",
+      "svg": "svg/quack_spark.svg",
+      "png": "discord/quack_spark.png",
+      "color": "#F5BD4F",
+      "emojiIds": {
+        "968198214450831370": "1546623897183461499",
+        "819019613371236432": "1546626350390055003"
+      }
+    },
+    {
+      "key": "duck",
+      "name": "quack_duck",
+      "label": "Quack",
+      "use": "Quack identity and friendly introductions.",
+      "svg": "svg/quack_duck.svg",
+      "png": "discord/quack_duck.png",
+      "color": "#F5BD4F",
+      "emojiIds": {
+        "968198214450831370": "1546622747277394010",
+        "819019613371236432": "1546625315936280776"
+      }
+    },
+    {
+      "key": "spacer",
+      "name": "spacer",
+      "label": "Spacer",
+      "use": "An invisible line that separates message text from its buttons.",
+      "emojiIds": {
+        "968198214450831370": "1556027541435981944",
+        "819019613371236432": "1556028157168193646"
+      }
+    }
+  ],
+  "style": "Soft rounded, single color, transparent details",
+  "status": "approved",
+  "uploaded": true,
+  "applications": {
+    "968198214450831370": {
+      "name": "Quack",
+      "uploadedCount": 40,
+      "status": "uploaded"
+    },
+    "819019613371236432": {
+      "name": "Beta Bot",
+      "uploadedCount": 40,
+      "status": "uploaded"
+    }
+  }
+}

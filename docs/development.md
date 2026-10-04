@@ -1,126 +1,103 @@
 # Development
 
-## Local Workflow
+## Setup
 
-The default process starts everything in one binary: API, Discord session, DB
-migrations, Redis-backed storage, and the in-process action queue. See
-`cmd/quack/main.go`.
+You need Go (the version in `apps/backend/go.mod`), Docker for MySQL and
+Redis, and a Discord application for development, separate from production.
 
-Typical loop:
+1. Copy `.env.example` to `.env` and fill in `QUACK_DISCORD_TOKEN`,
+   `QUACK_DISCORD_APP_ID`, and `QUACK_DISCORD_CLIENT_SECRET`. Setting
+   `QUACK_DISCORD_COMMAND_GUILD_ID` to a test guild makes command changes
+   apply instantly.
+2. Start MySQL and Redis: `docker compose up -d`.
+3. Run Quack from `apps/backend`:
 
-1. Set the required env vars in `.env`.
-2. Start MySQL and Redis with `docker compose up -d`.
-3. Run the app with `go run ./cmd/quack`.
-4. Exercise API routes on `http://localhost:8080` unless `API_PORT` is changed.
+   ```sh
+   go run ./cmd/quack serve
+   ```
 
-The Compose defaults expose:
+   Or run `air` from `apps/backend`. It loads `.env` and rebuilds on change
+   (`apps/backend/.air.toml`).
 
-- MySQL on `127.0.0.1:3306`
-- Redis on `127.0.0.1:6379`
-
-Copy `.env.example` to `.env` for local defaults, then fill the Discord values.
-The local dependency DSNs are:
-
-```sh
-DATABASE_DSN='quack:quack@tcp(127.0.0.1:3306)/quack?charset=utf8mb4&parseTime=True&loc=Local'
-REDIS_URL='redis://127.0.0.1:6379/0'
-```
-
-To run the app in Docker as well:
+The API listens on `http://localhost:8080`. Then start the dashboard from
+`apps/dashboard`:
 
 ```sh
-docker compose --profile app up --build
+bun install
+bun run dev
 ```
 
-The `app` profile uses the internal container hostnames `mysql` and `redis` and
-waits for both health checks before starting.
+It runs on `http://localhost:3000` and proxies `/api` to the API, so sign in
+there. Your Discord application needs
+`http://localhost:3000/api/auth/discord/callback` as an OAuth2 redirect, and
+`QUACK_DISCORD_OAUTH_REDIRECT_URI` must match it. See
+[`dashboard.md`](dashboard.md) and the dashboard's README for its commands.
 
-There is no Makefile or task runner in this checkout. The repo is driven
-directly through `go` commands and environment variables.
+To run Quack in Docker too: `docker compose --profile app up --build`. The app
+container reads `.env` and points at the `mysql` and `redis` services.
 
-## Docker Assets
+Settings can also go in a TOML file; see [`configuration.md`](configuration.md)
+and `apps/backend/quack.example.toml`.
 
-The container assets are intentionally small:
+## Commands
 
-- `compose.yaml` defines the default local MySQL and Redis services
-- `Dockerfile` builds a single static `quack` binary into an Alpine runtime
-  image
-- `.env.example` provides the env names expected by the Compose workflow
+Run Go commands from `apps/backend`. `go.work` at the repo root covers it and
+the dashboard server in `apps/dashboard`.
 
-Use `docker compose up -d` when you only want the local data services and plan
-to run `go run ./cmd/quack` on the host.
+| Command | What it does |
+| --- | --- |
+| `go run ./cmd/quack serve` | Run the bot, API, and workers. `serve` is the default. |
+| `go run ./cmd/quack migrate up` | Apply pending migrations and exit. |
+| `go run ./cmd/quack migrate down` | Roll back the newest migration. Needs `-drop-all` for the baseline. |
+| `go run ./cmd/quack import-v4 ...` | Import v4 history; see [`v4-import.md`](v4-import.md). |
+| `go run ./cmd/quack help` | Usage. `quack <command> -h` lists a command's flags. |
+| `gofmt -l .` | List unformatted files; `gofmt -w <file>` fixes one. |
+| `go vet ./...` | Vet. |
+| `go test ./...` | All tests; see [`testing.md`](testing.md). |
+| `go build ./cmd/quack` | Build the binary. |
+| `go generate ./...` | Regenerate `contracts/http/openapi.yaml` (and the Discord icon catalog, which needs Node). `go run ./cmd/openapi` prints the contract to stdout. |
+| `staticcheck ./...` | Optional, if you have it installed. |
 
-Use `docker compose --profile app up --build` when you want Compose to run the
-Quack process as well. In that mode, the app container uses `mysql` and `redis`
-service hostnames instead of `127.0.0.1`.
+CI (`.github/workflows/go.yml`) builds `./cmd/quack` and runs `go test ./...`
+from `apps/backend`. `.github/workflows/dashboard.yml` checks that the
+dashboard's API types match the contract, then lints, tests, and builds the
+app and its Go server.
 
-## Common Commands
+## Where things go
 
-Start the app:
+The package map and request flows are in
+[`architecture.md`](architecture.md). In short:
 
-```sh
-go run ./cmd/quack
-```
+- **Business rules** go in `internal/quack`, behind `quack.Services`. Adapters
+  stay thin.
+- **Storage** goes in `internal/store`. Schema changes are a new migration in
+  `store/migrate.go` plus the record structs in `store/schema.go`; see
+  [`migrations.md`](migrations.md).
+- **HTTP routes** go in `internal/api/routes.go`. Handlers sit next to their
+  topic (`cases.go`, `appeals.go`, and so on). Each route passes an `api.Doc`
+  (or `modules.Doc` for module routes) naming the Go types its handler reads
+  and writes; use named types, not `map[string]any` or anonymous structs, so
+  the schema is real. The JSON contract, `contracts/http/openapi.yaml`, is
+  generated from those docs: run `go generate ./...` from `apps/backend`
+  after changing a route or any type it reads or writes, then `bun run api`
+  in `apps/dashboard` to update the dashboard's types, and commit both.
+  `go test ./...` fails while the file is stale (use `-count=1` if
+  only the YAML changed, since the test cache does not track files outside
+  the module). Never edit the file by hand.
+- **Discord commands and components** go in `internal/discord`. Custom IDs
+  are part of messages already posted in Discord, so don't rename them.
+- **Background loops** are registered with `Worker.Every` in
+  `internal/app/app.go`.
+- **Module features** go in the module's own package under
+  `internal/modules/`, wired in `internal/app/app.go`.
+- **Settings** go in `internal/config` (struct, default, validation), plus
+  `quack.example.toml` and [`configuration.md`](configuration.md).
 
-Start dependencies:
+`Legacy/` is the v4 bot. It is not built or run by v5; leave it alone.
 
-```sh
-docker compose up -d
-```
+## Code style
 
-Stop dependencies:
-
-```sh
-docker compose down
-```
-
-Run the test suite:
-
-```sh
-go test ./...
-```
-
-When you need a stable local cache path on macOS, this repo has previously been
-run with:
-
-```sh
-GOCACHE=/tmp/quack-go-build-cache go test ./...
-```
-
-That cache override is a local convenience, not a code requirement.
-
-## Where To Change Things
-
-- Add or change API endpoints in `internal/httpapi/routes/` and `internal/httpapi/middleware/`.
-- Add or change business rules in `internal/quack/`.
-- Add or change persistence behavior in `internal/store/`.
-- Add or change schema records and enums in `internal/quack/model/schema.go`.
-- Add or change Discord command behavior in `internal/discordbot/commands/`.
-- Add or change process-level infrastructure in `internal/runtime/` and `internal/workqueue/`.
-
-The main shared service boundary is `quack.Services` in `internal/quack/app.go`. Prefer
-putting business behavior there rather than duplicating it in route handlers or
-Discord commands.
-
-## Current Maintainability Notes
-
-- The `Legacy/` tree is still present but separate from the v5 runtime. The
-  current process entrypoint is `cmd/quack/main.go`, not `Legacy/main.go`.
-- The authoritative product definition lives in `v5.md`.
-- High-level differences between that definition and the current backend live
-  in `docs/v5-scope-drift.md`.
-- CORS is currently fixed to localhost port `3000`, which matters whenever the
-  dashboard moves ports.
-- Action execution is in-process, not an external worker service.
-
-Relevant files:
-
-- `cmd/quack/main.go`
-- `internal/quack/app.go`
-- `internal/httpapi/routes/router.go`
-- `internal/discordbot/commands/case.go`
-- `compose.yaml`
-- `Dockerfile`
-- `.env.example`
-- `v5.md`
-- `docs/v5-scope-drift.md`
+Follow [Google Go style](https://google.github.io/styleguide/go/) and
+[Go doc comments](https://go.dev/doc/comment). Keep comments short, write them
+for a human, and say why something exists rather than restating its name.
+`AGENTS.md` has the rules agents follow.

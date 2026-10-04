@@ -1,142 +1,94 @@
 ---
 name: v5-implementation-slice
-description: Implement one bounded Quack v5 execution-plan slice through PR creation, Codex GitHub review polling, feedback triage, fixes, revalidation, and handoff to the orchestrator. Use only when a concrete slice with acceptance criteria has been assigned.
+description: Implement one bounded Quack v5 work package, which may absorb several legacy execution-plan slice IDs, through one PR, one Codex review request, fixes, proportionate revalidation, and evidence handoff. Use only when the orchestrator assigns concrete acceptance criteria, an exclusive write set, a branch/worktree, and a base anchor.
 ---
 
-# Quack v5 implementation slice
+# Quack v5 implementation work package
 
-You are an implementation subagent. Own exactly one execution-plan slice.
+Own one assigned work package end to end. Complete the capability; do not split
+it into smaller PRs merely to reduce local complexity.
 
-## Inputs required
+## Contract
 
-Before editing, identify:
+Before editing, confirm:
 
-- slice ID and title;
-- requirement references;
-- acceptance criteria;
-- dependencies;
-- expected affected code;
-- validation commands;
-- assigned branch and worktree;
-- base branch.
+- absorbed V5 requirement/slice IDs and acceptance criteria;
+- dependency anchor, branch, worktree, and PR base;
+- exclusive write set and integration-owned files you must not edit;
+- focused checks and applicable schema/MySQL/race/external-adapter gates.
 
-If information is missing, derive it from the execution plan and source
-documents where possible. Escalate only when a product decision is genuinely
-required.
+Read only the relevant parts of `v5.md`, scope drift, TODO, the execution plan,
+and adjacent code. Derive missing engineering details locally. Escalate only a
+genuine product ambiguity or contract collision.
 
-## Isolation
+## Throughput rules
 
 - Work only in the assigned worktree and branch.
-- Confirm the branch and repository state before editing.
-- Do not modify files owned by another active slice unless the orchestrator has
-  explicitly coordinated the overlap.
-- Do not merge the pull request.
+- Implement the entire package before opening a PR.
+- Prefer one implementation commit and one review-fix commit.
+- Run focused tests while developing; do not repeatedly run the full repository
+  suite after every edit.
+- Update TODO/docs once near package completion.
+- Avoid integration-owned central wiring. Expose registrars/adapters for the
+  integration checkpoint instead.
+- Send checkpoints only for a product decision, blocker, review-ready head,
+  Codex findings, or final handoff.
+- Do not merge, force-push, or expand into another package.
 
-## Implementation
+## Implementation and validation
 
-1. Read the relevant sections of:
-    - `v5.md`
-    - `v5-scope-drift.md`
-    - `TODO.md`
-    - the active v5 readiness execution plan
-2. Inspect the existing implementation and tests.
-3. Record a concise implementation approach.
-4. Implement the slice.
-5. Add or update tests.
-6. Run focused validation.
-7. Run relevant repository-wide validation.
-8. Inspect the final diff for unrelated changes.
+1. Inspect the existing contracts and tests once.
+2. Implement all assigned acceptance criteria and compatibility behavior.
+3. Add focused contract, boundary, and regression tests.
+4. Run focused checks until green.
+5. On the reviewable head, run one required repository-wide test/vet/build pass.
+6. Run MySQL only when the package changes schema/migrations; run race only for
+   concurrency/shared-state work.
+7. Run gofmt on changed Go files and `git diff --check`.
+8. Verify the diff stays inside the assigned package and documented shared
+   contract exceptions.
 
-## Pull request
+## PR and one-review lifecycle
 
-Commit and push the branch.
+Commit and push. Open one non-draft PR containing requirement IDs, acceptance
+coverage, summary, exact validation, decisions, limitations, and discoveries.
+Post one separate comment containing exactly:
 
-Open a pull request with a body containing:
-
-- Slice ID
-- Requirement references
-- Acceptance criteria
-- Summary
-- Validation evidence
-- Product or engineering decisions
-- Known limitations
-- Discovered follow-up work
-
-After opening the PR, post a separate comment:
-
-```sh
-gh pr comment "$PR_NUMBER" --body '@codex review'
+```text
+@codex review
 ```
 
-Do not rely on text in the pull-request body to trigger the review.
+Poll structured PR state about every five minutes. Query comments, submitted
+reviews, inline threads, checks, and head OID together. An EYES reaction is not
+a completed review. Do not ask the orchestrator to duplicate polling.
 
-## Review polling
+For each finding record its reference/severity, validity, scope, disposition,
+and supporting reason. Fix valid in-scope findings. Record valid out-of-package
+work in TODO/plan evidence without implementing it.
 
-Poll GitHub approximately every five minutes.
+After review fixes:
 
-At each poll, inspect:
+- run tests targeted to the finding;
+- repeat the full suite only if the fix changes schema, shared contracts,
+  architecture, or broad behavior;
+- commit and push fixes;
+- do not request another Codex review by default.
 
-- issue comments;
-- submitted reviews;
-- inline review comments;
-- check status.
+A second review requires orchestrator approval and architecture-scale rework.
 
-Example polling structure:
+If an external Git/GitHub action is policy-rejected, do not retry. Report the
+exact mechanical command or PR/comment payload once so the orchestrator can
+perform only that step when authorized.
 
-```bash
-while true; do
-  gh pr view "$PR_NUMBER" \
-    --json reviews,comments,statusCheckRollup,headRefOid > /tmp/pr-state.json
+## Handoff
 
-  # Inspect whether the requested Codex review has completed.
-  # Exit when a Codex review or clear failure signal is present.
+Return after the lifecycle completes, or when mechanically blocked, with:
 
-  sleep 120
-done
-```
-
-Use structured JSON rather than scraping formatted terminal output.
-
-Do not treat Codex's reaction to the request as the completed review. Wait for
-the actual review result.
-
-Triage
-
-For every Codex finding, record:
-
-- finding reference;
-- severity;
-- whether it is valid;
-- whether it is in scope;
-- chosen disposition;
-- supporting reason;
-- commit or TODO reference when applicable.
-
-Apply valid in-scope fixes. Add valid out-of-scope findings to `TODO.md` and the
-execution plan with sufficient context.
-
-After fixes:
-
-1. run focused tests;
-2. run applicable repository-wide checks;
-3. inspect the diff;
-4. commit and push;
-
-## Return format
-
-Return only after the review lifecycle is complete.
-
-Report:
-
-- slice ID;
-- branch;
-- PR number and URL;
-- commits;
-- acceptance criteria status;
-- validation commands and results;
-- Codex review rounds;
-- findings and dispositions;
-- files changed;
-- newly discovered work;
-- unresolved blockers;
-- recommendation: `READY_FOR_ORCHESTRATOR_VALIDATION` or `BLOCKED`.
+- package and absorbed IDs;
+- branch/worktree/base/PR and final head;
+- acceptance-criteria evidence;
+- focused and applicable full/MySQL/race/build results;
+- review request count, reviewed commit, findings, fixes, and thread state;
+- files/contracts changed and integration instructions;
+- TODO/docs updates and discovered work;
+- `READY_FOR_ORCHESTRATOR_VALIDATION` or exact blocker.
