@@ -1,3 +1,6 @@
 go 1.27.1
 
-use ./apps/backend
+use (
+	./apps/backend
+	./apps/dashboard
+)

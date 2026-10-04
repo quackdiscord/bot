@@ -1,0 +1,136 @@
+.main {
+  display: flex;
+  flex-grow: 1;
+  min-width: 0;
+  background: var(--bg);
+}
+
+.guildName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hero {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  overflow: hidden;
+  position: relative;
+}
+
+.heroTop {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.guild {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.guildText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.guildTitle {
+  font-size: 16px;
+  font-weight: 650;
+  color: var(--text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sub {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.outcome {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.outcomeLabel {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.reason {
+  display: flex;
+  gap: 14px;
+}
+
+.quoteBar {
+  width: 3px;
+  flex-shrink: 0;
+  border-radius: var(--radius-full);
+  background: var(--accent-line);
+}
+
+.reasonLabel {
+  margin-bottom: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.reasonText {
+  font-size: 16px;
+  line-height: 24px;
+  color: var(--text-strong);
+  white-space: pre-wrap;
+}
+
+.voidBanner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--text-faint);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  animation: rise-in var(--slow) var(--ease-out);
+}
+
+.bannerTitle {
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.bannerBody {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.link {
+  color: var(--link);
+  transition: color var(--fast) var(--ease);
+}
+
+.link:hover {
+  color: var(--text-strong);
+  text-decoration: underline;
+}
+
+.pre {
+  white-space: pre-wrap;
+}

@@ -1,0 +1,7 @@
+# Only the dashboard image builds from the repository root (apps/dashboard/Dockerfile);
+# send it just what it needs. The backend image uses apps/backend as its context.
+*
+!assets/icons/quack/svg
+!apps/dashboard
+apps/dashboard/node_modules
+apps/dashboard/dist/app

@@ -1,0 +1,150 @@
+.button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: var(--radius);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background-color var(--fast) var(--ease),
+    color var(--fast) var(--ease),
+    box-shadow var(--fast) var(--ease),
+    transform var(--fast) var(--ease);
+}
+
+.button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.button[data-pending] {
+  cursor: progress;
+  opacity: 1;
+}
+
+.content {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+[data-pending] > .content {
+  visibility: hidden;
+}
+
+.spinner {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.grow {
+  flex-grow: 1;
+  width: 100%;
+}
+
+.sm {
+  height: 32px;
+  padding-inline: 12px;
+  font-size: 13px;
+  border-radius: var(--radius-sm);
+}
+
+.md {
+  height: 38px;
+  padding-inline: 16px;
+  font-size: 14px;
+}
+
+.lg {
+  height: 46px;
+  padding-inline: 22px;
+  font-size: 15px;
+  border-radius: var(--radius-md);
+}
+
+.primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.35);
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.primary:active:not(:disabled) {
+  background: var(--accent-active);
+}
+
+.secondary {
+  background: var(--surface-3);
+  color: var(--text-strong);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.06),
+    0 0 0 1px var(--border);
+}
+
+.secondary:hover:not(:disabled) {
+  background: #383a42;
+}
+
+.danger {
+  background: var(--danger-strong);
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.18);
+}
+
+.danger:hover:not(:disabled) {
+  background: #f05a5e;
+}
+
+.success {
+  background: var(--success-strong);
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.18);
+}
+
+.success:hover:not(:disabled) {
+  background: #2bb866;
+}
+
+.ghost {
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.ghost:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text-strong);
+}
+
+.link {
+  height: auto;
+  min-width: 0;
+  padding-inline: 2px;
+  background: transparent;
+  color: var(--link);
+  font-weight: 500;
+}
+
+.link:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.link:active:not(:disabled) {
+  transform: none;
+}

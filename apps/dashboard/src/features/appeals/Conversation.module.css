@@ -1,0 +1,143 @@
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Each message rises in, a beat after the one before it. */
+.list > li {
+  animation: rise-in var(--slow) var(--ease-out) backwards;
+}
+
+.list > li:nth-child(2) {
+  animation-delay: 40ms;
+}
+
+.list > li:nth-child(3) {
+  animation-delay: 80ms;
+}
+
+.list > li:nth-child(n + 4) {
+  animation-delay: 120ms;
+}
+
+.message {
+  display: flex;
+  gap: 14px;
+  padding: 12px 16px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  transition:
+    background-color var(--fast) var(--ease),
+    border-color var(--fast) var(--ease);
+}
+
+.message:hover {
+  background: var(--hover);
+}
+
+/* Staff messages sit on a raised card so the two sides read apart. */
+.staff {
+  border-color: var(--border);
+  background: var(--surface);
+}
+
+.staff:hover {
+  background: var(--surface-2);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  gap: 4px;
+  min-width: 0;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.author {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.time {
+  margin-left: 2px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.content {
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.system {
+  display: flex;
+  gap: 14px;
+  padding: 8px 16px;
+}
+
+.systemIcon {
+  display: flex;
+  flex-shrink: 0;
+  justify-content: center;
+  width: 40px;
+  padding-top: 1px;
+}
+
+.systemBody {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  gap: 8px;
+  min-width: 0;
+}
+
+.systemLine {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.systemLine .time {
+  margin-left: 8px;
+}
+
+.strong {
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.quote {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  color: var(--text);
+  font-size: 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.quoteLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-faint);
+}

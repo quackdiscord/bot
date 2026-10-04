@@ -1,0 +1,126 @@
+.dialog {
+  width: calc(100vw - 32px);
+  max-height: min(760px, calc(100dvh - 32px));
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xl);
+  background: var(--floating);
+  color: var(--text);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  animation: dialog-in var(--slow) var(--ease-out);
+}
+
+.dialog::backdrop {
+  background: rgb(5 6 8 / 0.7);
+  backdrop-filter: blur(3px);
+  animation: fade-in var(--base) var(--ease);
+}
+
+.dialog[data-closing] {
+  animation: dialog-out 150ms var(--ease) forwards;
+  pointer-events: none;
+}
+
+.dialog[data-closing]::backdrop {
+  animation: fade-out 150ms var(--ease) forwards;
+}
+
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+}
+
+@keyframes dialog-out {
+  to {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+}
+
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+.sm {
+  max-width: 440px;
+}
+
+.md {
+  max-width: 540px;
+}
+
+.lg {
+  max-width: 760px;
+}
+
+.frame {
+  display: flex;
+  flex-direction: column;
+  max-height: inherit;
+}
+
+.header {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 22px 56px 14px 22px;
+}
+
+.title {
+  font-size: 19px;
+  line-height: 1.3;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--text-strong);
+}
+
+.description {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  padding: 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    background-color var(--fast) var(--ease),
+    color var(--fast) var(--ease);
+}
+
+.close:hover {
+  background: var(--hover);
+  color: var(--text-strong);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 0;
+  padding: 6px 22px 22px;
+  overflow-y: auto;
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 14px 22px 18px;
+  border-top: 1px solid var(--border);
+  background: rgb(0 0 0 / 0.12);
+}
