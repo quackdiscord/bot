@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { ApiError, api, unwrap } from "~/api/client";
 import { keys, memberProfileQuery, templatesQuery } from "~/api/queries";
 import type { ContextField, ContextValueInput, Template } from "~/api/types";
-import { decayStart, selectLevel } from "~/lib/escalation";
+import { selectLevel } from "~/lib/escalation";
 import { levelName, ordinal } from "~/lib/format";
 import { Button } from "~/ui/Button";
 import { Dialog } from "~/ui/Dialog";
@@ -16,6 +16,8 @@ import { toast } from "~/ui/Toast";
 
 import { MemberPicker } from "../people/MemberPicker";
 import { actionSummary } from "./Outcome";
+import { casePreviewQuery } from "./preview";
+import { createSubmissionGate } from "./submission";
 
 import s from "./CreateCaseDialog.module.css";
 
@@ -52,6 +54,10 @@ export function CreateCaseDialog({
   const [values, setValues] = useState<Values>({});
   const [links, setLinks] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [submission] = useState(createSubmissionGate);
+  useEffect(() => {
+    if (open) submission.reset();
+  }, [open, submission]);
 
   const template =
     active.find((t) => t.id === templateId) ?? (active.length === 1 ? active[0] : undefined);
@@ -97,8 +103,15 @@ export function CreateCaseDialog({
       title={replacesCaseId ? "Open a replacement case" : "New case"}
       description="Pick the member and the rule they broke. Quack picks the outcome from their history."
       onSubmit={() => {
-        setError(null);
-        if (ready) create.mutate();
+        if (!open || !ready || create.isPending) return;
+        void submission
+          .submit(() => {
+            setError(null);
+            return create.mutateAsync();
+          })
+          .catch(() => {
+            // The mutation callback shows the error inline.
+          });
       }}
       footer={
         <>
@@ -150,7 +163,12 @@ export function CreateCaseDialog({
       </Field>
 
       {template && member ? (
-        <Preview guildId={guildId} template={template} member={member} />
+        <Preview
+          key={`${member}:${template.id}:${template.case_decay_days}`}
+          guildId={guildId}
+          template={template}
+          member={member}
+        />
       ) : null}
 
       {fields.map((field) => (
@@ -198,25 +216,8 @@ function Preview({
   member: string;
 }) {
   const history = useQuery(memberProfileQuery(guildId, member));
-  const since = decayStart(template.case_decay_days);
-  const counted = useQuery({
-    queryKey: [...keys.cases(guildId), "count", member, template.id, since ?? "all"],
-    queryFn: () =>
-      unwrap(
-        api.GET("/guilds/{discordGuildID}/cases", {
-          params: {
-            path: { discordGuildID: guildId },
-            query: {
-              target_discord_user_id: member,
-              template_id: template.id,
-              validity: "valid",
-              created_after: since,
-              limit: 1,
-            },
-          },
-        }),
-      ).then((r) => r.total ?? 0),
-  });
+  const [previewTime] = useState(Date.now);
+  const counted = useQuery(casePreviewQuery(guildId, member, template, previewTime));
 
   if (counted.isPending) {
     return (
@@ -253,7 +254,7 @@ function Preview({
         </p>
         <p className={s.previewSub}>
           Their {ordinal(n)} case under this rule
-          {since ? ` in the last ${template.case_decay_days} days` : ""}.
+          {template.case_decay_days > 0 ? ` in the last ${template.case_decay_days} days` : ""}.
           {priorTotal > 0
             ? ` ${priorTotal} case${priorTotal === 1 ? "" : "s"} on record overall.`
             : ""}

@@ -51,7 +51,7 @@ func (b *Bot) DeliverCaseNotification(ctx context.Context, request quack.CaseNot
 }
 
 // caseNotificationBody renders the member's case DM. It holds only what the
-// member may see: no staff context, evidence, or moderator identity.
+// member may see: submitted context, but no evidence or moderator identity.
 func caseNotificationBody(request quack.CaseNotificationRequest) string {
 	guildName := "this server"
 	if strings.TrimSpace(request.GuildName) != "" {
@@ -94,6 +94,9 @@ outcomes:
 	if introduction := strings.TrimSpace(request.Introduction); introduction != "" {
 		parts = append(parts, discordtext.Plain(introduction))
 	}
+	if context := memberNotificationContext(request.ContextValues); context != "" {
+		parts = append(parts, context)
+	}
 	for i, action := range request.Outcomes {
 		if action.Status == quack.ActionExecutionFailed && primary == -1 {
 			icon = "error"
@@ -117,4 +120,27 @@ outcomes:
 		meta += fmt.Sprintf(" · <t:%d:R>", request.CreatedAt.Unix())
 	}
 	return discordtext.Conversation(icon, lead+".", discordtext.Plain(request.Reason), strings.Join(parts, "\n\n"), meta)
+}
+
+// memberNotificationContext quotes the case's visible fields. Message-link
+// fields point into captured evidence and are kept out of notification DMs.
+func memberNotificationContext(values []quack.CaseContextValueResponse) string {
+	var rows []string
+	for _, field := range values {
+		if field.Value == nil || field.FieldType == quack.ContextFieldMessageLink {
+			continue
+		}
+		value := fmt.Sprint(field.Value)
+		if boolean, ok := field.Value.(bool); ok {
+			value = "No"
+			if boolean {
+				value = "Yes"
+			}
+		}
+		if strings.TrimSpace(value) == "" {
+			continue
+		}
+		rows = append(rows, discordtext.Quote(discordtext.Plain(field.Label)+" — "+discordtext.Plain(value)))
+	}
+	return strings.Join(rows, "\n")
 }

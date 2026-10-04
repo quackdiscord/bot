@@ -24,13 +24,13 @@ const (
 	draftLifetime = 15 * time.Minute
 )
 
-// contextDraft is a context form in progress, opened when /case add names a
-// template with required context fields. Discord modals hold at most five
-// inputs, so templates with more fields are filled across pages.
+// contextDraft holds a case creation or edit form in progress. Discord modals
+// hold at most five inputs, so larger forms are filled across pages.
 type contextDraft struct {
-	// Token is the ID of the interaction that started the form, and becomes
-	// the case's idempotency key.
+	// Token identifies the opening interaction. Creation drafts also use it
+	// as the case's idempotency key.
 	Token                   string
+	EditingCaseID           string
 	ActorDiscordUserID      string
 	GuildID                 string
 	ContextChannelDiscordID string
@@ -58,7 +58,7 @@ func newDraftStore() *draftStore {
 }
 
 // contextModal handles one submitted page of the context form. Earlier pages
-// are kept in the draft until the last page creates the case.
+// are kept in the draft until the last page creates or updates the case.
 func (c *cases) contextModal(ctx context.Context, i *discordgo.InteractionCreate) Result {
 	data := i.ModalSubmitData()
 	id, err := DecodeCustomID(data.CustomID)
@@ -69,6 +69,9 @@ func (c *cases) contextModal(ctx context.Context, i *discordgo.InteractionCreate
 	values, evidence, err := contextValuesFromModal(data, draft.page())
 	if err != nil {
 		return Immediate(Error(err.Error()))
+	}
+	for _, field := range draft.page() {
+		delete(draft.Values, field.Key)
 	}
 	for _, value := range values {
 		draft.Values[value.Key] = value.Value
@@ -95,6 +98,9 @@ func (c *cases) contextModal(ctx context.Context, i *discordgo.InteractionCreate
 		if value, ok := draft.Values[field.Key]; ok {
 			ordered = append(ordered, quack.CaseContextValueInput{Key: field.Key, Value: value})
 		}
+	}
+	if draft.EditingCaseID != "" {
+		return c.saveContextEdit(i, draft.EditingCaseID, ordered)
 	}
 	return AsyncPublic(func(ctx context.Context, responder Responder) error {
 		staff, err := c.staff(ctx, i)
@@ -191,7 +197,11 @@ func (d contextDraft) page() []quack.TemplateContextFieldResponse {
 
 // modal renders the draft's current page, prefilled with saved values.
 func (d contextDraft) modal() (*discordgo.InteractionResponse, error) {
-	customID, err := EncodeCustomID(CustomID{Namespace: "case", Action: "context_submit", Version: "v1", Payload: d.Token})
+	action, version := "context_submit", "v1"
+	if d.EditingCaseID != "" {
+		action, version = "edit_context_submit", "v2"
+	}
+	customID, err := EncodeCustomID(CustomID{Namespace: "case", Action: action, Version: version, Payload: d.Token})
 	if err != nil {
 		return nil, err
 	}
@@ -208,7 +218,9 @@ func (d contextDraft) modal() (*discordgo.InteractionResponse, error) {
 		}
 		value := ""
 		if raw, ok := d.Values[field.Key]; ok {
-			_ = json.Unmarshal(raw, &value)
+			if json.Unmarshal(raw, &value) != nil && string(raw) != "null" {
+				value = string(raw)
+			}
 		}
 		rows = append(rows, Row(discordgo.TextInput{
 			CustomID:    "context_" + field.Key,
@@ -221,7 +233,11 @@ func (d contextDraft) modal() (*discordgo.InteractionResponse, error) {
 		}))
 	}
 	pages := (len(d.Template.ContextFields) + contextPageSize - 1) / contextPageSize
-	return Modal(fmt.Sprintf("Case context (%d/%d)", d.Page+1, pages), customID, rows), nil
+	title := fmt.Sprintf("Case context (%d/%d)", d.Page+1, pages)
+	if d.EditingCaseID != "" {
+		title = fmt.Sprintf("Edit context (%d/%d)", d.Page+1, pages)
+	}
+	return Modal(title, customID, rows), nil
 }
 
 // put stores draft and drops expired ones.

@@ -2,8 +2,10 @@ package quack_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -233,5 +235,74 @@ func TestGetCompactKeepsLatestEventsAndTimeoutEnd(t *testing.T) {
 	}
 	if _, err := service.Receipt(ctx, "other-guild", created.ID); !errors.Is(err, quack.ErrCaseNotFound) {
 		t.Fatalf("receipt from another guild = %v", err)
+	}
+}
+
+// TestUpdateStructuredContextUsesFrozenFields validates edits against the case's
+// original required fields even when the live rule changes.
+func TestUpdateStructuredContextUsesFrozenFields(t *testing.T) {
+	ctx := context.Background()
+	store, service, moderator, client, _ := updateFixture(t)
+	admin := templateGuildContext(t, store, updateGuildDiscordID, "admin-1", uint64(discordgo.PermissionManageGuild))
+	input := validTemplateInput("structured-update")
+	input.ContextFields = []quack.TemplateContextFieldInput{
+		{Key: "summary", Label: "Summary", FieldType: quack.ContextFieldShortText, Required: true, Position: 1},
+		{Key: "confirmed", Label: "Confirmed", FieldType: quack.ContextFieldBoolean, Required: true, Position: 2},
+		{Key: "count", Label: "Count", FieldType: quack.ContextFieldNumber, Required: true, Position: 3},
+		{Key: "message", Label: "Message", FieldType: quack.ContextFieldMessageLink, Position: 4},
+	}
+	template := createAppTemplate(t, ctx, store, admin, input)
+	values := []quack.CaseContextValueInput{
+		{Key: "summary", Value: json.RawMessage(`"Original"`)},
+		{Key: "confirmed", Value: json.RawMessage(`false`)},
+		{Key: "count", Value: json.RawMessage(`-2.5`)},
+		{Key: "message", Value: json.RawMessage(fmt.Sprintf("%q", messageLink("333333333333333333")))},
+	}
+	created, err := service.Create(ctx, moderator, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: "target-1", ContextValues: values})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := service.Get(ctx, moderator, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input.ContextFields[0].Label = "Changed label"
+	input.ContextFields[0].Required = false
+	if _, err := quack.NewTemplateService(store).Update(ctx, admin, template.ID, input); err != nil {
+		t.Fatal(err)
+	}
+	unchanged, err := service.UpdateContextValues(ctx, moderator, created.ID, values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(before.ContextValues, unchanged.ContextValues) || !reflect.DeepEqual(before.TemplateSnapshot, unchanged.TemplateSnapshot) || client.fetches != 1 {
+		t.Fatalf("unchanged edit rewrote context/evidence: %+v fetches=%d", unchanged, client.fetches)
+	}
+	if _, err := service.UpdateContext(ctx, moderator, created.ID, "flattened"); !errors.Is(err, quack.ErrCaseValidation) {
+		t.Fatalf("free-text bypass: %v", err)
+	}
+	for _, bad := range []struct {
+		index int
+		value string
+	}{{0, `" "`}, {1, `"false"`}, {2, `false`}, {2, `"2"`}, {2, `2 3`}, {3, `"https://example.com/message"`}} {
+		invalid := append([]quack.CaseContextValueInput(nil), values...)
+		invalid[bad.index].Value = json.RawMessage(bad.value)
+		if _, err := service.UpdateContextValues(ctx, moderator, created.ID, invalid); !errors.Is(err, quack.ErrCaseValidation) {
+			t.Fatalf("invalid field %d accepted: %v", bad.index, err)
+		}
+	}
+	values[0].Value = json.RawMessage(`"Edited"`)
+	values[1].Value = json.RawMessage(`true`)
+	values[2].Value = json.RawMessage(`42.25`)
+	values[3].Value = json.RawMessage(fmt.Sprintf("%q", messageLink("444444444444444444")))
+	edited, err := service.UpdateContextValues(ctx, moderator, created.ID, values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edited.ContextValues[0].Label != "Summary" || !edited.ContextValues[0].Required || edited.ContextValues[0].Value != "Edited" || edited.ContextValues[1].Value != true || edited.ContextValues[2].Value != float64(42.25) || len(edited.Evidence) != 2 || client.fetches != 2 {
+		t.Fatalf("edited: %+v fetches=%d", edited, client.fetches)
+	}
+	if !reflect.DeepEqual(before.TemplateSnapshot, edited.TemplateSnapshot) || before.Validity != edited.Validity || before.Reason != edited.Reason {
+		t.Fatal("context update changed original decision")
 	}
 }

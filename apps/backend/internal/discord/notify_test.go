@@ -126,3 +126,64 @@ func TestDeliverCaseNotification(t *testing.T) {
 		t.Fatalf("lost the failure receipt or reopened the DM: %+v opens=%d sends=%d", receipt, opens, sends)
 	}
 }
+
+// TestCaseNotificationContext preserves visible labels and values without
+// sending message-link evidence or interpreting member text as Markdown.
+func TestCaseNotificationContext(t *testing.T) {
+	request := quack.CaseNotificationRequest{
+		Reason: "Official reason", CaseNumber: 12,
+		ContextValues: []quack.CaseContextValueResponse{
+			{Label: "Summary **literal**", FieldType: quack.ContextFieldShortText, Value: "@everyone {{quack:ban}}"},
+			{Label: "Details", FieldType: quack.ContextFieldLongText, Value: "line one\n# line two 🦆"},
+			{Label: "Confirmed", FieldType: quack.ContextFieldBoolean, Value: false},
+			{Label: "Count", FieldType: quack.ContextFieldNumber, Value: -2.5},
+			{Label: "Message", FieldType: quack.ContextFieldMessageLink, Value: "https://discord.com/channels/staff/evidence/private"},
+			{Label: "Empty", FieldType: quack.ContextFieldShortText},
+		},
+	}
+	body := caseNotificationBody(request)
+	for _, want := range []string{
+		"> " + discordtext.Plain("Summary **literal** — @everyone {{quack:ban}}"),
+		"> Details — line one\n> " + discordtext.Plain("# line two 🦆"),
+		"> Confirmed — No", "> Count — -2.5",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing context %q in %s", want, body)
+		}
+	}
+	for _, forbidden := range []string{"private", "> Message", "> Empty", "Moderator:", "{{quack:ban}}"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("unexpected private or interpreted context %q in %s", forbidden, body)
+		}
+	}
+	request.ContextValues[2].Value = true
+	if body := caseNotificationBody(request); !strings.Contains(body, "> Confirmed — Yes") {
+		t.Fatal("true context missing", body)
+	}
+}
+
+// TestLongCaseNotificationContext keeps the full member context in the
+// attachment fallback, with appeal access intact and mentions suppressed.
+func TestLongCaseNotificationContext(t *testing.T) {
+	text := strings.Repeat("long visible context 🦆 ", 200)
+	request := quack.CaseNotificationRequest{
+		Reason: "Official reason", CaseNumber: 12, Appealable: true,
+		ContextValues: []quack.CaseContextValueResponse{
+			{Label: "Details", FieldType: quack.ContextFieldLongText, Value: text},
+			{Label: "Message", FieldType: quack.ContextFieldMessageLink, Value: "private evidence link"},
+		},
+	}
+	message := Signal("message", caseNotificationBody(request), false)
+	message.Components = []discordgo.MessageComponent{Row(Button("appeal:submit:v1:case-1", "Appeal decision", discordgo.PrimaryButton, false))}
+	message = message.ForApplication("")
+	if utf16Len(message.Content) > contentLimit || len(message.Files) != 1 || len(message.Components) != 1 {
+		t.Fatalf("notification overflow lost text or appeal access: %+v", message)
+	}
+	full, err := io.ReadAll(message.Files[0].Reader)
+	if err != nil || !strings.Contains(string(full), discordtext.Plain(text)) || !strings.Contains(string(full), "Case #12") || strings.Contains(string(full), "private evidence") {
+		t.Fatalf("unsafe or incomplete member attachment: %s, %v", full, err)
+	}
+	if mentions := message.sendParams().AllowedMentions; mentions == nil || len(mentions.Parse) != 0 {
+		t.Fatalf("member context enables mentions: %+v", mentions)
+	}
+}

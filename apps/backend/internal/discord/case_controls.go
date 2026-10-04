@@ -2,9 +2,11 @@ package discord
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/quack"
@@ -17,8 +19,8 @@ import (
 // maxPage bounds page numbers read from custom IDs.
 const maxPage = 1_000_000
 
-// editContextButton opens the free-text context form, prefilled with the
-// case's current context.
+// editContextButton opens the case's original structured fields, or a free-text
+// form for cases without structured context.
 func (c *cases) editContextButton(ctx context.Context, i *discordgo.InteractionCreate) Result {
 	id, err := DecodeCustomID(i.MessageComponentData().CustomID)
 	if err != nil {
@@ -31,6 +33,27 @@ func (c *cases) editContextButton(ctx context.Context, i *discordgo.InteractionC
 	detail, err := c.services.Cases.GetCompact(ctx, staff, id.Payload)
 	if err != nil {
 		return Immediate(Error(caseErrorMessage(err)))
+	}
+	if detail.TemplateSnapshot != nil && len(detail.TemplateSnapshot.ContextFields) > 0 {
+		if i.ID == "" {
+			return Immediate(Error("That context form is invalid."))
+		}
+		actorID, _ := interactionMember(i)
+		values := make(map[string]json.RawMessage, len(detail.ContextValues))
+		for _, value := range detail.ContextValues {
+			values[value.Key], _ = json.Marshal(value.Value)
+		}
+		draft := contextDraft{
+			Token: i.ID, EditingCaseID: detail.ID, ActorDiscordUserID: actorID, GuildID: i.GuildID,
+			Template: quack.TemplateResponse{ContextFields: detail.TemplateSnapshot.ContextFields},
+			Values:   values, ExpiresAt: time.Now().UTC().Add(draftLifetime),
+		}
+		modal, err := draft.modal()
+		if err != nil {
+			return Immediate(Error("That context form is unavailable."))
+		}
+		c.drafts.put(draft)
+		return Immediate(modal)
 	}
 	var parts []string
 	for _, value := range detail.ContextValues {
@@ -58,11 +81,17 @@ func (c *cases) editContextButton(ctx context.Context, i *discordgo.InteractionC
 // its enforcement, and shows the updated case in the channel. Message links
 // in the text are captured as evidence; if that fails the text is still
 // saved and the moderator is told how to retry.
-func (c *cases) editContextModal(_ context.Context, i *discordgo.InteractionCreate) Result {
+func (c *cases) editContextModal(ctx context.Context, i *discordgo.InteractionCreate) Result {
 	data := i.ModalSubmitData()
 	id, err := DecodeCustomID(data.CustomID)
 	if err != nil {
 		return Immediate(Error("That context form is invalid."))
+	}
+	if id.Version == "v2" {
+		if draft, ok := c.drafts.get(id.Payload); !ok || draft.EditingCaseID == "" {
+			return Immediate(Error("That case context form expired. Open Edit context again."))
+		}
+		return c.contextModal(ctx, i)
 	}
 	text := ModalValue(data, "context")
 	return Async(DeferEphemeral(), func(ctx context.Context, responder Responder) error {
@@ -76,6 +105,29 @@ func (c *cases) editContextModal(_ context.Context, i *discordgo.InteractionCrea
 		}
 		lead := fmt.Sprintf("Context saved for case #%d.", detail.CaseNumber)
 		if detail.EvidenceIncomplete && quack.ContextContainsMessageLinks(text) {
+			lead += fmt.Sprintf(" Some evidence could not be saved. Use `/case evidence case:%d` with the message link to try again.", detail.CaseNumber)
+		}
+		result := caseDetailPage(detail, 1, i.AppID)
+		result.Content = lead + "\n\n" + result.Content
+		_, err = responder.EditOriginal(EditMessage(result))
+		return err
+	})
+}
+
+// saveContextEdit persists typed values after the final page, rechecking staff
+// permissions and retaining the case's original evidence and decision.
+func (c *cases) saveContextEdit(i *discordgo.InteractionCreate, caseID string, values []quack.CaseContextValueInput) Result {
+	return Async(DeferEphemeral(), func(ctx context.Context, responder Responder) error {
+		staff, err := c.staff(ctx, i)
+		if err != nil {
+			return err
+		}
+		detail, err := c.services.Cases.UpdateContextValues(ctx, staff, caseID, values)
+		if err != nil {
+			return err
+		}
+		lead := fmt.Sprintf("Context saved for case #%d.", detail.CaseNumber)
+		if detail.EvidenceIncomplete {
 			lead += fmt.Sprintf(" Some evidence could not be saved. Use `/case evidence case:%d` with the message link to try again.", detail.CaseNumber)
 		}
 		result := caseDetailPage(detail, 1, i.AppID)

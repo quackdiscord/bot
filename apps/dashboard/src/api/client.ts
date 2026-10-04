@@ -49,7 +49,7 @@ const writeHeaders: Middleware = {
     if (!writeMethods.has(request.method)) return request;
     if (csrfToken) request.headers.set("X-CSRF-Token", csrfToken);
     // Every staff and member write is idempotent on the server. One key per
-    // call protects against double submits and lets a retry replay safely.
+    // call protects transport replays; forms must guard separate submits.
     if (!request.headers.has("Idempotency-Key")) {
       request.headers.set("Idempotency-Key", crypto.randomUUID());
     }

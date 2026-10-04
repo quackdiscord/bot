@@ -111,10 +111,11 @@ func (c *cases) runStaffCommand(
 			return Message{}, quack.ErrCaseValidation
 		}
 		action := quack.ActionType(option("action"))
-		if _, err := c.services.Actions.Reverse(ctx, staff, option("case"), option("execution"), action); err != nil {
+		reversal, err := c.services.Actions.Reverse(ctx, staff, option("case"), option("execution"), action)
+		if err != nil {
 			return Message{}, err
 		}
-		return Signal("retry", "Reversal queued. The original action stays in the case history.", false), nil
+		return reversalReceipt(reversal), nil
 	default:
 		return Message{}, quack.ErrCaseValidation
 	}
@@ -326,11 +327,12 @@ func (c *cases) reverseModal(_ context.Context, i *discordgo.InteractionCreate) 
 		if err != nil {
 			return err
 		}
-		if _, err := c.services.Actions.Reverse(ctx, staff, parts[0], parts[1], quack.ActionType(parts[2])); err != nil {
+		reversal, err := c.services.Actions.Reverse(ctx, staff, parts[0], parts[1], quack.ActionType(parts[2]))
+		if err != nil {
 			_, err := responder.EditOriginal(ErrorEdit(caseErrorMessage(err)))
 			return err
 		}
-		keepRecoveryReceipt(ctx, responder, Conversation("retry", "The reversal is queued.", "", "The original action stays in the case history.", "", false))
+		keepRecoveryReceipt(ctx, responder, reversalReceipt(reversal))
 		return nil
 	})
 }
@@ -343,4 +345,19 @@ func keepRecoveryReceipt(ctx context.Context, responder Responder, receipt Messa
 		slog.WarnContext(ctx, "Could not show committed recovery result", "error", err)
 		_, _ = responder.Followup(Signal("error", "The change was saved, but I couldn’t update this message. Check `/case view` for the result.", true))
 	}
+}
+
+// reversalReceipt reports the stored result, including when an idempotent
+// repeat returns a completed reversal rather than queuing another action.
+func reversalReceipt(reversal *quack.CaseActionExecution) Message {
+	if reversal == nil {
+		return Signal("review", "Check the case for the reversal result. The original action stays in the case history.", false)
+	}
+	icon := "retry"
+	if reversal.Status == quack.ActionExecutionSucceeded {
+		icon = "success"
+	} else if reversal.Status == quack.ActionExecutionFailed {
+		icon = "review"
+	}
+	return Conversation(icon, ActionSentence(reversal.ActionType, reversal.Status), "", "The original action stays in the case history.", "", false)
 }

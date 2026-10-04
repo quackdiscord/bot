@@ -2,7 +2,9 @@ package discord_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -148,5 +150,125 @@ func TestEvidencePagingRechecksTheCase(t *testing.T) {
 	result := denied.cases.Component("evidence_next")(context.Background(), component("case:evidence_next:v1:1:1|"+caseID))
 	if err := result.Task(context.Background(), &fakeResponder{}); err == nil {
 		t.Fatal("evidence paged without current authority")
+	}
+}
+
+// TestEditStructuredContextRoundTrip keeps named typed values through unchanged
+// and edited Discord forms, including clearing optional fields.
+func TestEditStructuredContextRoundTrip(t *testing.T) {
+	h := newCaseHarness(t, uint64(discordgo.PermissionModerateMembers))
+	ctx := context.Background()
+	fields := []quack.TemplateContextFieldInput{
+		{Key: "summary", Label: "Summary", FieldType: quack.ContextFieldShortText, Required: true, Position: 1},
+		{Key: "details", Label: "Details", FieldType: quack.ContextFieldLongText, Position: 2},
+		{Key: "confirmed", Label: "Confirmed", FieldType: quack.ContextFieldBoolean, Required: true, Position: 3},
+		{Key: "count", Label: "Count", FieldType: quack.ContextFieldNumber, Required: true, Position: 4},
+		{Key: "message", Label: "Message", FieldType: quack.ContextFieldMessageLink, Position: 5},
+		{Key: "extra", Label: "Extra", FieldType: quack.ContextFieldShortText, Position: 6},
+	}
+	template := h.template(t, quack.TemplateInput{Slug: "structured", Name: "Structured", ReasonTemplate: "Reason", ContextFields: fields, Levels: []quack.TemplateLevelInput{{Name: "Default", Position: 1, IsDefault: true}}})
+	values := []quack.CaseContextValueInput{
+		{Key: "summary", Value: json.RawMessage(`"Summary text"`)},
+		{Key: "details", Value: json.RawMessage(`"Details text"`)},
+		{Key: "confirmed", Value: json.RawMessage(`false`)},
+		{Key: "count", Value: json.RawMessage(`-2.5`)},
+		{Key: "extra", Value: json.RawMessage(`"Optional extra"`)},
+	}
+	created, err := h.services.Cases.Create(ctx, h.owner, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: "target-1", ContextValues: values})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A valid stored message value exercises the link input without an external
+	// Discord evidence dependency in this adapter fixture.
+	link := "https://discord.com/channels/111111111111111111/222222222222222222/333333333333333333"
+	before, err := h.services.Cases.Get(ctx, h.owner, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before.ContextValues[4].Value = link
+	body, _ := json.Marshal(before.ContextValues)
+	if _, err := h.store.UpdateCaseContext(ctx, quack.UpdateCaseContextParams{GuildID: h.owner.Guild.ID, CaseRef: created.ID, ContextValuesJSON: string(body)}); err != nil {
+		t.Fatal(err)
+	}
+	for _, edited := range []bool{false, true} {
+		open := component("case:edit_context:v1:" + created.ID)
+		open.ID = fmt.Sprintf("edit-%t", edited)
+		first := h.cases.Component("edit_context")(ctx, open)
+		if first.Response.Type != discordgo.InteractionResponseModal || len(first.Response.Data.Components) != 5 {
+			t.Fatalf("modal: %+v", first.Response)
+		}
+		inputs := first.Response.Data.Components
+		for index, component := range inputs {
+			row := component.(discordgo.ActionsRow)
+			input := row.Components[0].(discordgo.TextInput)
+			if input.Label != fields[index].Label || input.Required != fields[index].Required {
+				t.Fatalf("field metadata: %+v", input)
+			}
+			if index == 2 && input.Value != "false" || index == 3 && input.Value != "-2.5" || index == 4 && input.Value != link {
+				t.Fatalf("typed prefill: %+v", input)
+			}
+			if edited && index == 0 {
+				input.Value = "Edited summary"
+			}
+			if edited && index == 1 {
+				input.Value = ""
+			}
+			row.Components[0] = input
+			inputs[index] = row
+		}
+		submit := interaction(discordgo.InteractionModalSubmit, 0, nil)
+		submit.Data = discordgo.ModalSubmitInteractionData{CustomID: first.Response.Data.CustomID, Components: inputs}
+		next := h.cases.Modal("edit_context_submit")(ctx, submit)
+		if next.Task != nil || !strings.Contains(next.Response.Data.Content, "Continue") {
+			t.Fatalf("next: %+v", next)
+		}
+		page := h.cases.ContextNext(ctx, component("case:context_next:v1:"+open.ID))
+		submit.Data = discordgo.ModalSubmitInteractionData{CustomID: page.Response.Data.CustomID, Components: page.Response.Data.Components}
+		run(t, h.cases.Modal("edit_context_submit")(ctx, submit))
+		after, err := h.services.Cases.Get(ctx, h.owner, created.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !edited && !reflect.DeepEqual(before.ContextValues, after.ContextValues) {
+			t.Fatalf("unchanged values: before=%+v after=%+v", before.ContextValues, after.ContextValues)
+		}
+		if edited && (after.ContextValues[0].Value != "Edited summary" || after.ContextValues[1].Value != nil) {
+			t.Fatalf("edited values: %+v", after.ContextValues)
+		}
+		if !reflect.DeepEqual(before.TemplateSnapshot, after.TemplateSnapshot) {
+			t.Fatal("edit changed frozen decision")
+		}
+	}
+	open := component("case:edit_context:v1:" + created.ID)
+	open.ID = "invalid-edit"
+	modal := h.cases.Component("edit_context")(ctx, open)
+	for _, bad := range []struct{ key, value string }{{"summary", " "}, {"confirmed", "maybe"}, {"count", "not a number"}} {
+		inputs := make([]discordgo.MessageComponent, 0, 5)
+		for _, part := range modal.Response.Data.Components {
+			row := part.(discordgo.ActionsRow)
+			input := row.Components[0].(discordgo.TextInput)
+			if input.CustomID == "context_"+bad.key {
+				input.Value = bad.value
+			}
+			inputs = append(inputs, discordgo.ActionsRow{Components: []discordgo.MessageComponent{input}})
+		}
+		submit := interaction(discordgo.InteractionModalSubmit, 0, nil)
+		submit.Data = discordgo.ModalSubmitInteractionData{CustomID: modal.Response.Data.CustomID, Components: inputs}
+		result := h.cases.Modal("edit_context_submit")(ctx, submit)
+		if result.Task != nil || result.Response.Data == nil || result.Response.Data.Content == "" {
+			t.Fatalf("invalid %s accepted: %+v", bad.key, result)
+		}
+	}
+}
+
+// TestExpiredStructuredEditRequiresReopening cannot fall back to the legacy
+// free-text route when its in-memory draft is gone.
+func TestExpiredStructuredEditRequiresReopening(t *testing.T) {
+	h := newCaseHarness(t, uint64(discordgo.PermissionModerateMembers))
+	submit := interaction(discordgo.InteractionModalSubmit, 0, nil)
+	submit.Data = discordgo.ModalSubmitInteractionData{CustomID: "case:edit_context_submit:v2:expired"}
+	result := h.cases.Modal("edit_context_submit")(context.Background(), submit)
+	if result.Task != nil || !strings.Contains(result.Response.Data.Content, "Open Edit context again") {
+		t.Fatalf("expired draft: %+v", result)
 	}
 }

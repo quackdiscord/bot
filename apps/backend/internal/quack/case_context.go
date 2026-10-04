@@ -93,10 +93,14 @@ func validateContextValues(fields []CaseTemplateContextField, inputs []CaseConte
 			value.Value = boolean
 			hasOtherContext = true
 		case ContextFieldNumber:
-			var number json.Number
+			var decoded any
 			decoder := json.NewDecoder(strings.NewReader(string(raw)))
 			decoder.UseNumber()
-			if decoder.Decode(&number) != nil {
+			if !json.Valid(raw) || decoder.Decode(&decoded) != nil {
+				return "", nil, false, caseValidationError("context value has wrong type: " + field.Key)
+			}
+			number, ok := decoded.(json.Number)
+			if !ok {
 				return "", nil, false, caseValidationError("context value has wrong type: " + field.Key)
 			}
 			if _, err := number.Float64(); err != nil {

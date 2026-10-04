@@ -490,3 +490,57 @@ func TestCaseInteractionsMatchGolden(t *testing.T) {
 		t.Fatalf("completed form did not publish: responder=%+v", responder)
 	}
 }
+
+// TestRepeatedReverseCommandReportsCompletedRemoval checks the command's
+// receipt when idempotency returns the already-completed reversal.
+func TestRepeatedReverseCommandReportsCompletedRemoval(t *testing.T) {
+	h := newCaseHarness(t, uint64(discordgo.PermissionModerateMembers))
+	ctx := context.Background()
+	template := h.template(t, quack.TemplateInput{
+		Slug: "receipt-timeout", Name: "Timeout", ReasonTemplate: "Repeated spam",
+		Levels: []quack.TemplateLevelInput{{Name: "Default", Position: 1, IsDefault: true,
+			Actions: []quack.TemplateActionInput{{ActionType: quack.ActionTimeoutUser, TimeoutDurationSeconds: 60}}}},
+	})
+	created, err := h.services.Cases.Create(ctx, h.owner, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: "target-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	actions, err := h.store.ListCaseActionExecutions(ctx, created.ID)
+	if err != nil || len(actions) != 1 {
+		t.Fatalf("actions = %+v, %v", actions, err)
+	}
+	if err := h.store.DB().Model(&quack.CaseActionExecution{}).Where("id = ?", actions[0].ID).Update("status", quack.ActionExecutionSucceeded).Error; err != nil {
+		t.Fatal(err)
+	}
+	command := func() *discordgo.InteractionCreate {
+		return interaction(discordgo.InteractionApplicationCommand, 0, subcommand("reverse",
+			&discordgo.ApplicationCommandInteractionDataOption{Name: "case", Type: discordgo.ApplicationCommandOptionString, Value: created.ID},
+			&discordgo.ApplicationCommandInteractionDataOption{Name: "execution", Type: discordgo.ApplicationCommandOptionString, Value: actions[0].ID},
+			&discordgo.ApplicationCommandInteractionDataOption{Name: "action", Type: discordgo.ApplicationCommandOptionString, Value: string(quack.ActionRemoveTimeout)},
+			&discordgo.ApplicationCommandInteractionDataOption{Name: "confirm", Type: discordgo.ApplicationCommandOptionBoolean, Value: true},
+		))
+	}
+	first := run(t, h.cases.Command(ctx, command()))
+	if !strings.Contains(*first.edit.Content, "Remove timeout queued.") {
+		t.Fatalf("first receipt = %s", *first.edit.Content)
+	}
+	queued, err := h.store.ListCaseActionExecutions(ctx, created.ID)
+	if err != nil || len(queued) != 2 {
+		t.Fatalf("queued = %+v, %v", queued, err)
+	}
+	for _, execution := range queued {
+		if execution.ReversalOfExecutionID != nil {
+			if err := h.store.DB().Model(&quack.CaseActionExecution{}).Where("id = ?", execution.ID).Update("status", quack.ActionExecutionSucceeded).Error; err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	second := run(t, h.cases.Command(ctx, command()))
+	if !strings.Contains(*second.edit.Content, "Member is no longer timed out.") || strings.Contains(*second.edit.Content, "queued") {
+		t.Fatalf("repeated receipt = %s", *second.edit.Content)
+	}
+	final, err := h.store.ListCaseActionExecutions(ctx, created.ID)
+	if err != nil || len(final) != 2 {
+		t.Fatalf("repeat created another reversal: %+v, %v", final, err)
+	}
+}

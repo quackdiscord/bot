@@ -79,7 +79,8 @@ func (s *CaseService) AddEvidence(ctx context.Context, guildContext *GuildStaffC
 }
 
 // UpdateContext replaces a case's context with free text, as written in
-// Discord's "What happened?" form. An empty text clears it. The rule, level,
+// Discord's legacy "What happened?" form for unstructured cases. An empty text
+// clears it. Structured cases must use UpdateContextValues. The rule, level,
 // validity, and enforcement are untouched. Discord message links in the text
 // that the case does not already have are captured as evidence after the
 // text is saved; if that fails, the text stays saved and the returned detail
@@ -88,6 +89,16 @@ func (s *CaseService) UpdateContext(ctx context.Context, guildContext *GuildStaf
 	ctx = ensureTraceContext(ctx)
 	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil || !guildContext.Can(PermissionActionCaseCreate) {
 		return nil, ErrCasePermissionDenied
+	}
+	item, err := s.store.GetCaseByIDOrNumber(ctx, guildContext.Guild.ID, strings.TrimSpace(caseRef))
+	if err != nil {
+		return nil, err
+	}
+	if item == nil {
+		return nil, ErrCaseNotFound
+	}
+	if snapshot := parseTemplateSnapshot(item.TemplateSnapshotJSON); snapshot != nil && len(snapshot.ContextFields) > 0 {
+		return nil, caseValidationError("use the structured context form for this case")
 	}
 	text = strings.TrimSpace(text)
 	if len([]rune(text)) > maxFreeTextContextRunes {
@@ -106,7 +117,7 @@ func (s *CaseService) UpdateContext(ctx context.Context, guildContext *GuildStaf
 	if err != nil {
 		return nil, fmt.Errorf("marshal case context: %w", err)
 	}
-	item, err := s.store.UpdateCaseContext(ctx, UpdateCaseContextParams{
+	item, err = s.store.UpdateCaseContext(ctx, UpdateCaseContextParams{
 		GuildID:           guildContext.Guild.ID,
 		CaseRef:           strings.TrimSpace(caseRef),
 		ContextValuesJSON: string(body),
@@ -123,6 +134,58 @@ func (s *CaseService) UpdateContext(ctx context.Context, guildContext *GuildStaf
 		return nil, err
 	}
 	return s.captureContextLinks(ctx, guildContext, detail, text), nil
+}
+
+// UpdateContextValues edits structured context against the case's original rule
+// fields. Later rule versions cannot change field labels, types, or requirements.
+// Evidence snapshots remain intact; newly supplied links are captured separately.
+func (s *CaseService) UpdateContextValues(ctx context.Context, guildContext *GuildStaffContext, caseRef string, values []CaseContextValueInput) (*CaseDetailResponse, error) {
+	ctx = ensureTraceContext(ctx)
+	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil || !guildContext.Can(PermissionActionCaseCreate) {
+		return nil, ErrCasePermissionDenied
+	}
+	item, err := s.store.GetCaseByIDOrNumber(ctx, guildContext.Guild.ID, strings.TrimSpace(caseRef))
+	if err != nil {
+		return nil, err
+	}
+	if item == nil {
+		return nil, ErrCaseNotFound
+	}
+	snapshot := parseTemplateSnapshot(item.TemplateSnapshotJSON)
+	if snapshot == nil || len(snapshot.ContextFields) == 0 {
+		return nil, caseValidationError("case has no structured context fields")
+	}
+	fields := make([]CaseTemplateContextField, 0, len(snapshot.ContextFields))
+	for _, field := range snapshot.ContextFields {
+		fields = append(fields, CaseTemplateContextField{Key: field.Key, Label: field.Label, FieldType: field.FieldType, Required: field.Required})
+	}
+	body, links, _, err := validateContextValues(fields, values)
+	if err != nil {
+		return nil, err
+	}
+	for _, link := range links {
+		if _, err := ParseDiscordMessageLink(link); err != nil {
+			return nil, caseValidationError("context message link is invalid")
+		}
+	}
+	_, err = s.store.UpdateCaseContext(ctx, UpdateCaseContextParams{
+		GuildID: guildContext.Guild.ID, CaseRef: item.ID, ContextValuesJSON: body,
+		Audit: caseAudit(ctx, guildContext, staffAttribution, string(AuditActionCaseUpdate), "case", item.ID, AuditResultSuccess, ""),
+	})
+	if err != nil {
+		return nil, err
+	}
+	detail, err := s.Get(ctx, guildContext, item.ID)
+	if err != nil {
+		return nil, err
+	}
+	var text []string
+	for _, value := range detail.ContextValues {
+		if textValue, ok := value.Value.(string); ok {
+			text = append(text, textValue)
+		}
+	}
+	return s.captureContextLinks(ctx, guildContext, detail, strings.Join(text, "\n")), nil
 }
 
 // contextURLPattern finds URLs in prose, Markdown links, and angle brackets.
