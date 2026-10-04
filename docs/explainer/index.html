@@ -361,6 +361,9 @@ code {
   <div class="hero-inner">
     <div class="overline"><span>●</span> Codebase review · quack v5 · 2026-10-02</div>
     <h1>Quack v5, taken apart.</h1>
+    <p>This review is a historical snapshot from 2026-10-02. Paths, counts, and findings
+      describe that revision. The v4 bot source has since been removed; see
+      <a href="../architecture.md">the current architecture</a> for v5.</p>
     <p class="article-subtitle">
       The idea fits in one sentence: admins write the rules, moderators apply them, and Quack escalates.
       This page walks through how 80,000 lines of Go, TypeScript, and planning docs carry out that sentence,
@@ -380,7 +383,6 @@ code {
       <div class="stat"><div class="k">go build + go test ./...</div><div class="v green">pass</div><div class="s">all packages green</div></div>
       <div class="stat"><div class="k">TODO.md</div><div class="v">475 / 0</div><div class="s">checked / open</div></div>
       <div class="stat"><div class="k">docs/v5-readiness.md</div><div class="v red">NOT READY</div><div class="s">no real-guild rehearsal yet</div></div>
-      <div class="stat"><div class="k">Legacy v4 (still in repo)</div><div class="v">12.2k</div><div class="s">Go lines, same module path</div></div>
     </div>
   </div>
 </header>
@@ -417,14 +419,12 @@ code {
       <p class="lead">
         You come back to a project after a few months and open the repo. The first thing you notice is that it got
         big. A Discord bot that picks a punishment from a member's history now has 220 Go source files, a React
-        dashboard, a 2,882-line generated Swagger contract, a 1,257-line execution plan, and the entire v4 bot still
-        sitting in <code>Legacy/</code>.
+        dashboard, a 2,882-line generated Swagger contract, and a 1,257-line execution plan.
       </p>
       <p>
         That isn't a disaster. It builds, and <code>go test ./...</code> passes in every package. But before you
         simplify anything, you need to see where the weight actually is. The map below sizes every rectangle by
-        line count. Hover a block to see what it is. Then toggle Legacy off and notice how much of what's left is
-        the core moderation logic versus scaffolding around it.
+        line count. Hover a block to see what it is and compare the core moderation logic with the scaffolding around it.
       </p>
 
       <div class="figure" id="fig-mass">
@@ -432,7 +432,6 @@ code {
         <div class="figure-canvas-wrap"><canvas id="canvas-mass" width="760" height="380"></canvas></div>
         <div class="figure-controls">
           <button class="ctrl-btn active" data-mass="all">Everything</button>
-          <button class="ctrl-btn" data-mass="nolegacy">Hide Legacy v4</button>
           <button class="ctrl-btn" data-mass="backend">Backend Go only</button>
           <div class="ctrl-separator"></div>
           <span class="ctrl-label" id="mass-info">Hover a block</span>
@@ -484,7 +483,7 @@ code {
 
       <div class="comparison-grid">
         <div class="comparison-cell">
-          <h4>v4 (Legacy/)</h4>
+          <h4>v4 (historical)</h4>
           <ul>
             <li>Moderator picks <code>/warn</code>, <code>/kick</code>, <code>/ban</code></li>
             <li>Moderator chooses duration and reason</li>
@@ -950,8 +949,7 @@ code {
           <p>Remove <code>SkipCaseActions</code> and the <code>skipped</code> status, the module-level migrations
           and v4 importers that only tests use, the 13 test-only <code>*Record</code> types,
           <code>quack.DiscordEnforcementClient</code>, the unused embed helpers, and <code>routes.SetupRoutes</code>.
-          Then decide whether <code>Legacy/</code> belongs in this repo at all, since it declares the same module
-          path.</p>
+          The separate v4 bot source has since been removed and remains available in Git history.</p>
           <div class="effort">small · zero behavior change</div>
         </div>
         <div class="plan-step">
@@ -1082,9 +1080,6 @@ function mousePos(canvas, e) {
     ]},
     { id: 'gen', name: 'Generated contract', color: '#8a8a8a', items: [
       ['contracts/http/swagger.yaml', 2882, 'swaggo output; missing all /modules routes']
-    ]},
-    { id: 'legacy', name: 'Legacy v4', color: C.red, items: [
-      ['Legacy/ (v4 bot)', 12247, 'Not built by go.work, but declares the same module path']
     ]}
   ];
   let mode = 'all';
@@ -1119,7 +1114,6 @@ function mousePos(canvas, e) {
   }
   function layout() {
     let gs = groups;
-    if (mode === 'nolegacy') gs = groups.filter(g => g.id !== 'legacy');
     if (mode === 'backend') gs = groups.filter(g => g.id === 'go' || g.id === 'test');
     const total = gs.reduce((a, g) => a + g.items.reduce((b, it) => b + it[1], 0), 0);
     const pad = 8, X = pad, Y = pad, W = w - pad * 2, H = h - pad * 2;
@@ -1758,7 +1752,6 @@ function mousePos(canvas, e) {
     ['docs', 'med', 'Docs describe an older codebase', 'README says apps/dashboard is empty and cites openapi.yaml; architecture.md says timeout/kick/ban are "recorded as unsupported" and never mentions modules or appeals.', 'README.md:19-21 · docs/architecture.md:36, :103-104', 'Two docs: v5.md + a regenerated architecture.md.'],
     ['docs', 'med', 'Hand-written API types, incomplete contract', 'api-types.ts (463 lines) is hand-written; swagger.yaml omits every /modules route.', 'apps/dashboard/src/lib/api-types.ts · contracts/http/swagger.yaml', 'Generate TS types from the contract.'],
     ['docs', 'low', 'Planning sprawl', 'A 1,257-line exec plan still marked ACTIVE and "IN PROGRESS", a scope-drift log, integration notes, and a 475-item TODO that is fully checked yet the readiness verdict is NOT READY.', 'docs/exec-plans/active/v5-readiness.md · TODO.md · docs/v5-readiness.md:3', 'Archive; track the real remaining blocker (real-guild rehearsal).'],
-    ['docs', 'low', 'Legacy shares the module path', 'Legacy/go.mod and apps/backend/go.mod both declare github.com/quackdiscord/bot.', 'Legacy/go.mod:1', 'Move v4 to its own repo or tag, or rename the module.'],
     ['docs', 'low', 'Dashboard pins "latest" + a nightly', 'TanStack packages are on "latest" and nitro on nitro-nightly@latest, so builds are not reproducible.', 'apps/dashboard/package.json', 'Pin versions.']
   ];
   const labels = { bug: 'bug', dup: 'duplication', bound: 'boundary', store: 'storage', dead: 'dead code', docs: 'docs/repo' };

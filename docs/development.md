@@ -93,7 +93,9 @@ The package map and request flows are in
 - **Settings** go in `internal/config` (struct, default, validation), plus
   `quack.example.toml` and [`configuration.md`](configuration.md).
 
-`Legacy/` is the v4 bot. It is not built or run by v5; leave it alone.
+The v4 bot source is available in Git history. v5 keeps the case-history
+importer described in [`v4-import.md`](v4-import.md); it does not need the old
+bot source to import an export.
 
 ## Code style
 

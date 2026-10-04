@@ -23,7 +23,6 @@ disagree, `v5.md` wins.
 - `contracts/http/openapi.yaml`: the HTTP API contract between the backend and
   the dashboard, generated from the Go route table with `go generate ./...`
   in `apps/backend`.
-- `Legacy/`: the Quack v4 bot, kept for reference. Not part of v5.
 - `docs/`: maintainer documentation. Start at [`docs/README.md`](docs/README.md).
 
 ## Quick start
