@@ -38,11 +38,12 @@ func TestMigrateCreatesSchemaOnce(t *testing.T) {
 	if err := db.Raw("SELECT version, name FROM quack_schema_migrations").Scan(&ledger).Error; err != nil {
 		t.Fatal(err)
 	}
-	if len(ledger) != 2 || ledger[0].Name != "baseline" || ledger[1].Version != 2 || ledger[1].Name != "audit_mirror_deliveries" {
-		t.Fatalf("ledger = %+v, want the baseline and audit_mirror_deliveries", ledger)
+	if len(ledger) != 3 || ledger[0].Name != "baseline" || ledger[1].Version != 2 || ledger[1].Name != "audit_mirror_deliveries" ||
+		ledger[2].Version != 3 || ledger[2].Name != "launch_announcement" {
+		t.Fatalf("ledger = %+v, want the baseline, audit_mirror_deliveries, and launch_announcement", ledger)
 	}
-	if version, err := s.MigrationReadiness(context.Background()); err != nil || version != 2 {
-		t.Fatalf("MigrationReadiness = %d, %v; want 2, nil", version, err)
+	if version, err := s.MigrationReadiness(context.Background()); err != nil || version != 3 {
+		t.Fatalf("MigrationReadiness = %d, %v; want 3, nil", version, err)
 	}
 	for _, dropped := range []string{"action_manual_reviews", "module_import_records",
 		"quack_v5_0002_template_compatibility", "quack_v5_0003_case_compatibility"} {
@@ -118,7 +119,7 @@ func TestMigrateAuditMirrorDeliveries(t *testing.T) {
 	db := testutil.NewSQLiteDB(t)
 	for _, statement := range []string{
 		"DROP TABLE audit_mirror_deliveries",
-		"DELETE FROM quack_schema_migrations WHERE version = 2",
+		"DELETE FROM quack_schema_migrations WHERE version >= 2",
 		`INSERT INTO guild_settings (id, created_at, updated_at, guild_id, audit_mirror_channel_discord_id,
 			notification_introduction, notification_footer, starter_policy_notice_pending)
 			VALUES ('settings', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'guild', '123', '', '', false)`,
@@ -135,8 +136,8 @@ func TestMigrateAuditMirrorDeliveries(t *testing.T) {
 	if err := s.Migrate(); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	if version, err := s.MigrationReadiness(ctx); err != nil || version != 2 {
-		t.Fatalf("MigrationReadiness = %d, %v; want 2", version, err)
+	if version, err := s.MigrationReadiness(ctx); err != nil || version != 3 {
+		t.Fatalf("MigrationReadiness = %d, %v; want 3", version, err)
 	}
 	var queued int64
 	if err := db.Table("audit_mirror_deliveries").Count(&queued).Error; err != nil || queued != 0 {
@@ -158,7 +159,7 @@ func TestMigrateAuditMirrorDeliveries(t *testing.T) {
 func TestMigrateRefusesUnknownLedger(t *testing.T) {
 	db := testutil.NewSQLiteDB(t)
 	future := "INSERT INTO quack_schema_migrations (version, name, applied_at) " +
-		"VALUES (3, 'from_the_future', CURRENT_TIMESTAMP)"
+		"VALUES (4, 'from_the_future', CURRENT_TIMESTAMP)"
 	if err := db.Exec(future).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -170,6 +171,12 @@ func TestMigrateRefusesUnknownLedger(t *testing.T) {
 func TestRollbackBaseline(t *testing.T) {
 	db := testutil.NewSQLiteDB(t)
 	s := store.New(db, nil)
+	if err := s.Rollback(false); err != nil {
+		t.Fatalf("Rollback(false) of launch_announcement: %v", err)
+	}
+	if db.Migrator().HasColumn("guild_settings", "launch_announced_at") {
+		t.Fatal("rolling back launch_announcement kept its column")
+	}
 	for _, dropAll := range []bool{false, true} {
 		if err := s.Rollback(dropAll); !errors.Is(err, store.ErrIrreversible) {
 			t.Fatalf("Rollback(%v) past audit_mirror_deliveries = %v, want ErrIrreversible", dropAll, err)

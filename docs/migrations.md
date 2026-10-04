@@ -6,7 +6,7 @@ applied migration is recorded in `quack_schema_migrations` by version and name.
 `quack migrate up` (or just `quack migrate`) and `quack serve` both apply
 whatever is pending. `migrate` only needs `database.dsn`.
 
-There are two migrations today.
+There are three migrations today.
 
 Version 1 `baseline` creates every table,
 including the module tables (`modules.Models`, `tickets.Models`,
@@ -32,6 +32,13 @@ seconds before shutdown, or stuck failing) are not mirrored; their audit
 history is unaffected. The step has no `down`: the older binary would see no
 delivery outcomes for entries mirrored since, and post them all again. So
 `quack migrate down` now stops at version 2, `-drop-all` included.
+
+Version 3 `launch_announcement` adds `guild_settings.launch_announced_at`,
+which records that a guild was sent the one-time v5 announcement
+(`discord.launch_announcement` in [configuration](configuration.md)). It
+starts empty, so every existing guild is owed the announcement. Its `down`
+drops the column, which means a later upgrade would announce to every guild
+again; roll it back only before the announcement has gone out.
 
 On MySQL, migrators take a named lock (`GET_LOCK`), so several processes can
 start at once and run migrations one at a time.

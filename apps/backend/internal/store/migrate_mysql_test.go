@@ -35,7 +35,7 @@ func TestMySQL(t *testing.T) {
 		t.Fatalf("concurrent migrate: %v", err)
 	}
 	assertSchema(t, db, true)
-	if version, err := s.MigrationReadiness(context.Background()); err != nil || version != 2 {
+	if version, err := s.MigrationReadiness(context.Background()); err != nil || version != 3 {
 		t.Fatalf("MigrationReadiness = %d, %v", version, err)
 	}
 

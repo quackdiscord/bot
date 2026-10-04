@@ -49,6 +49,10 @@ type guildSettingsRecord struct {
 	StarterPolicyTemplateID           string    `gorm:"type:char(26);not null;default:''"`
 	StarterPolicyNoticePending        bool      `gorm:"not null"`
 	StarterPolicyNoticeAcknowledgedAt *time.Time
+	// LaunchAnnouncedAt is when the guild was claimed for the one-time v5
+	// announcement; nil means it is still owed one. See
+	// quack.LaunchAnnouncer.
+	LaunchAnnouncedAt *time.Time
 }
 
 func (guildSettingsRecord) TableName() string { return "guild_settings" }

@@ -31,6 +31,7 @@ var migrations = []migration{
 	// audit log for entries with no delivered outcome row, so after a
 	// rollback it would post everything mirrored since again.
 	{version: 2, name: "audit_mirror_deliveries", up: createAuditMirrorDeliveries},
+	{version: 3, name: "launch_announcement", up: addLaunchAnnouncement, down: dropLaunchAnnouncement},
 }
 
 // ErrIrreversible means the newest migration has no down step.
@@ -189,6 +190,26 @@ func oneDefaultLevel(db *gorm.DB) error {
 // table from the baseline, so this is then a no-op.
 func createAuditMirrorDeliveries(db *gorm.DB) error {
 	return withTableOptions(db).AutoMigrate(&auditMirrorDeliveryRecord{})
+}
+
+// addLaunchAnnouncement adds guild_settings.launch_announced_at, which
+// starts empty, so every existing guild is owed the v5 announcement. Fresh
+// databases already have the column from the baseline, so this is then a
+// no-op.
+func addLaunchAnnouncement(db *gorm.DB) error {
+	if db.Migrator().HasColumn(&guildSettingsRecord{}, "LaunchAnnouncedAt") {
+		return nil
+	}
+	return db.Migrator().AddColumn(&guildSettingsRecord{}, "LaunchAnnouncedAt")
+}
+
+// dropLaunchAnnouncement removes the column again. A later upgrade adds it
+// back empty, so guilds already announced to would be announced to twice.
+func dropLaunchAnnouncement(db *gorm.DB) error {
+	if !db.Migrator().HasColumn(&guildSettingsRecord{}, "LaunchAnnouncedAt") {
+		return nil
+	}
+	return db.Migrator().DropColumn(&guildSettingsRecord{}, "LaunchAnnouncedAt")
 }
 
 // retireAppealForms removes what custom appeal forms left in a database
