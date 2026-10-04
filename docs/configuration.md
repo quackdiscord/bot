@@ -83,6 +83,7 @@ Secrets (`discord.token`, `discord.client_secret`, `api.ops_token`,
 | `discord.oauth_scopes` | `identify guilds` | Space-separated OAuth scopes; must include both defaults in prod. |
 | `discord.command_guild_id` | none | Sync slash commands to this guild only. Guild commands update instantly. |
 | `discord.command_prune` | `false` | Delete registered commands Quack no longer defines. |
+| `discord.launch_announcement` | `false` | Post the one-time "Quack v5 is here" message to every server that hasn't had it: in the audit channel, else Discord's community updates or system messages channel, else a DM to the owner. A few servers go every two seconds, and each server gets it at most once. Turn it on for the launch and off afterwards, so servers that add Quack later aren't told v5 is new. |
 | `limits.oauth` | `20/10m` | OAuth login and callback, per client IP. |
 | `limits.member_read` | `120/1m` | Dashboard reads, plus the per-actor limit on member, appeal review, and module routes. |
 | `limits.template_write` | `30/1m` | Dashboard writes other than case creation, retries, and reversals. |

@@ -52,6 +52,13 @@ func (l DashboardLinks) Staff(discordGuildID string, page ...string) string {
 	return l.build(append([]string{"guilds", discordGuildID}, page...))
 }
 
+// Docs returns a page of the public docs, such as Docs("getting-started"),
+// or the docs home with no page. It returns "" under the same conditions as
+// Staff.
+func (l DashboardLinks) Docs(page ...string) string {
+	return l.build(append([]string{"docs"}, page...))
+}
+
 // MemberAppeal returns the member's page for appealing a case, which shows
 // the case, the appeal and its conversation, and the reply box when staff
 // asked for information. guildID and caseID are Quack's internal IDs, not

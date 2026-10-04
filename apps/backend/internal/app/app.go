@@ -33,6 +33,9 @@ const (
 	auditMirrorInterval = 5 * time.Second
 	transcriptInterval  = time.Hour
 	honeypotInterval    = time.Second
+	// launchAnnouncementInterval paces the v5 announcement: one batch of
+	// guilds per tick.
+	launchAnnouncementInterval = 2 * time.Second
 )
 
 // Run starts Quack and blocks until ctx is canceled or a component fails,
@@ -159,6 +162,9 @@ func build(ctx context.Context, cfg config.Config, st *store.Store, rdb *redis.C
 		discord.NewPublicationRefresher(bot, services.Publications).RefreshDue)
 	w.Every("honeypot upkeep", honeypotInterval, q.honeypot.Sweep)
 	w.Every("honeypot warnings", honeypotInterval, q.honeypot.RefreshWarnings)
+	if cfg.Discord.LaunchAnnouncement {
+		w.Every("launch announcement", launchAnnouncementInterval, quack.NewLaunchAnnouncer(st, bot).PollOnce)
+	}
 
 	bot.Session.Identify.Intents = gatewayIntents(q.logging, q.honeypot, q.tickets)
 

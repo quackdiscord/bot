@@ -93,6 +93,11 @@ type Discord struct {
 	CommandGuildID string `koanf:"command_guild_id"`
 	// CommandPrune deletes registered commands Quack no longer defines.
 	CommandPrune bool `koanf:"command_prune"`
+	// LaunchAnnouncement posts the one-time "Quack v5 is here" message to
+	// every guild that has not had it. Turn it on for the v5 launch and off
+	// once it has gone out, so guilds that add Quack later are not told v5
+	// is new.
+	LaunchAnnouncement bool `koanf:"launch_announcement"`
 }
 
 // Limits holds the fixed-window rate limit for each class of dashboard
