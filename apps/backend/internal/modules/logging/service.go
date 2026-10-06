@@ -40,10 +40,10 @@ type Status struct {
 }
 
 // Service renders, redacts, and delivers events with bounded retries, and
-// manages each guild's settings.
+// manages each guild's settings. Nothing it does is audited: general logging
+// is separate from the audit log and its mirror.
 type Service struct {
 	registry *modules.Registry
-	auditor  modules.Auditor
 	client   DeliveryClient
 	cache    *MessageCache
 
@@ -52,15 +52,13 @@ type Service struct {
 }
 
 // NewService returns a Service that caches recent messages in cache, or in
-// a default-sized cache if cache is nil. A nil auditor only logs settings
-// changes.
-func NewService(registry *modules.Registry, auditor modules.Auditor, client DeliveryClient, cache *MessageCache) *Service {
+// a default-sized cache if cache is nil.
+func NewService(registry *modules.Registry, client DeliveryClient, cache *MessageCache) *Service {
 	if cache == nil {
 		cache = NewMessageCache(defaultCacheLimit)
 	}
 	return &Service{
 		registry: registry,
-		auditor:  auditor,
 		client:   client,
 		cache:    cache,
 		status:   make(map[string]Status),
@@ -80,9 +78,7 @@ func (s *Service) Settings(ctx context.Context, actor modules.Actor) (Settings, 
 // UpdateSettings saves the guild's settings after checking that every
 // destination is staff-only. It needs Manage Guild.
 func (s *Service) UpdateSettings(ctx context.Context, actor modules.Actor, enabled bool, settings Settings) (Settings, error) {
-	const action = "general_logging.settings.update"
 	if !actor.CanManage {
-		s.audit(ctx, actor, action, "denied", ErrPermissionDenied)
 		return Settings{}, ErrPermissionDenied
 	}
 	if err := validateSettings(settings, enabled); err != nil {
@@ -90,7 +86,6 @@ func (s *Service) UpdateSettings(ctx context.Context, actor modules.Actor, enabl
 	}
 	for _, channelID := range destinations(settings.Channels) {
 		if err := s.client.ValidateStaffOnlyChannel(ctx, actor.GuildID, channelID); err != nil {
-			s.audit(ctx, actor, action, "failure", err)
 			return Settings{}, err
 		}
 	}
@@ -98,7 +93,6 @@ func (s *Service) UpdateSettings(ctx context.Context, actor modules.Actor, enabl
 		return Settings{}, err
 	}
 	s.cache.SetGuildLimit(actor.GuildID, settings.CacheEntriesPerGuild)
-	s.audit(ctx, actor, action, "success", nil)
 	return settings, nil
 }
 
@@ -122,7 +116,6 @@ func (s *Service) RepairDeletedChannel(ctx context.Context, actor modules.Actor,
 	if err != nil {
 		return Settings{}, false, err
 	}
-	s.audit(ctx, actor, "general_logging.channel_repair", "success", nil)
 	return updated, enabled, nil
 }
 
@@ -319,23 +312,6 @@ func (s *Service) recordFailure(guildID string, err error) {
 	now := time.Now().UTC()
 	status.LastFailureAt = &now
 	s.status[guildID] = status
-}
-
-// audit logs and records a settings operation. Deliveries are never
-// audited: general logging is separate from the audit log.
-func (s *Service) audit(ctx context.Context, actor modules.Actor, action, result string, cause error) {
-	reason := ""
-	if cause != nil {
-		reason = cause.Error()
-	}
-	modules.Audit(ctx, s.auditor, "general_logging", modules.AuditEvent{
-		GuildID:            actor.GuildID,
-		ActorDiscordUserID: actor.DiscordUserID,
-		Action:             action,
-		ResourceType:       "general_logging_settings",
-		Result:             result,
-		FailureReason:      reason,
-	})
 }
 
 // present reduces event to what the guild opted to show, with secrets

@@ -61,7 +61,7 @@ func (r *recorder) SendStaffLog(_ context.Context, _, _ string, message discord.
 func TestGatewayKeepsBotAuthorsAndDeletionContext(t *testing.T) {
 	ctx := context.Background()
 	rec := &recorder{}
-	service := NewService(newTestRegistry(t), nil, rec, nil)
+	service := NewService(newTestRegistry(t), rec, nil)
 	actor := modules.Actor{GuildID: testGuild.ID, CanManage: true}
 	if _, err := service.UpdateSettings(ctx, actor, true, Defaults().RouteAllTo("logs")); err != nil {
 		t.Fatal(err)

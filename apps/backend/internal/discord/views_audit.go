@@ -116,8 +116,6 @@ func auditMirrorLink(message quack.AuditMirrorMessage, dashboard quack.Dashboard
 		return dashboard.Staff(guildID, "settings"), dashboardSetupLabel
 	case area == "ticket":
 		return dashboard.Staff(guildID, "modules", "tickets"), dashboardLabel
-	case area == "general_logging":
-		return dashboard.Staff(guildID, "modules", "logging"), dashboardSetupLabel
 	case area == "honeypot":
 		return dashboard.Staff(guildID, "modules", "honeypot"), dashboardSetupLabel
 	}

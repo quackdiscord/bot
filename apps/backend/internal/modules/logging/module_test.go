@@ -11,7 +11,7 @@ import (
 )
 
 func TestPoolDeliversEventsAndBulkDeletes(t *testing.T) {
-	service, client, _ := setup(t)
+	service, client := setup(t)
 	pool := logmodule.NewPool(service)
 	pool.Start(context.Background())
 	if !pool.Submit(logmodule.Event{GuildID: "guild-a", Type: logmodule.MemberJoin, ActorDiscordUserID: "member"}) {
@@ -42,7 +42,7 @@ func TestPoolDoesNotReportSkipsAsErrors(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn})))
 	t.Cleanup(func() { slog.SetDefault(previous) })
 
-	service, _, _ := setup(t)
+	service, _ := setup(t)
 	pool := logmodule.NewPool(service)
 	pool.Start(context.Background())
 	pool.Submit(logmodule.Event{GuildID: "guild-off", Type: logmodule.MemberJoin})

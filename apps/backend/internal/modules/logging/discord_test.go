@@ -180,7 +180,7 @@ func TestEnablementCheckRequiresAuditLogAndDeliverableChannels(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			fake := &fakeDiscord{t: t, everyone: test.everyone, botAllow: test.botAllow}
 			registry := newTestRegistry(t)
-			New(registry, nil, modules.NewGuilds(guildStore{}), newBot(t, fake))
+			New(registry, modules.NewGuilds(guildStore{}), newBot(t, fake))
 			if _, err := registry.SetConfiguration(context.Background(), modules.Configuration{
 				GuildID: testGuild.ID, ModuleID: modules.GeneralLogging, ConfigJSON: test.config,
 			}); err != nil {
@@ -205,7 +205,7 @@ func TestSetupRoutesEverythingToTheChosenChannel(t *testing.T) {
 
 	fake := &fakeDiscord{t: t, everyone: discordgo.PermissionViewAuditLogs, botAllow: writable | discordgo.PermissionAttachFiles}
 	registry := newTestRegistry(t)
-	m := New(registry, nil, modules.NewGuilds(guildStore{}), newBot(t, fake))
+	m := New(registry, modules.NewGuilds(guildStore{}), newBot(t, fake))
 	message, err := m.Setup(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)

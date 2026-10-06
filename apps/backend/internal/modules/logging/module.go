@@ -33,13 +33,13 @@ type Module struct {
 	pool     *modules.Pool[Event]
 }
 
-// New returns the logging module. Settings live in registry and changes are
-// audited to audit; bot delivers to channels that pass its staff-only check.
+// New returns the logging module. Settings live in registry; bot delivers to
+// channels that pass its staff-only check.
 // It installs logging's enablement check on registry, so the core settings
 // API cannot switch logging on with a setup that would not deliver.
-func New(registry *modules.Registry, audit modules.Auditor, guilds *modules.Guilds, bot *discord.Bot) *Module {
+func New(registry *modules.Registry, guilds *modules.Guilds, bot *discord.Bot) *Module {
 	client := delivery{bot: bot, guilds: guilds}
-	service := NewService(registry, audit, client, NewMessageCache(defaultCacheLimit))
+	service := NewService(registry, client, NewMessageCache(defaultCacheLimit))
 	m := &Module{service: service, client: client, registry: registry, guilds: guilds, pool: NewPool(service)}
 	registry.SetEnablementCheck(modules.GeneralLogging, m.checkEnablement)
 	return m

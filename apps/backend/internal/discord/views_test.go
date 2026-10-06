@@ -468,7 +468,6 @@ func TestAuditMirrorLinksDashboardPages(t *testing.T) {
 		{quack.AuditMirrorMessage{Action: "case_template.import", ResourceType: "case_template"}, guild + "/rules", "Open in dashboard"},
 		{quack.AuditMirrorMessage{Action: "guild_settings.update", ResourceType: "guild_settings", ResourceID: "settings-1"}, guild + "/settings", "Open settings"},
 		{quack.AuditMirrorMessage{Action: "ticket.open", ResourceType: "ticket", ResourceID: "ticket-1"}, guild + "/modules/tickets", "Open in dashboard"},
-		{quack.AuditMirrorMessage{Action: "general_logging.settings.update"}, guild + "/modules/logging", "Open settings"},
 		{quack.AuditMirrorMessage{Action: "honeypot.settings.update"}, guild + "/modules/honeypot", "Open settings"},
 		{quack.AuditMirrorMessage{Action: "guild.lifecycle.bootstrap", ResourceType: "guild"}, "", ""},
 	} {

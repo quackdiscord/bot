@@ -824,7 +824,9 @@ Per module:
   Posts message edits and deletes, joins and leaves, bans, and guild and
   channel changes as readable Quack messages. `/setup logging` routes every
   event to one channel and needs View Audit Log to attribute bans. Recent
-  messages are cached in memory only; no tables.
+  messages are cached in memory only; no tables. Nothing the module does,
+  including settings changes and deleted-channel repair, writes to the audit
+  log or its mirror.
 - **Honeypot** (`modules/honeypot`, routes `/modules/honeypot/...`). A post
   in the trap channel opens a case with the configured template through
   `CaseService.CreateSystemHoneypot`, then the bait message is deleted via

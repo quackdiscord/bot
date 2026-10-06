@@ -18,13 +18,6 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-type auditRecorder struct{ events []modules.AuditEvent }
-
-func (a *auditRecorder) RecordModuleAudit(_ context.Context, event modules.AuditEvent) error {
-	a.events = append(a.events, event)
-	return nil
-}
-
 // deliveryFake fails its first failUntil sends and treats channels named
 // public* as not staff-only. It records each delivered post's text.
 type deliveryFake struct {
@@ -84,11 +77,10 @@ var admin = modules.Actor{GuildID: "guild-a", DiscordUserID: "admin", CanManage:
 
 // setup returns a service for guild-a with logging on, message content
 // and files included, and a two-message cache.
-func setup(t *testing.T) (*logmodule.Service, *deliveryFake, *auditRecorder) {
+func setup(t *testing.T) (*logmodule.Service, *deliveryFake) {
 	t.Helper()
 	client := &deliveryFake{}
-	audit := &auditRecorder{}
-	service := logmodule.NewService(newRegistry(t), audit, client, logmodule.NewMessageCache(2))
+	service := logmodule.NewService(newRegistry(t), client, logmodule.NewMessageCache(2))
 	settings := logmodule.Defaults()
 	settings.Channels = map[logmodule.EventType]string{
 		logmodule.MessageEdit:       "staff-log",
@@ -102,7 +94,7 @@ func setup(t *testing.T) (*logmodule.Service, *deliveryFake, *auditRecorder) {
 	if _, err := service.UpdateSettings(context.Background(), admin, true, settings); err != nil {
 		t.Fatal(err)
 	}
-	return service, client, audit
+	return service, client
 }
 
 func cache(t *testing.T, service *logmodule.Service, message logmodule.CachedMessage) {
@@ -113,8 +105,8 @@ func cache(t *testing.T, service *logmodule.Service, message logmodule.CachedMes
 	}
 }
 
-func TestPrivacyRedactionRetryAndAuditIsolation(t *testing.T) {
-	service, client, audit := setup(t)
+func TestPrivacyRedactionAndRetry(t *testing.T) {
+	service, client := setup(t)
 	client.failUntil = 2
 	cache(t, service, logmodule.CachedMessage{
 		ChannelDiscordID: "source",
@@ -140,15 +132,10 @@ func TestPrivacyRedactionRetryAndAuditIsolation(t *testing.T) {
 	if status := service.Status("guild-a"); status.Delivered != 1 || status.Failed != 0 {
 		t.Fatalf("status = %+v, want 1 delivered and 0 failed", status)
 	}
-	for _, event := range audit.events {
-		if strings.Contains(event.Action, "delivery") || event.ResourceType == "audit_log" {
-			t.Fatalf("a delivery reached the audit log: %+v", event)
-		}
-	}
 }
 
 func TestBanReasonIsRedacted(t *testing.T) {
-	service, client, _ := setup(t)
+	service, client := setup(t)
 	settings, _, _, err := service.Settings(context.Background(), admin)
 	if err != nil {
 		t.Fatal(err)
@@ -189,7 +176,7 @@ func (f *rateLimitedDelivery) SendStaffLog(context.Context, string, string, disc
 // happens before the context ends.
 func TestRateLimitDelaysRetry(t *testing.T) {
 	client := &rateLimitedDelivery{retryAfter: time.Hour}
-	service := logmodule.NewService(newRegistry(t), nil, client, nil)
+	service := logmodule.NewService(newRegistry(t), client, nil)
 	settings := logmodule.Defaults()
 	settings.Channels = map[logmodule.EventType]string{logmodule.MemberJoin: "staff-log"}
 	settings.MaxDeliveryAttempts = 2
@@ -208,7 +195,7 @@ func TestRateLimitDelaysRetry(t *testing.T) {
 }
 
 func TestFailedDeleteRetainsCachedContextForGatewayReplay(t *testing.T) {
-	service, client, _ := setup(t)
+	service, client := setup(t)
 	client.failUntil = 10
 	cache(t, service, logmodule.CachedMessage{MessageDiscordID: "replay", Content: "retained context"})
 	event := logmodule.Event{GuildID: "guild-a", Type: logmodule.MessageDelete, MessageDiscordID: "replay"}
@@ -225,7 +212,7 @@ func TestFailedDeleteRetainsCachedContextForGatewayReplay(t *testing.T) {
 }
 
 func TestBulkDeleteUsesAndThenEvictsCachedContext(t *testing.T) {
-	service, client, _ := setup(t)
+	service, client := setup(t)
 	for _, id := range []string{"one", "two"} {
 		cache(t, service, logmodule.CachedMessage{MessageDiscordID: id, Content: "body-" + id})
 	}
@@ -252,7 +239,7 @@ func TestBulkDeleteUsesAndThenEvictsCachedContext(t *testing.T) {
 }
 
 func TestCacheMessageLoadsPersistedLimit(t *testing.T) {
-	service, _, _ := setup(t)
+	service, _ := setup(t)
 	for i := range 3 {
 		cache(t, service, logmodule.CachedMessage{MessageDiscordID: fmt.Sprint(i)})
 	}
@@ -262,7 +249,7 @@ func TestCacheMessageLoadsPersistedLimit(t *testing.T) {
 }
 
 func TestRepairAndGuildModuleIsolation(t *testing.T) {
-	service, _, _ := setup(t)
+	service, _ := setup(t)
 	ctx := context.Background()
 	settings, enabled, err := service.RepairDeletedChannel(ctx, admin, "staff-log")
 	if err != nil {
@@ -280,7 +267,7 @@ func TestRepairAndGuildModuleIsolation(t *testing.T) {
 // TestQueuedEditsKeepTheirOriginalSnapshots checks that two edits queued
 // back to back each show their own before and after, not the newest cache.
 func TestQueuedEditsKeepTheirOriginalSnapshots(t *testing.T) {
-	service, client, _ := setup(t)
+	service, client := setup(t)
 	ctx := context.Background()
 	current := logmodule.CachedMessage{GuildID: "guild-a", MessageDiscordID: "message", AuthorDiscordUserID: "author"}
 	if err := service.CacheMessage(ctx, current); err != nil {
@@ -314,7 +301,7 @@ func TestQueuedEditsKeepTheirOriginalSnapshots(t *testing.T) {
 }
 
 func TestAttachmentOnlyEditsKeepPreviousFiles(t *testing.T) {
-	service, _, _ := setup(t)
+	service, _ := setup(t)
 	ctx := context.Background()
 	current := logmodule.CachedMessage{GuildID: "guild-a", MessageDiscordID: "files", Content: "same",
 		Attachments: []logmodule.AttachmentMetadata{{DiscordID: "old", Filename: "proof.png"}}}
@@ -336,7 +323,7 @@ func TestAttachmentOnlyEditsKeepPreviousFiles(t *testing.T) {
 // TestSetupRouteDeliversMessageDetails checks the settings /setup logging
 // saves: one channel for everything, with the message details shown.
 func TestSetupRouteDeliversMessageDetails(t *testing.T) {
-	service, client, audit := setup(t)
+	service, client := setup(t)
 	ctx := context.Background()
 	settings, _, _, err := service.Settings(ctx, admin)
 	if err != nil {
@@ -349,7 +336,6 @@ func TestSetupRouteDeliversMessageDetails(t *testing.T) {
 	if err != nil || !enabled || len(saved.Channels) != 9 {
 		t.Fatalf("setup not persisted: %+v, %v", saved, err)
 	}
-	auditCount := len(audit.events)
 	for _, kind := range []logmodule.EventType{logmodule.MessageDelete, logmodule.MessageBulkDelete} {
 		cache(t, service, logmodule.CachedMessage{
 			ChannelDiscordID: "source", MessageDiscordID: "cached", Content: "original content",
@@ -376,9 +362,6 @@ func TestSetupRouteDeliversMessageDetails(t *testing.T) {
 			t.Fatalf("old destination used: %s", channel)
 		}
 	}
-	if len(audit.events) != auditCount {
-		t.Fatal("message delivery added audit bookkeeping")
-	}
 }
 
 // TestBulkDeleteKeepsPerMessageAttributionAndPrivacy checks that each
@@ -387,7 +370,7 @@ func TestSetupRouteDeliversMessageDetails(t *testing.T) {
 func TestBulkDeleteKeepsPerMessageAttributionAndPrivacy(t *testing.T) {
 	for _, include := range []bool{true, false} {
 		t.Run(fmt.Sprint(include), func(t *testing.T) {
-			service, client, _ := setup(t)
+			service, client := setup(t)
 			settings, _, _, err := service.Settings(context.Background(), admin)
 			if err != nil {
 				t.Fatal(err)
@@ -429,7 +412,7 @@ func TestBulkDeleteKeepsPerMessageAttributionAndPrivacy(t *testing.T) {
 // TestSignedAttachmentURLRefreshIsNotAnEdit keeps the newest download link
 // for a deletion log without taking URL rotation for a member's edit.
 func TestSignedAttachmentURLRefreshIsNotAnEdit(t *testing.T) {
-	service, client, _ := setup(t)
+	service, client := setup(t)
 	ctx := context.Background()
 	before := logmodule.CachedMessage{GuildID: "guild-a", MessageDiscordID: "message", Content: "unchanged",
 		Attachments: []logmodule.AttachmentMetadata{{DiscordID: "file", Filename: "proof.png", ContentType: "image/png", Size: 10,
@@ -457,7 +440,7 @@ func TestSignedAttachmentURLRefreshIsNotAnEdit(t *testing.T) {
 func TestAttachmentChangesStillGenerateEdits(t *testing.T) {
 	for _, field := range []string{"id", "name", "type", "size", "removed"} {
 		t.Run(field, func(t *testing.T) {
-			service, _, _ := setup(t)
+			service, _ := setup(t)
 			before := logmodule.CachedMessage{GuildID: "guild-a", MessageDiscordID: "message",
 				Attachments: []logmodule.AttachmentMetadata{{DiscordID: "file", Filename: "proof.png", ContentType: "image/png", Size: 10,
 					URL: "https://cdn.discordapp.com/old"}}}

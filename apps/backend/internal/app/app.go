@@ -148,7 +148,7 @@ func build(ctx context.Context, cfg config.Config, st *store.Store, rdb *redis.C
 		services: services,
 		worker:   w,
 		tickets:  tickets.New(st.DB(), registry, audit, guilds, bot.Session, services.Guilds),
-		logging:  logging.New(registry, audit, guilds, bot),
+		logging:  logging.New(registry, guilds, bot),
 		honeypot: honeypot.New(st.DB(), registry, audit, guilds, bot.Session, st, services.Cases, services.Templates),
 	}
 

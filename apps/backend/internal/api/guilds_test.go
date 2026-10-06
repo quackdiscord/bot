@@ -192,7 +192,7 @@ func assertModulesSeeToggles(t *testing.T, store *storage.Store, discordGuildID 
 	if err != nil || ticketStatus.Enabled != tickets {
 		t.Errorf("tickets module sees enabled=%v (err %v), want %v", ticketStatus.Enabled, err, tickets)
 	}
-	_, loggingEnabled, _, err := logmodule.NewService(registry, nil, nil, nil).Settings(ctx, actor)
+	_, loggingEnabled, _, err := logmodule.NewService(registry, nil, nil).Settings(ctx, actor)
 	if err != nil || loggingEnabled != logging {
 		t.Errorf("logging module sees enabled=%v (err %v), want %v", loggingEnabled, err, logging)
 	}
