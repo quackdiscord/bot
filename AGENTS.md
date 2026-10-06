@@ -1,36 +1,77 @@
 # Agent Guidelines
 
-## Package map
+## What Quack is
 
-The backend is one Go module in `apps/backend`. `internal/quack` is the
-moderation domain and imports no infrastructure. `internal/store` (MySQL and
-Redis), `internal/discord`, `internal/api` (`net/http`), `internal/worker`,
-and `internal/modules/*` are adapters around it, and `internal/app` wires
-everything together for `cmd/quack`. The dashboard in `apps/dashboard` is a Vite+ React
-app (CSS Modules, TanStack Router/Query/Table) plus a small Go module that serves
-it and proxies `/api` to the backend; its README has the frontend
-conventions. See `docs/architecture.md` for what each
-package does and how requests flow; `v5.md` is the product definition.
+Quack is a Discord moderation bot built around one rule:
 
-## Go documentation
+> Admins define the server's moderation rules. Moderators apply those rules.
+> Quack chooses and carries out the configured result.
 
-- Follow [Google Go style](https://google.github.io/styleguide/go/) and [Go doc comments](https://go.dev/doc/comment).
-- Every exported identifier gets a doc comment that starts with its name. Unexported ones get one when it helps the reader.
-- Keep comments short and human. Say what something is for and why it exists, including invariants, side effects, and lifecycle, rather than restating the name or narrating the code.
-- Keep comments accurate when behavior changes.
+Admins build **templates** (one per kind of problem, not per punishment) with
+escalation **levels** keyed on case count. A moderator applies a template to a
+member; Quack counts that member's valid cases for the template, picks the
+level, records the **case**, runs its single timeout, kick, or ban
+**action**, sends at most one notification, and writes the **audit log**.
+Members can **appeal** from the dashboard. Discord and the dashboard share the
+same behavior; Discord stays the authority for permissions. Data never crosses
+guilds, cases snapshot the template version they used, and cases and audit
+entries are voided or appended to, never deleted.
 
-## User-owned tmux sessions
+## The system is documented in `docs/design.md`
 
-- Treat every existing tmux session, window, and pane as user-owned state.
-- Before starting a server, watcher, log tail, or other long-running process, check whether the user already has one running in tmux when that session is available.
-- Do not kill, restart, interrupt, replace, or send input to a tmux process without the user's explicit permission.
-- Do not change pane layouts, active windows, session names, or tmux configuration unless specifically requested.
-- Prefer non-invasive inspection. If work requires interacting with an existing tmux process, explain the intended action first and preserve the user's current session state.
+`docs/design.md` is the source of truth for the whole system: product rules,
+architecture, configuration, and operations. Read it before making changes.
+When code and the design disagree, treat it as drift and resolve it
+deliberately. Any change that affects behavior, configuration, APIs, or
+anything else the docs describe must update `docs/design.md` (and any other
+affected docs) in the same commit.
+
+## Packages are lego pieces
+
+Each package is an independent piece with a narrow interface, so pieces can be
+swapped, recombined, or tested alone.
+
+- `apps/backend` is one Go module. `internal/quack` is the moderation domain
+  and imports no infrastructure.
+- `internal/store` (MySQL, Redis), `internal/discord`, `internal/api`,
+  `internal/worker`, and `internal/modules/*` are adapters. They depend on the
+  domain and on small interfaces, not on each other's implementation details.
+- Only `internal/app` wires pieces together for `cmd/quack`.
+- `apps/dashboard` is a Vite+ React app plus a small Go server that proxies
+  `/api` to the backend; its README has the frontend conventions.
+
+Keep new code in this shape: define the interface where it is consumed, keep
+dependencies pointing inward, and don't reach across adapters.
+
+## Go style
+
+- Follow [Google Go style](https://google.github.io/styleguide/go/) and
+  [Go doc comments](https://go.dev/doc/comment).
+- Every exported identifier gets a doc comment that starts with its name;
+  unexported ones get one when it helps. Every package has a package comment.
+- Keep comments short and human: say what something is for and why, including
+  invariants, side effects, and lifecycle. Keep them accurate when behavior
+  changes.
+
+## Commits
+
+- Never add a `Co-Authored-By` trailer or any other co-author attribution.
+- Docs changes ship in the same commit as the code they describe.
+- Don't commit generated binaries or temporary files; preserve unrelated
+  user changes.
 
 ## Verification
 
-- Run `gofmt` on changed Go files.
-- Run backend Go commands from `apps/backend`.
-- Run the narrowest relevant tests, followed by `go test ./...` from `apps/backend` when the environment permits it.
-- For dashboard changes, run `bun run check`, `bun run test`, and `bun run build` from `apps/dashboard`. After changing an API route or type, run `go generate ./...` in `apps/backend`, then `bun run api` in `apps/dashboard`.
-- Preserve unrelated user changes and avoid committing generated binaries or temporary files.
+- Run `gofmt` on changed Go files, and run Go commands from `apps/backend`.
+- Run the narrowest relevant tests, then `go test ./...` when possible.
+- Dashboard changes: `bun run check`, `bun run test`, and `bun run build` in
+  `apps/dashboard`. After changing an API route or type, run
+  `go generate ./...` in `apps/backend`, then `bun run api` in
+  `apps/dashboard`.
+
+## tmux
+
+Existing tmux sessions, windows, and panes belong to the user. Check for an
+already-running server or watcher before starting one. Never kill, restart,
+interrupt, or send input to a tmux process, or change layouts or config,
+without explicit permission.

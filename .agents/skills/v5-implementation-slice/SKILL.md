@@ -17,7 +17,7 @@ Before editing, confirm:
 - exclusive write set and integration-owned files you must not edit;
 - focused checks and applicable schema/MySQL/race/external-adapter gates.
 
-Read only the relevant parts of `v5.md`, scope drift, TODO, the execution plan,
+Read only the relevant parts of `docs/design.md` (Product), scope drift, TODO, the execution plan,
 and adjacent code. Derive missing engineering details locally. Escalate only a
 genuine product ambiguity or contract collision.
 

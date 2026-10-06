@@ -9,7 +9,7 @@ import (
 const dashboardURLMaxLength = 512
 
 // DashboardLinks builds the dashboard URLs Quack links to from Discord. The
-// paths are the dashboard's public URL map (docs/dashboard.md), so they must
+// paths are the dashboard's public URL map (docs/design.md), so they must
 // stay stable. Links carry only IDs and fixed page names, never evidence,
 // context, or anything else a member or moderator wrote, and the dashboard
 // checks access itself.

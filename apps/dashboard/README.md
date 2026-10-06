@@ -31,7 +31,7 @@ involved. In development `vp dev` does the same proxying.
 ## Development
 
 You need [Bun](https://bun.sh) (or npm) and Go. Start the backend first (see
-`docs/development.md`), then:
+[`docs/design.md`](../../docs/design.md#development)), then:
 
 ```sh
 bun install

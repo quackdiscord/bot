@@ -1,56 +1,68 @@
-# Quack v5
+# Quack
 
-Quack is a moderation bot for Discord. Admins define templates with escalation
-levels, moderators apply a template to a member, and Quack picks the level
-from the member's history, records the case, and carries out the configured
-timeout, kick, or ban. Members get one notification per case and can appeal
-from the dashboard.
+**Consistent, customizable moderation for Discord.**
 
 > Admins define the server's moderation rules. Moderators apply those rules.
 > Quack chooses and carries out the configured result.
 
-[`v5.md`](v5.md) is the product definition. When the code and `v5.md`
-disagree, `v5.md` wins.
+Instead of moderators picking `/warn`, `/timeout`, or `/ban` and guessing at
+durations, admins describe their rules once as templates. A moderator picks the
+rule that was broken, and Quack looks at the member's history, chooses the
+right escalation level, records the case, carries out the action, and tells
+the member, the same way every time.
 
-## Layout
+## Features
 
-- `apps/backend`: the Go module. One binary, `quack`, runs the Discord bot,
-  the dashboard API, and the background workers, and provides the migration
-  and v4 import commands.
-- `apps/dashboard`: the web dashboard. A Vite+ React app styled with CSS Modules,
-  served by a small Go program that also proxies `/api` to the backend. See
-  its [README](apps/dashboard/README.md).
-- `contracts/http/openapi.yaml`: the HTTP API contract between the backend and
-  the dashboard, generated from the Go route table with `go generate ./...`
-  in `apps/backend`.
-- `docs/`: maintainer documentation. Start at [`docs/README.md`](docs/README.md).
+- **Templates with escalation.** One template per kind of problem (spam,
+  harassment, advertising). Levels escalate by case count, with an optional
+  decay window, and each level runs at most one timeout, kick, or ban.
+- **Cases that stay honest.** Every case snapshots the template version,
+  reason, context, and evidence it used. Mistakes are voided, never deleted.
+- **Evidence capture.** Grab a live message with a context action or paste a
+  link; Quack snapshots it and copies attachments to a staff-only channel.
+- **Appeals.** Members sign in with Discord to see their cases and appeal.
+  Accepting an appeal voids the case and lifts its timeout or ban.
+- **Audit log.** A permanent, searchable record of every meaningful change,
+  optionally mirrored to a staff channel.
+- **Safe actions.** Discord permissions and role hierarchy are checked on
+  every request; failed actions retry when safe and otherwise wait for staff.
+- **Optional modules.** Tickets, general logging, and honeypots, each enabled
+  per server.
+
+## Repository
+
+| Path | What it is |
+| --- | --- |
+| `apps/backend` | Go module. One `quack` binary runs the bot, the dashboard API, the workers, migrations, and the v4 import. |
+| `apps/dashboard` | Vite+ React dashboard, served by a small Go program that proxies `/api` to the backend. |
+| `contracts/http/openapi.yaml` | The HTTP API contract, generated from the Go route table. |
+| `docs/design.md` | How the whole system works. The source of truth. |
 
 ## Quick start
 
 You need Go, Bun, Docker, and a Discord application for development.
 
 ```sh
-cp .env.example .env        # then fill in the QUACK_DISCORD_* values
+cp .env.example .env        # fill in the QUACK_DISCORD_* values
 docker compose up -d        # MySQL and Redis
-cd apps/backend && go run ./cmd/quack serve
-cd apps/dashboard && bun install && bun run dev
+(cd apps/backend && go run ./cmd/quack serve)
+(cd apps/dashboard && bun install && bun run dev)
 ```
 
-Open `http://localhost:3000`. The API listens on `http://localhost:8080`;
-the dashboard proxies `/api` to it. Add
+Open <http://localhost:3000>. The API listens on `:8080` and the dashboard
+proxies `/api` to it. Add
 `http://localhost:3000/api/auth/discord/callback` to your Discord
-application's OAuth2 redirects. Run `go test ./...` from `apps/backend` to
-test. [`docs/development.md`](docs/development.md) has the
-rest.
+application's OAuth2 redirects.
 
-## Docs
+Run tests with `go test ./...` in `apps/backend` and `bun run test` in
+`apps/dashboard`.
 
-- [Architecture](docs/architecture.md): packages, request flows, the action
-  engine, appeals, the API, and the modules.
-- [Dashboard](docs/dashboard.md): how the web app is served, signs in, and
-  talks to the API.
-- [Configuration](docs/configuration.md): every setting and its `QUACK_*`
-  variable.
-- [Development](docs/development.md) and [testing](docs/testing.md).
-- [Migrations](docs/migrations.md), [operations](docs/operations.md), and the
-  [v4 import](docs/v4-import.md).
+## Documentation
+
+[`docs/design.md`](docs/design.md) covers the product rules, architecture,
+configuration, development, testing, migrations, and operations. Contributors
+and agents should also read [`AGENTS.md`](AGENTS.md).
+
+## License
+
+[MIT](LICENSE)

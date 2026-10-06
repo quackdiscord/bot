@@ -7,7 +7,7 @@
 //	quack import-v4 import|rollback|check-scope [flags]
 //
 // Settings come from code defaults, then the TOML file, then QUACK_* env vars.
-// See docs/configuration.md.
+// See docs/design.md#configuration.
 package main
 
 import (
