@@ -100,9 +100,6 @@ type DiscordMessageSnapshot struct {
 	EditedAt                                                         *time.Time
 	Embeds                                                           []map[string]any
 	Attachments                                                      []DiscordAttachmentSnapshot
-	// FromQuack is set when Quack itself wrote the message, such as a log
-	// post, which staff may cite as evidence against any member.
-	FromQuack bool
 }
 
 // PreservedDiscordAttachment is an attachment's copy in the evidence
@@ -178,12 +175,12 @@ func ParseDiscordMessageLink(raw string) (DiscordMessageReference, error) {
 }
 
 // Capture snapshots each linked message and copies supported attachments
-// into evidenceChannelID. Messages must be in guildID and, when
-// targetDiscordUserID is set, written by the target or by Quack. An empty
+// into evidenceChannelID. Messages must be in guildID but may be written by
+// anyone, such as the target, a witness, or Quack's own logs. An empty
 // actorDiscordUserID marks a system capture, which skips the actor's
 // channel access check. With allowUnavailable, a deleted or inaccessible
 // message is recorded as unavailable instead of failing the capture.
-func (s *EvidenceService) Capture(ctx context.Context, guildID, actorDiscordUserID, targetDiscordUserID, evidenceChannelID string, links []string, allowUnavailable bool) (*CapturedEvidence, error) {
+func (s *EvidenceService) Capture(ctx context.Context, guildID, actorDiscordUserID, evidenceChannelID string, links []string, allowUnavailable bool) (*CapturedEvidence, error) {
 	if len(links) > maxEvidenceMessages {
 		return nil, fmt.Errorf("%w: at most %d message links can be captured", ErrEvidenceValidation, maxEvidenceMessages)
 	}
@@ -229,9 +226,6 @@ func (s *EvidenceService) Capture(ctx context.Context, guildID, actorDiscordUser
 		}
 		if message == nil || message.GuildID != guildID || message.MessageID != ref.MessageID || message.ChannelID != ref.ChannelID {
 			return nil, fmt.Errorf("%w: Discord returned mismatched message identity", ErrEvidenceValidation)
-		}
-		if strings.TrimSpace(targetDiscordUserID) != "" && message.AuthorDiscordUserID != targetDiscordUserID && !message.FromQuack {
-			return nil, fmt.Errorf("%w: linked message must be from the case target or Quack", ErrEvidenceValidation)
 		}
 
 		var warnings []string
@@ -297,7 +291,7 @@ func (s *EvidenceService) Capture(ctx context.Context, guildID, actorDiscordUser
 // captureEvidence captures a new case's linked messages and uploaded files
 // into the guild's evidence channel. A message that can't be captured is
 // only acceptable when the moderator gave other context the member can see.
-func (s *CaseService) captureEvidence(ctx context.Context, guildContext *GuildStaffContext, targetID string, links []string, files []DiscordAttachmentSnapshot, hasOtherContext bool, attribution caseAttribution) (CapturedEvidence, error) {
+func (s *CaseService) captureEvidence(ctx context.Context, guildContext *GuildStaffContext, links []string, files []DiscordAttachmentSnapshot, hasOtherContext bool, attribution caseAttribution) (CapturedEvidence, error) {
 	if len(links) == 0 && len(files) == 0 {
 		return CapturedEvidence{}, nil
 	}
@@ -314,7 +308,7 @@ func (s *CaseService) captureEvidence(ctx context.Context, guildContext *GuildSt
 	} else if actorID == "" {
 		return CapturedEvidence{}, caseValidationError("evidence actor is required")
 	}
-	captured, err := s.evidence.Capture(ctx, guildContext.Guild.DiscordGuildID, actorID, targetID, channelID, links, hasOtherContext)
+	captured, err := s.evidence.Capture(ctx, guildContext.Guild.DiscordGuildID, actorID, channelID, links, hasOtherContext)
 	if err != nil {
 		_ = s.audit(ctx, guildContext, attribution, string(AuditActionEvidenceCapture),
 			"case_evidence", "unknown", AuditResultFailure, err.Error())
@@ -375,7 +369,9 @@ func supportedEvidenceContentType(contentType string) bool {
 }
 
 // caseEvidenceResponses builds evidence responses. Members see the preserved
-// copy of an attachment instead of its original URL when one exists.
+// copy of an attachment instead of its original URL when one exists, and
+// never see who wrote a message, since evidence may quote a witness or a
+// reporter.
 func caseEvidenceResponses(snapshots []CaseEvidenceSnapshot, attachments []CaseEvidenceAttachment, member bool) []CaseEvidenceResponse {
 	byEvidence := map[string][]CaseEvidenceAttachmentResponse{}
 	for _, item := range attachments {
@@ -396,9 +392,13 @@ func caseEvidenceResponses(snapshots []CaseEvidenceSnapshot, attachments []CaseE
 	}
 	out := make([]CaseEvidenceResponse, 0, len(snapshots))
 	for _, item := range snapshots {
+		author := item.AuthorDiscordUserID
+		if member {
+			author = ""
+		}
 		out = append(out, CaseEvidenceResponse{
 			ID:                  item.ID,
-			AuthorDiscordUserID: item.AuthorDiscordUserID,
+			AuthorDiscordUserID: author,
 			MessageURL:          item.MessageURL,
 			Content:             item.Content,
 			MessageCreatedAt:    item.MessageCreatedAt,

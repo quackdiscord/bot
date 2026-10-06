@@ -55,7 +55,7 @@ func (s *CaseService) AddEvidence(ctx context.Context, guildContext *GuildStaffC
 		return nil, err
 	}
 	actorID := guildContext.ActorDiscordUserID
-	captured, err := s.evidence.Capture(ctx, guildContext.Guild.DiscordGuildID, actorID, item.TargetDiscordUserID, channelID, links, false)
+	captured, err := s.evidence.Capture(ctx, guildContext.Guild.DiscordGuildID, actorID, channelID, links, false)
 	if err != nil {
 		_ = s.audit(ctx, guildContext, staffAttribution, string(AuditActionEvidenceCapture), "case", item.ID, AuditResultFailure, err.Error())
 		return nil, caseValidationError(err.Error())

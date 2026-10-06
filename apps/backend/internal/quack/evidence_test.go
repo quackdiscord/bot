@@ -86,7 +86,7 @@ func TestParseDiscordMessageLinkRejectsLookalikesAndCrossGuildCapture(t *testing
 		}
 	}
 	service := quack.NewEvidenceService(unavailableEvidenceClient{})
-	if _, err := service.Capture(context.Background(), "999999999999999999", "actor", "target", "", []string{valid}, false); !errors.Is(err, quack.ErrEvidenceValidation) {
+	if _, err := service.Capture(context.Background(), "999999999999999999", "actor", "", []string{valid}, false); !errors.Is(err, quack.ErrEvidenceValidation) {
 		t.Fatalf("cross-guild capture accepted: %v", err)
 	}
 }
@@ -95,10 +95,10 @@ func TestUnavailableEvidenceRequiresOtherVisibleContext(t *testing.T) {
 	link := "https://discord.com/channels/111111111111111111/222222222222222222/333333333333333333"
 	for _, outcome := range []string{"deleted", "inaccessible"} {
 		service := quack.NewEvidenceService(unavailableEvidenceClient{err: &quack.EvidenceUnavailableError{Outcome: outcome, Message: "message " + outcome}})
-		if _, err := service.Capture(context.Background(), "111111111111111111", "actor", "target", "", []string{link}, false); err == nil {
+		if _, err := service.Capture(context.Background(), "111111111111111111", "actor", "", []string{link}, false); err == nil {
 			t.Fatalf("%s message continued without visible fallback context", outcome)
 		}
-		captured, err := service.Capture(context.Background(), "111111111111111111", "actor", "target", "", []string{link}, true)
+		captured, err := service.Capture(context.Background(), "111111111111111111", "actor", "", []string{link}, true)
 		if err != nil || len(captured.Snapshots) != 1 || captured.Snapshots[0].CaptureOutcome != outcome || captured.Snapshots[0].MessageCreatedAt.IsZero() {
 			t.Fatalf("partial %s capture: %+v err=%v", outcome, captured, err)
 		}
@@ -125,7 +125,7 @@ func TestLiveEvidencePreservesSupportedAndRetainsUnsupportedOrOversizedMetadata(
 		},
 		preserved: quack.PreservedDiscordAttachment{URL: "https://cdn.example/preserved", MessageID: "copy-message", AttachmentID: "copy-attachment"},
 	}
-	captured, err := quack.NewEvidenceService(client).Capture(context.Background(), guildID, "actor", targetID, "evidence-channel", []string{link}, false)
+	captured, err := quack.NewEvidenceService(client).Capture(context.Background(), guildID, "actor", "evidence-channel", []string{link}, false)
 	if err != nil {
 		t.Fatalf("capture live evidence: %v", err)
 	}
@@ -143,28 +143,18 @@ func TestLiveEvidencePreservesSupportedAndRetainsUnsupportedOrOversizedMetadata(
 	}
 }
 
-// TestEvidenceMustComeFromTargetOrQuack checks that staff can cite the
-// target's own messages and Quack's posts, such as general logs, but not
-// another member's messages.
-func TestEvidenceMustComeFromTargetOrQuack(t *testing.T) {
-	const guildID, targetID = "111111111111111111", "444444444444444444"
+// TestEvidenceMayComeFromAnyone checks that staff can cite a message by any
+// author, such as a witness or Quack's own logs.
+func TestEvidenceMayComeFromAnyone(t *testing.T) {
+	const guildID = "111111111111111111"
 	link := "https://discord.com/channels/" + guildID + "/222222222222222222/333333333333333333"
-	capture := func(author string, fromQuack bool) error {
-		client := evidenceClientFixture{message: quack.DiscordMessageSnapshot{
-			GuildID: guildID, ChannelID: "222222222222222222", MessageID: "333333333333333333",
-			AuthorDiscordUserID: author, FromQuack: fromQuack, URL: link, CreatedAt: time.Now().UTC(),
-		}}
-		_, err := quack.NewEvidenceService(client).Capture(context.Background(), guildID, "actor", targetID, "", []string{link}, false)
-		return err
-	}
-	if err := capture(targetID, false); err != nil {
-		t.Fatalf("target's message: %v", err)
-	}
-	if err := capture("quack-bot", true); err != nil {
-		t.Fatalf("Quack's log post: %v", err)
-	}
-	if err := capture("someone-else", false); !errors.Is(err, quack.ErrEvidenceValidation) {
-		t.Fatalf("another member's message: %v", err)
+	client := evidenceClientFixture{message: quack.DiscordMessageSnapshot{
+		GuildID: guildID, ChannelID: "222222222222222222", MessageID: "333333333333333333",
+		AuthorDiscordUserID: "witness", URL: link, CreatedAt: time.Now().UTC(),
+	}}
+	captured, err := quack.NewEvidenceService(client).Capture(context.Background(), guildID, "actor", "", []string{link}, false)
+	if err != nil || len(captured.Snapshots) != 1 || captured.Snapshots[0].AuthorDiscordUserID != "witness" {
+		t.Fatalf("witness message = %+v, %v", captured, err)
 	}
 }
 

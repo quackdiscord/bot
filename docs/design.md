@@ -195,7 +195,7 @@ never reused.
 - **Member view.** Members see guild, case reference, template and reason,
   context, evidence, outcome, appeal availability and status, and public
   history, whether or not the DM arrived. Member views and DMs never show
-  moderator identities, internal details, worker information, or raw Discord
+  moderator identities, evidence authors, internal details, worker information, or raw Discord
   errors. The public Discord receipt in the staff channel does show the
   moderator and context; staff and audit views keep exact actor identity.
 
@@ -207,8 +207,9 @@ visible to the affected member; there are no private case notes.
 
 Evidence enters through a message context action on a live message or a
 pasted message link (Discord or dashboard), and both use one capture flow.
-A linked message must be written by the case's target or by Quack itself, so
-staff can cite Quack's own posts such as general logs. Quack snapshots the text, author, guild/channel/message IDs, timestamps,
+A linked message may be written by anyone in the guild, such as the target,
+a witness, or Quack's own logs. The member view leaves out every evidence
+author, so citing a report never reveals who made it. Quack snapshots the text, author, guild/channel/message IDs, timestamps,
 embed metadata, and attachment names, types, sizes, and URLs. The snapshot
 belongs to the case and survives later edits or deletion. `/case evidence`
 adds a file or message link to an existing case; given only the case, it

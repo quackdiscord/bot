@@ -336,6 +336,10 @@ func TestCaseContextEvidenceVoidReplacementAndMemberProjection(t *testing.T) {
 	if member.Reason != "No spam" || len(member.ContextValues) != 3 || len(member.Evidence) != 1 {
 		t.Fatalf("member projection incomplete: %+v", member)
 	}
+	if member.Evidence[0].AuthorDiscordUserID != "" || detail.Evidence[0].AuthorDiscordUserID != "target-1" {
+		t.Fatalf("evidence author: member sees %q, staff see %q; want hidden from the member only",
+			member.Evidence[0].AuthorDiscordUserID, detail.Evidence[0].AuthorDiscordUserID)
+	}
 	if member.GuildName != "Guild" || member.RuleName != "Spam" {
 		t.Fatalf("member detail missing guild or rule name: %+v", member)
 	}

@@ -314,7 +314,7 @@ func (s *CaseService) preflight(ctx context.Context, guildContext *GuildStaffCon
 	if input.ContextURL != "" {
 		links = append(links, input.ContextURL)
 	}
-	captured, err := s.captureEvidence(ctx, guildContext, input.TargetDiscordUserID, links, input.Attachments, hasOtherContext, attribution)
+	captured, err := s.captureEvidence(ctx, guildContext, links, input.Attachments, hasOtherContext, attribution)
 	if err != nil {
 		return nil, err
 	}

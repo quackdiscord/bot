@@ -43,7 +43,7 @@ func TestEvidenceDownloadRejectsUnsafeSourcesBeforeUpload(t *testing.T) {
 }
 
 func TestEvidenceChecksModeratorAccessBeforeBotRead(t *testing.T) {
-	allowed, reads, author := false, 0, "target"
+	allowed, reads := false, 0
 	guild := &discordgo.Guild{ID: "guild", OwnerID: "owner", Roles: []*discordgo.Role{
 		{ID: "guild", Permissions: discordgo.PermissionViewChannel | discordgo.PermissionReadMessageHistory},
 		{ID: "staff", Permissions: discordgo.PermissionModerateMembers},
@@ -67,7 +67,7 @@ func TestEvidenceChecksModeratorAccessBeforeBotRead(t *testing.T) {
 			body = &discordgo.Member{User: &discordgo.User{ID: "moderator"}, Roles: []string{"staff"}}
 		case strings.HasSuffix(path, "/messages/message"):
 			reads++
-			body = &discordgo.Message{ID: "message", ChannelID: "channel", GuildID: "guild", Author: &discordgo.User{ID: author}}
+			body = &discordgo.Message{ID: "message", ChannelID: "channel", GuildID: "guild", Author: &discordgo.User{ID: "target"}}
 		default:
 			t.Fatalf("unexpected request %s", path)
 		}
@@ -80,12 +80,8 @@ func TestEvidenceChecksModeratorAccessBeforeBotRead(t *testing.T) {
 		t.Fatal("bot read inaccessible evidence")
 	}
 	allowed = true
-	if message, err := bot.FetchMessageEvidence(context.Background(), ref); err != nil || reads != 1 || message.FromQuack {
-		t.Fatalf("readable evidence = %+v, %v", message, err)
-	}
-	author = "bot"
-	if message, err := bot.FetchMessageEvidence(context.Background(), ref); err != nil || !message.FromQuack {
-		t.Fatalf("Quack's own post was not marked: %+v, %v", message, err)
+	if _, err := bot.FetchMessageEvidence(context.Background(), ref); err != nil || reads != 1 {
+		t.Fatalf("readable evidence failed: %v", err)
 	}
 }
 
