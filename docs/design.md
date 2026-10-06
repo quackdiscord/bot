@@ -75,7 +75,9 @@ share the same behavior and records.
 - **Moderators apply rules; they do not invent them.** They never choose the
   level, rewrite the official reason, or replace the configured action.
 - **Discord is the authority for access.** Discord owns identity, membership,
-  roles, permissions, and hierarchy. Quack has no staff-role system of its own.
+  roles, permissions, and hierarchy. Admins choose which Discord roles make
+  someone a Quack moderator or rules manager; Quack never creates or assigns
+  roles, and keeps no staff accounts of its own.
 - **History stays understandable.** A case keeps a snapshot of the template
   version, level, reason, context, evidence, action, and result it used. Later
   template edits never rewrite old cases.
@@ -86,24 +88,68 @@ share the same behavior and records.
 
 ### People and permissions
 
-Quack re-reads current Discord permissions before every sensitive operation.
-Cached data may feed displays but never grants lasting access; losing a role
-takes effect on the next request, and earlier actions stay attributed.
+Quack re-reads current Discord permissions and roles before every sensitive
+operation. Cached data may feed displays but never grants lasting access;
+losing a role takes effect on the next request, and earlier actions stay
+attributed.
+
+The owner, administrators, and Manage Guild follow Discord permissions.
+Moderators and rules managers are Discord roles the guild picks in its
+settings (`moderator_role_ids`, `rules_manager_role_ids`). Only the owner
+and administrators change the moderator roles (the `staff_roles.write`
+capability), because a moderator role lets Quack time out, kick, and ban
+for its holders, which is more than Manage Guild can grant in Discord.
 
 | Who | Can |
 | --- | --- |
-| Guild owner, `Administrator` | Everything. |
-| `Manage Guild` | Create, edit, import, export, and archive templates; configure the audit mirror, appeals, and modules; manage guild settings. |
-| `Moderate Members` | Apply templates and create cases; review cases and member history; read the full audit log; review appeals; void cases with a reason; dismiss failed actions (retry also needs the action's permission); work the ticket queue. |
+| Guild owner, `Administrator` | Everything, including choosing the moderator roles. |
+| `Manage Guild` | Create, edit, import, export, and archive templates; configure the audit mirror, appeals, modules, and rules manager roles; see the moderator roles; manage guild settings. |
+| A rules manager role | Create, edit, import, export, and archive templates. Nothing else. |
+| A moderator role | Apply templates and create cases; review cases and member history; read the full audit log; review appeals; void cases with a reason; retry and dismiss failed actions; reverse timeouts and bans; work the ticket queue. |
 | The case's target | See their own valid and voided cases and appeal them, even after leaving or being banned. Nothing else in the guild. |
 
-Creating a case grants no extra Discord power. When the selected level has an
-action, the moderator also needs the matching permission (timeout:
-`Moderate Members`, kick: `Kick Members`, ban: `Ban Members`; a retry needs
-the original action's permission), and both the moderator and the bot must
-be above the target in the role hierarchy. If the moderator cannot perform
-the level Quack selects, the whole request is refused before a case exists.
-Quack never creates a case with its action silently dropped.
+Until a guild picks moderator roles, members with `Moderate Members`
+(Discord's "Timeout Members") are its moderators, so existing guilds keep
+working. Once it picks any, only those roles count, and `Moderate Members`
+alone no longer makes someone a moderator. Picked roles later deleted in
+Discord are ignored, and if every one is gone `Moderate Members` counts
+again, so deleting roles never locks a guild out. Rules manager roles have
+no fallback. Staff-only channels, ticket threads, and the honeypot exemption
+also still accept `Moderate Members` beside the moderator roles, so picking
+roles never locks existing staff out of channels Quack already made.
+
+A moderator role lets members time out, kick, and ban through templates
+even without Discord's Timeout, Kick, or Ban Members permissions: the
+template decides the punishment and Quack carries it out with its own
+permissions. The bot must hold the action's permission (timeout:
+`Moderate Members`, kick: `Kick Members`, ban: `Ban Members`), and both the
+moderator (unless they own the guild) and the bot must be above the target
+in the role hierarchy; retries and reversals check the same. If Quack
+cannot perform the level it selects, the whole request is refused before a
+case exists. Quack never creates a case with its action silently dropped.
+
+**Two-factor authentication.** Quack follows the guild's own Discord
+setting. When the guild requires 2FA for moderation (its MFA level is
+elevated), every staff capability above, the owner's included, also
+requires that Quack has confirmed the member's 2FA. Quack reads
+`mfa_enabled` from the member's own Discord account when they sign in to
+the dashboard and keeps it per user, so Discord commands use it too; a
+member who never signed in counts as not having 2FA. Refused staff are told
+to turn on 2FA and sign in to the dashboard once (the API answers
+`mfa_required`). Members viewing and appealing their own cases,
+or using their own tickets, are not acting as staff and are unaffected.
+
+Since staff may hold a role rather than a Discord permission, every member
+sees the staff commands. A member who is not staff is refused when they run
+one (autocomplete suggests nothing), and Quack keeps staff records only for
+staff.
+
+Refusals about the person acting are answered but never audited: a missing
+capability, the 2FA requirement, their role position, leaving the guild,
+the target they picked (themselves, a bot, the owner, someone gone), or a
+mismatched request. Only refusals caused by Quack's own Discord access are
+audited (`bot_permission_required`, `bot_hierarchy`, `bot_not_in_guild`),
+since an admin has to fix those.
 
 ### Surfaces
 
@@ -116,10 +162,14 @@ own moderation logic.
   and track appeals.
 - **Discord.** Moderators apply templates while working in the server, review
   cases and history, capture evidence from live messages with message
-  actions, and work failures and appeals. Server managers can create and
-  maintain rules with `/template` (name, reason, appealability, decay, and
-  per-count outcomes) and configure appeals, the audit mirror, and modules
-  with `/setup`. Context-field design and template import and export are
+  actions, and work failures and appeals. Server managers and rules managers
+  can create and maintain rules with `/template` (name, reason,
+  appealability, decay, and per-count outcomes), and server managers
+  configure appeals, the audit mirror, and modules with `/setup`. Staff
+  commands (`/case`, `/appeals`, `/template`, and the "Add case" actions)
+  set no default member permission, because staff may hold a role rather
+  than a Discord permission; every member sees them and Quack checks
+  capabilities when they run. `/setup` stays behind Manage Server. Context-field design and template import and export are
   dashboard-only. Case DMs lead members into the appeal flow.
 - **HTTP API.** It serves the dashboard and Quack's own adapters. It is not a
   public integration or automation API.
@@ -269,11 +319,11 @@ appealable. Every appeal uses one fixed question (why the case should be
 reconsidered); guilds cannot customize it. Each case has at most one appeal;
 staff can reopen it to ask for more information, but members cannot file
 repeats. Members enter from the case DM and submit and track the appeal in
-the dashboard. Members with `Moderate Members` or higher review appeals.
+the dashboard. Moderators and admins review appeals.
 
 Accepting an appeal records the decision, voids the case, and queues removal
 of any timeout or ban it applied. The removal runs only while the reviewer
-still has the permission and hierarchy, and only if no other punishment of
+is still a moderator above the member, and only if no other punishment of
 the same kind would be lifted with it; otherwise it waits for staff. Voiding
 a case any other way reverses its timeout or ban the same way.
 
@@ -281,10 +331,10 @@ a case any other way reverses its timeout or ban the same way.
 
 The audit log is Quack's permanent moderation and administration history,
 separate from general Discord logging. It records template and setting
-changes (successful and failed), denied permission-sensitive requests, case
-creation and voiding, action attempts, results, retries, and dismissals,
+changes (successful and failed), requests Quack refused because of its own
+Discord permissions or role position, case creation and voiding, action attempts, results, retries, and dismissals,
 appeal lifecycle events, module configuration changes, and system actions.
-Successful reads are not recorded. Entries are append-only. All moderators
+Reads, and refusals about the person acting, are not recorded. Entries are append-only. All moderators
 can read the full guild log in the dashboard, and a guild may mirror
 important events to a staff-only Discord channel.
 
@@ -323,8 +373,9 @@ Not part of v5: cross-guild history; public third-party automation APIs;
 moderator-selected levels; direct punishment commands as an equal workflow;
 reason overrides; multiple actions per level; severity, weight, or points
 escalation; cross-template escalation; private free-form notes; hard deletion
-of cases or audit history; a Quack staff-role system; full template
-configuration in Discord; general Discord logging inside the audit model.
+of cases or audit history; Quack-managed roles or per-member grants; full
+template configuration in Discord; general Discord logging inside the audit
+model.
 Changing one of these boundaries starts with changing this document.
 
 ## Architecture
@@ -462,11 +513,12 @@ Discord ──> discord.Router ──> /case add handler (live staff context, au
    per page, skipped when there is one rule), then post the receipt with bot
    credentials.
 3. **Preflight** (`quack/case.go`, `quack/authz.go`, `quack/evidence.go`).
-   Loads the template, selects the level, re-checks Discord (actor and bot
-   present; target a current human member who is not the actor, a bot, Quack,
-   or the owner; target below actor and bot; both hold the action's
-   permission), validates context, and captures linked messages and
-   attachments.
+   Loads the template, selects the level, re-checks Discord and the guild's
+   staff roles and 2FA requirement (actor still a moderator; actor and bot
+   present; target a current human member who is not the actor, a bot,
+   Quack, or the owner; target below actor and bot; the bot holds the
+   action's permission), validates context, and captures linked messages
+   and attachments.
 4. **Locked write** (`store/store.go`, `store/cases.go`). Under a row lock on
    the guild the service re-checks idempotency, re-selects the level, and
    compares with the preflight; if another case for the member landed
@@ -561,7 +613,8 @@ pending/retrying ──case voided──> cancelled
   leaves the queue with history kept; reverse queues `remove_timeout` or
   `unban_user` against a succeeded timeout or ban after
   `GuildService.PreflightReversal` (an unban target may have left; kicks
-  cannot be reversed). Every control is audited, denials included.
+  cannot be reversed). Every control is audited, including refusals caused
+  by Quack's own Discord access; refusals of the person acting are not.
 
 **Notifications** (`case_notifications`, one per case, created with the case
 when the level has `notify_user`):
@@ -632,10 +685,13 @@ source of truth.
 - `audit_log_entries` is append-only: `store.New` installs GORM callbacks
   that refuse updates and deletes. Metadata and failure text are redacted on
   write (`quack.RedactAuditMetadata`).
-- Changes write their audit entry in the same transaction. Denials are
-  audited (`authorization.denied`, or the read's own action such as
-  `case.read` with result `denied`); successful reads are not, though older
-  read rows remain.
+- Changes write their audit entry in the same transaction. Only denials
+  caused by Quack's own Discord access are audited: `authorization.denied`
+  from a final case creation attempt, or a staff control or void with
+  result `denied`, with the reason (`bot_permission_required`,
+  `bot_hierarchy`, `bot_not_in_guild`). `quack.isBotDenial` decides.
+  Refusals of the person acting and reads are not audited, though older
+  rows of both remain.
 - `GET /guilds/{discordGuildID}/audit-log` reads with filters and a
   `before_id` cursor. `GET .../statistics` is computed from cases,
   executions, appeals, and audit rows; there is no statistics table.
@@ -751,9 +807,15 @@ credential and guild (reads `limits.member_read`, writes
 `limits.evidence`, retries and reversals `limits.retry`); the session from
 cookie or bearer token (Redis, sliding expiry; an expired session or Discord
 grant returns `reauthentication_required`); the guild context from
-`GuildService.ResolveStaffContext` plus `Authorize` for the route's
-capability (guild and staff rows written only on change, `last_active_at` at
-most every five minutes); and for writes a required `Idempotency-Key`, held
+`GuildService.ResolveStaffContext` plus `GuildStaffContext.Authorize` for
+the route's capability (guild rows written only on change, staff rows only for staff
+and only on change, `last_active_at` at most every five minutes; a caller
+whom only the guild's 2FA requirement keeps from a capability gets 403
+`mfa_required`). Routes with no single capability only require membership,
+so members reach their own module resources such as tickets; the staff-only
+ones among them (`GET /guilds/{id}/me`, appeal review, guild ops status)
+add `confirmedMFA`, which answers `mfa_required` to a 2FA-blocked would-be
+staff member. Then, for writes, a required `Idempotency-Key`, held
 as a fenced Redis lease during the write and then replayed for
 `api.idempotency_ttl` (a different body is 409). Member routes
 (`/members/me/...`) use the signed-in user instead of a guild context.
@@ -762,8 +824,21 @@ cannot replay. Rate limits and idempotency fail closed with 503 when Redis
 is down.
 
 **Live authorization.** `Bot.GuildAuthorization` (`discord/client.go`,
-`discord/live.go`) needs the guild owner and roles and the current roles of
-actor, bot, and target. While the gateway is live these come from
+`discord/live.go`) needs the guild owner, MFA level, and roles and the
+current roles of actor, bot, and target. `quack.deriveStaffAccess`
+(`quack/staff_access.go`) is the one place capabilities come from: it takes
+the actor's permission bits, ownership, and role IDs, the guild's staff
+roles from `guild_settings`, the guild's MFA level, and the actor's row in
+`discord_user_mfa` (read only when the guild requires 2FA). Members' role
+IDs and the guild's role list only include roles the guild still has, so a
+deleted role grants nothing and drops out of the moderator fallback.
+Preflights reload the staff roles and 2FA status with each fresh snapshot.
+On Discord, staff commands and controls go through `liveStaff`, which calls
+`GuildStaffContext.AuthorizeStaff`: a member who is not staff, or is
+blocked by 2FA, is refused with a reply saying why. Autocomplete resolves
+the same context and offers nothing. Ticket controls let a 2FA-blocked
+member act as a member and, when a staff control refuses them, explain the
+2FA requirement. None of these refusals are audited. While the gateway is live these come from
 discordgo's state, kept current by `GUILD_UPDATE`, `GUILD_ROLE_*`,
 `GUILD_MEMBER_UPDATE`, and `GUILD_MEMBER_REMOVE`, so a typical request makes
 no REST calls. REST fills gaps (disconnected, before `READY`, unloaded
@@ -774,20 +849,53 @@ member" is never cached. A state member without a join time came from a
 presence update and is fetched instead.
 
 **Directory routes** (`api/directory.go`) let the dashboard show names,
-avatars, and channels instead of snowflakes:
+avatars, channels, and roles instead of snowflakes:
 `GET /guilds/{discordGuildID}/directory/members?query=` (`case.read`),
-`.../directory/users?ids=` for up to 100 IDs (`case.read`), and
-`.../directory/channels` in sidebar order (`guild_settings.read`). `app`
-implements `api.Directory` over the Discord adapter (`discord/directory.go`),
+`.../directory/users?ids=` for up to 100 IDs (`case.read`),
+`.../directory/channels` in sidebar order (`guild_settings.read`), and
+`.../directory/roles` for the staff role pickers (`guild_settings.read`: id,
+name, color, position, and managed, highest first without @everyone, from
+gateway state with REST as fallback). `app` implements `api.Directory` over
+the Discord adapter (`discord/directory.go`, `discord/client.go`),
 caching users and members per guild for 10 minutes (5000 entries, misses
 fetched 8 at a time) and channels for 30 seconds. Discord failures are 502,
 Discord rate limits 503, and a server without a directory answers 503.
 
 **OAuth** (`api/oauth.go`). `GET /auth/discord/login` stores a single-use
 state in Redis bound to a browser cookie; `GET /auth/discord/callback`
-exchanges the code and creates the session. Tokens stay server-side.
+exchanges the code, records the user's `mfa_enabled` from `/users/@me` in
+`discord_user_mfa`, and creates the session. Tokens stay server-side.
 `GET /auth/me`, `POST /auth/logout`, and `POST /auth/logout-all` complete
-the set.
+the set. Quack does not refresh Discord tokens, so 2FA is re-read at each
+sign-in.
+
+**Server list and staff roles.** `GET /guilds` lists the signed-in user's
+guilds where they are staff, with `can_moderate`, `can_manage_guild`,
+`can_manage_rules`, and `mfa_required` (the guild requires 2FA Quack has not
+confirmed for the user; it still appears, with every capability false).
+Discord's guild list has permission bits but no roles, so Quack reads the
+user's roles only in guilds with Quack installed where they are not the
+owner or an administrator and that set moderator roles (or rules manager
+roles, for users without Manage Guild). Those guilds' staff roles come from
+one query, and the lookups use the bot's member path (gateway state, then
+REST and its overlay), four at a time. A lookup that fails is logged and
+that guild falls back to what the permission bits alone grant, so it is
+not silently hidden.
+`GET`/`PATCH /guilds/{discordGuildID}/settings` carry `moderator_role_ids`
+and `rules_manager_role_ids`, always lists. Changing the moderator roles
+needs `staff_roles.write` (403 otherwise; resending the same roles is
+fine). Roles not already saved must be current roles of the guild other
+than @everyone; saved roles since deleted in Discord are dropped on save
+rather than refused. Duplicates are dropped and at most 25 remain. Staff
+channels set in the same PATCH are judged against the roles being saved.
+A settings PATCH writes only the fields it sends, so it never undoes a
+concurrent change to the others. A PATCH that sends a role list or a staff
+channel is decided against the roles it read; the store re-checks them under
+the row lock and, if they changed meanwhile, saves nothing and answers 409
+(`quack.ErrGuildSettingsConflict`), so a stale editor can never put back
+moderator roles an administrator just revoked. The dashboard asks to reload.
+Changes and failed changes are audited as `guild_settings.update` like any
+other setting; a refused moderator role change is not.
 
 ### Optional modules
 
@@ -810,7 +918,18 @@ The modules plug into the core the same way:
   keep saved setup. Without a channel option, `discord.SetupChannel` reuses
   the configured channel or creates one with permissions, a topic, and an
   introduction, replacing a configured channel only when Discord says it is
-  gone.
+  gone. A new staff channel admits the guild's moderator roles, or when
+  none of them still exist every role holding Administrator or Moderate
+  Members. Existing channels keep their overwrites when the roles change
+  (see [Known gaps](#known-gaps)). `Bot.ValidateStaffChannel`, the
+  staff-only check for every staff destination, accepts the bot,
+  Administrator, Moderate Members, and the moderator roles (`Bot.StaffRoles`,
+  wired to `GuildService.GuildStaffRoles`); the settings service uses
+  `ValidateStaffChannelForRoles` to judge by the roles a PATCH is saving.
+  Modules that build their own `Bot` around the session give it the same
+  saved roles: tickets checks its queue on enablement and before every queue
+  post with them (through `modules.Guilds.StaffRoles`), and `/setup tickets`
+  with the roles its request already resolved.
 - **HTTP.** `MountHTTP` adds routes under
   `/guilds/{discordGuildID}/modules/` through `api.ModuleMux`, with the
   endpoint policy, session, live guild context, a per-actor limit, and
@@ -863,6 +982,11 @@ Per module:
 - Work and outbox tables sit beside the history they serve and are updated
   as work progresses: `case_action_executions`, `case_notifications`,
   `appeal_notifications`, `case_publications`, `audit_mirror_deliveries`.
+- `guild_settings.moderator_role_ids` and `rules_manager_role_ids` hold the
+  staff roles as comma-separated role IDs (empty for none).
+  `discord_user_mfa` is the one table keyed by user rather than guild: the
+  Discord user ID, `mfa_enabled`, and `mfa_checked_at` from their last
+  dashboard sign-in. It holds no guild data.
 - Redis holds sessions and OAuth state (`auth:*`), interaction dedupe claims,
   the command sync cache, rate limit counters, and idempotency records.
 - `store.New` accepts a nil Redis client for MySQL-only tools (`migrate`,
@@ -1097,6 +1221,8 @@ several processes can start at once.
 | 1 | `baseline` | Creates every table, including module tables (`modules.Models`, `tickets.Models`, `honeypot.Models`), via AutoMigrate, then adds one default level per template: a unique index on a generated `default_template_id` column on MySQL, a partial unique index on SQLite. The schema is unreleased, so the baseline is edited in place: re-running it adds missing tables and columns, and `retireAppealForms` cleans up leftover custom appeal form data. |
 | 2 | `audit_mirror_deliveries` | The mirror's queue table. Nothing is backfilled, so entries waiting at upgrade time are not mirrored. No `down`: an older binary would re-post everything. `migrate down` stops here, even with `-drop-all`. |
 | 3 | `launch_announcement` | Adds `guild_settings.launch_announced_at`. Its `down` drops the column, so roll back only before the announcement has gone out. |
+| 4 | `staff_roles` | Adds `guild_settings.moderator_role_ids` and `rules_manager_role_ids`, empty, so existing guilds keep Moderate Members as their moderators. Its `down` drops both, losing configured roles. |
+| 5 | `discord_user_mfa` | Creates `discord_user_mfa`, empty: in guilds that require 2FA, staff must sign in to the dashboard once after the upgrade. Its `down` drops the table, so they sign in again after a later upgrade. |
 
 **Adding one.** Append `migration{version, name, up, down}` with the next
 version. Never edit or reorder a shipped migration; the ledger refuses
@@ -1168,6 +1294,8 @@ tokens, or raw Discord errors.
 
 - **Live authorization** on every guild request and interaction; cached staff
   records are only for attribution.
+- **2FA** follows each guild's Discord MFA level for every staff capability,
+  confirmed from the user's own Discord account at sign-in.
 - **Sessions** are server-side in Redis; Discord tokens never reach the
   browser. The session cookie is HttpOnly, SameSite=Lax, and Secure outside
   dev; the CSRF cookie is readable so the dashboard can echo it; with secure
@@ -1210,8 +1338,11 @@ permissions and keep fencing intact.
 
 Rehearse in a non-production guild and application: install (starter
 template and notice, `/setup evidence` and deleting its channel, leave and
-rejoin); permissions (owner, Administrator, Manage Guild, Moderate Members, a
-former staff member, hierarchy, bot, self, and owner target checks); cases
+rejoin); permissions (owner, Administrator, Manage Guild, Moderate Members
+before and after moderator roles are set, a moderator role without any
+moderation permission, a rules manager role, a guild requiring 2FA with and
+without it confirmed, a former staff member, hierarchy, bot, self, and owner
+target checks, and staff commands showing for role-based staff); cases
 (warning, timeout, kick, and ban from Discord and the dashboard, the receipt,
 evidence, the single DM, departed-member access, appeals and reversals, the
 audit mirror, retry and dismiss); each module on its own; and SIGTERM with
@@ -1287,3 +1418,15 @@ quack import-v4 check-scope -v4 warn,timeout,kick,ban -v5 case -after-migration
   every gateway-connected process receives every event, so a second `serve`
   process would split drafts and duplicate general logging posts. Quack does
   not shard.
+- **Staff channel overwrites are not re-synced.** Quack applies moderator
+  roles only when it creates a staff channel. Changing the roles later
+  leaves existing channels' overwrites alone: a new moderator role must be
+  added to those channels by hand, and a channel that still admits a role
+  no longer configured (and without Moderate Members) fails the staff-only
+  check, like any channel open to non-staff, until that overwrite is
+  removed. Channels made before roles were set admit Moderate Members roles
+  and keep passing.
+- **2FA is only as fresh as the last sign-in.** Quack cannot read a user's
+  2FA status with the bot token, so turning 2FA off in Discord is noticed
+  at the next dashboard sign-in. Discord itself still refuses that user's
+  own moderation actions in a guild requiring 2FA.

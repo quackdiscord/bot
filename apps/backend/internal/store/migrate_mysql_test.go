@@ -35,7 +35,7 @@ func TestMySQL(t *testing.T) {
 		t.Fatalf("concurrent migrate: %v", err)
 	}
 	assertSchema(t, db, true)
-	if version, err := s.MigrationReadiness(context.Background()); err != nil || version != 3 {
+	if version, err := s.MigrationReadiness(context.Background()); err != nil || version != 5 {
 		t.Fatalf("MigrationReadiness = %d, %v", version, err)
 	}
 
@@ -130,6 +130,11 @@ func TestMySQL(t *testing.T) {
 		}
 	})
 
+	for _, name := range []string{"discord_user_mfa", "staff_roles", "launch_announcement"} {
+		if err := s.Rollback(false); err != nil {
+			t.Fatalf("Rollback of %s: %v", name, err)
+		}
+	}
 	if err := s.Rollback(true); !errors.Is(err, store.ErrIrreversible) {
 		t.Fatalf("Rollback past audit_mirror_deliveries = %v, want ErrIrreversible", err)
 	}

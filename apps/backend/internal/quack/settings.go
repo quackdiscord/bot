@@ -2,9 +2,11 @@ package quack
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -13,6 +15,9 @@ import (
 // maxNotificationBrandingLength bounds the guild text added to case
 // notifications. Rendering truncates further; this only rejects abuse.
 const maxNotificationBrandingLength = 2000
+
+// maxStaffRoles bounds each configured staff role list.
+const maxStaffRoles = 25
 
 // ModuleStates says which optional modules a guild has switched on.
 type ModuleStates struct {
@@ -39,7 +44,7 @@ type ModuleEnablementChecker interface {
 }
 
 // GuildSettingsService reads and updates a guild's core settings. All access
-// needs Manage Guild and is audited.
+// needs Manage Guild; changes and failed changes are audited.
 type GuildSettingsService struct {
 	store    SettingsStore
 	channels StaffChannelValidator
@@ -47,8 +52,9 @@ type GuildSettingsService struct {
 }
 
 // NewGuildSettingsService returns a GuildSettingsService. Without channels,
-// setting an audit channel fails validation. Without modules, every module
-// reads as off and switching one on fails validation.
+// setting an audit channel fails validation, and so does setting staff
+// roles unless channels also implements GuildRoleReader. Without modules,
+// every module reads as off and switching one on fails validation.
 func NewGuildSettingsService(store SettingsStore, channels StaffChannelValidator, modules ModuleToggles) *GuildSettingsService {
 	return &GuildSettingsService{store: store, channels: channels, modules: modules}
 }
@@ -68,6 +74,13 @@ type GuildSettingsInput struct {
 	ManagedEvidenceChannelDiscordID *string `json:"managed_evidence_channel_discord_id"`
 	NotificationIntroduction        *string `json:"notification_introduction"`
 	NotificationFooter              *string `json:"notification_footer"`
+	// ModeratorRoleIDs replaces the moderator roles. Each must be a role in
+	// the guild other than @everyone; duplicates are dropped, and at most
+	// 25 remain. Empty makes Moderate Members the moderator permission.
+	ModeratorRoleIDs *[]string `json:"moderator_role_ids"`
+	// RulesManagerRoleIDs replaces the rules manager roles, under the same
+	// rules as ModeratorRoleIDs.
+	RulesManagerRoleIDs *[]string `json:"rules_manager_role_ids"`
 	// The module switches are stored with the modules, not in guild_settings.
 	TicketsEnabled        *bool `json:"tickets_enabled"`
 	GeneralLoggingEnabled *bool `json:"general_logging_enabled"`
@@ -76,15 +89,20 @@ type GuildSettingsInput struct {
 
 // GuildSettingsResponse is a guild's settings as the dashboard sees them.
 type GuildSettingsResponse struct {
-	ID                                string     `json:"id"`
-	GuildID                           string     `json:"guild_id"`
-	AppealQueueChannelDiscordID       string     `json:"appeal_queue_channel_discord_id,omitempty"`
-	AppealRejoinURL                   string     `json:"appeal_rejoin_url,omitempty"`
-	AppealReviewReasonRequired        bool       `json:"appeal_review_reason_required"`
-	AuditMirrorChannelDiscordID       string     `json:"audit_mirror_channel_discord_id,omitempty"`
-	ManagedEvidenceChannelDiscordID   string     `json:"managed_evidence_channel_discord_id,omitempty"`
-	NotificationIntroduction          string     `json:"notification_introduction,omitempty"`
-	NotificationFooter                string     `json:"notification_footer,omitempty"`
+	ID                              string `json:"id"`
+	GuildID                         string `json:"guild_id"`
+	AppealQueueChannelDiscordID     string `json:"appeal_queue_channel_discord_id,omitempty"`
+	AppealRejoinURL                 string `json:"appeal_rejoin_url,omitempty"`
+	AppealReviewReasonRequired      bool   `json:"appeal_review_reason_required"`
+	AuditMirrorChannelDiscordID     string `json:"audit_mirror_channel_discord_id,omitempty"`
+	ManagedEvidenceChannelDiscordID string `json:"managed_evidence_channel_discord_id,omitempty"`
+	NotificationIntroduction        string `json:"notification_introduction,omitempty"`
+	NotificationFooter              string `json:"notification_footer,omitempty"`
+	// ModeratorRoleIDs are the roles that make members moderators; empty
+	// means Moderate Members does.
+	ModeratorRoleIDs []string `json:"moderator_role_ids" nullable:"false" required:"true"`
+	// RulesManagerRoleIDs are the roles that let members manage templates.
+	RulesManagerRoleIDs               []string   `json:"rules_manager_role_ids" nullable:"false" required:"true"`
 	TicketsEnabled                    bool       `json:"tickets_enabled"`
 	GeneralLoggingEnabled             bool       `json:"general_logging_enabled"`
 	HoneypotEnabled                   bool       `json:"honeypot_enabled"`
@@ -93,14 +111,13 @@ type GuildSettingsResponse struct {
 	StarterPolicyNoticeAcknowledgedAt *time.Time `json:"starter_policy_notice_acknowledged_at,omitempty"`
 }
 
-// Get returns the guild's settings. Only denials are audited.
+// Get returns the guild's settings. Reads are not audited.
 func (s *GuildSettingsService) Get(ctx context.Context, guildContext *GuildStaffContext) (*GuildSettingsResponse, error) {
 	ctx = ensureTraceContext(ctx)
 	if guildContext == nil || guildContext.Guild == nil {
 		return nil, errNoGuildContext
 	}
 	if !guildContext.Can(PermissionActionGuildSettingsRead) {
-		_ = s.audit(ctx, guildContext, string(AuditActionSettingsRead), AuditResultDenied, ErrGuildSettingsPermissionDenied.Error())
 		return nil, ErrGuildSettingsPermissionDenied
 	}
 	settings, err := s.store.GetGuildSettings(ctx, guildContext.Guild.ID)
@@ -119,7 +136,12 @@ func (s *GuildSettingsService) Get(ctx context.Context, guildContext *GuildStaff
 }
 
 // Update applies a partial settings update. A new audit or appeal queue
-// channel must pass StaffChannelValidator.
+// channel must pass StaffChannelValidator, judged with the staff roles the
+// update leaves. Changing the moderator roles also needs
+// PermissionActionStaffRolesWrite. Only the fields input sets are written.
+// An update judged by the staff roles, because it sends a role list or a
+// staff channel, fails with ErrGuildSettingsConflict if they changed after
+// it read them.
 func (s *GuildSettingsService) Update(ctx context.Context, guildContext *GuildStaffContext, input GuildSettingsInput) (*GuildSettingsResponse, error) {
 	ctx = ensureTraceContext(ctx)
 	const action = string(AuditActionSettingsUpdate)
@@ -127,7 +149,6 @@ func (s *GuildSettingsService) Update(ctx context.Context, guildContext *GuildSt
 		return nil, errNoGuildContext
 	}
 	if !guildContext.Can(PermissionActionGuildSettingsWrite) {
-		_ = s.audit(ctx, guildContext, action, AuditResultDenied, ErrGuildSettingsPermissionDenied.Error())
 		return nil, ErrGuildSettingsPermissionDenied
 	}
 	settings, err := s.store.GetGuildSettings(ctx, guildContext.Guild.ID)
@@ -139,8 +160,15 @@ func (s *GuildSettingsService) Update(ctx context.Context, guildContext *GuildSt
 		_ = s.audit(ctx, guildContext, action, AuditResultFailure, ErrGuildSettingsNotFound.Error())
 		return nil, ErrGuildSettingsNotFound
 	}
-	if err := applyGuildSettingsInput(settings, input); err != nil {
+	stored := settings.StaffRoles()
+	if err := applyGuildSettingsInput(settings, input, guildContext.Guild.DiscordGuildID); err != nil {
 		_ = s.audit(ctx, guildContext, action, AuditResultFailure, err.Error())
+		return nil, err
+	}
+	if err := s.settleStaffRoles(ctx, guildContext, stored, settings, input); err != nil {
+		if !errors.Is(err, ErrGuildSettingsPermissionDenied) {
+			_ = s.audit(ctx, guildContext, action, AuditResultFailure, err.Error())
+		}
 		return nil, err
 	}
 	states, err := s.moduleStates(ctx, guildContext.Guild.ID)
@@ -176,21 +204,30 @@ func (s *GuildSettingsService) Update(ctx context.Context, guildContext *GuildSt
 		{input.AppealQueueChannelDiscordID != nil, settings.AppealQueueChannelDiscordID, "appeal queue channel must be private and belong to this guild"},
 		{input.ManagedEvidenceChannelDiscordID != nil, settings.ManagedEvidenceChannelDiscordID, "evidence channel must be private and belong to this guild"},
 	}
+	// judgedByRoles says whether the update was decided with the stored
+	// staff roles, which then must not change before it is written.
+	judgedByRoles := input.ModeratorRoleIDs != nil || input.RulesManagerRoleIDs != nil
 	for _, channel := range staffChannels {
 		if !channel.changed || channel.channelID == "" {
 			continue
 		}
+		judgedByRoles = true
 		if s.channels == nil {
 			return nil, settingsValidationError("channel validation unavailable")
 		}
-		if err := s.channels.ValidateStaffChannel(ctx, guildContext.Guild.DiscordGuildID, channel.channelID); err != nil {
+		if err := s.validateStaffChannel(ctx, guildContext.Guild.DiscordGuildID, channel.channelID, *settings); err != nil {
 			return nil, settingsValidationError(channel.problem)
 		}
 	}
-	updated, err := s.store.UpdateGuildSettings(ctx, UpdateGuildSettingsParams{
-		Settings: *settings,
-		Audit:    settingsAudit(ctx, guildContext, action),
-	})
+	params := UpdateGuildSettingsParams{
+		GuildID: guildContext.Guild.ID,
+		Patch:   guildSettingsPatch(*settings, input),
+		Audit:   settingsAudit(ctx, guildContext, action),
+	}
+	if judgedByRoles {
+		params.ExpectedStaffRoles = &stored
+	}
+	updated, err := s.store.UpdateGuildSettings(ctx, params)
 	if err != nil {
 		_ = s.audit(ctx, guildContext, action, AuditResultFailure, err.Error())
 		return nil, err
@@ -203,6 +240,96 @@ func (s *GuildSettingsService) Update(ctx context.Context, guildContext *GuildSt
 	}
 	response := guildSettingsResponse(*updated, wantStates)
 	return &response, nil
+}
+
+// validateStaffChannel checks a staff channel against the staff roles
+// settings will have once saved, when the validator can take them.
+func (s *GuildSettingsService) validateStaffChannel(ctx context.Context, discordGuildID, channelID string, settings GuildSettings) error {
+	if validator, ok := s.channels.(StaffRoleChannelValidator); ok {
+		return validator.ValidateStaffChannelForRoles(ctx, discordGuildID, channelID, settings.StaffRoles())
+	}
+	return s.channels.ValidateStaffChannel(ctx, discordGuildID, channelID)
+}
+
+// errStaffRolesDenied refuses a moderator role change by someone without
+// PermissionActionStaffRolesWrite.
+var errStaffRolesDenied = fmt.Errorf("%w: only the server owner or Administrators can change moderator roles",
+	ErrGuildSettingsPermissionDenied)
+
+// settleStaffRoles checks and finishes the staff role lists input sets,
+// already normalized onto settings, against stored, the lists before this
+// update. Changing the moderator roles needs PermissionActionStaffRolesWrite;
+// sending the same roles again does not. Roles not stored before must be
+// current roles of the guild. Stored roles since deleted in Discord are
+// dropped rather than refused, and dropping one is not a change. A refusal
+// for permission wraps ErrGuildSettingsPermissionDenied.
+func (s *GuildSettingsService) settleStaffRoles(ctx context.Context, guildContext *GuildStaffContext, stored StaffRoles, settings *GuildSettings, input GuildSettingsInput) error {
+	if input.ModeratorRoleIDs == nil && input.RulesManagerRoleIDs == nil {
+		return nil
+	}
+	// existing is nil when the guild's roles cannot be read at all.
+	var existing map[string]bool
+	if reader, ok := s.channels.(GuildRoleReader); ok {
+		roles, err := reader.GuildRoles(ctx, guildContext.Guild.DiscordGuildID)
+		if err != nil {
+			return settingsValidationError("could not read the server's roles; try again")
+		}
+		existing = make(map[string]bool, len(roles))
+		for _, role := range roles {
+			existing[role.ID] = true
+		}
+	}
+	lists := []struct {
+		changed        bool
+		stored         []string
+		requested      *[]string
+		needsStaffRole bool
+	}{
+		{input.ModeratorRoleIDs != nil, stored.ModeratorRoleIDs, &settings.ModeratorRoleIDs, true},
+		{input.RulesManagerRoleIDs != nil, stored.RulesManagerRoleIDs, &settings.RulesManagerRoleIDs, false},
+	}
+	for _, list := range lists {
+		if !list.changed {
+			continue
+		}
+		// Stored roles that are gone from Discord leave both sides.
+		kept := slices.DeleteFunc(slices.Clone(*list.requested), func(roleID string) bool {
+			return existing != nil && !existing[roleID] && slices.Contains(list.stored, roleID)
+		})
+		before := slices.DeleteFunc(slices.Clone(list.stored), func(roleID string) bool {
+			return existing != nil && !existing[roleID]
+		})
+		if list.needsStaffRole && !sameRoleSet(kept, before) && !guildContext.Can(PermissionActionStaffRolesWrite) {
+			return errStaffRolesDenied
+		}
+		for _, roleID := range kept {
+			if slices.Contains(list.stored, roleID) {
+				continue
+			}
+			if existing == nil {
+				return settingsValidationError("role validation unavailable")
+			}
+			if !existing[roleID] {
+				return settingsValidationError("staff roles must be roles in this server")
+			}
+		}
+		*list.requested = kept
+	}
+	return nil
+}
+
+// sameRoleSet reports whether a and b hold the same role IDs in any order.
+// Both are already free of duplicates.
+func sameRoleSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for _, roleID := range a {
+		if !slices.Contains(b, roleID) {
+			return false
+		}
+	}
+	return true
 }
 
 // moduleStates returns the guild's module switches, all off when no modules
@@ -224,7 +351,6 @@ func (s *GuildSettingsService) RejectUpdatePayload(ctx context.Context, guildCon
 		return errNoGuildContext
 	}
 	if !guildContext.Can(PermissionActionGuildSettingsWrite) {
-		_ = s.audit(ctx, guildContext, action, AuditResultDenied, ErrGuildSettingsPermissionDenied.Error())
 		return ErrGuildSettingsPermissionDenied
 	}
 	reason := "invalid guild settings payload"
@@ -237,7 +363,8 @@ func (s *GuildSettingsService) RejectUpdatePayload(ctx context.Context, guildCon
 }
 
 // AcknowledgeStarterPolicyNotice dismisses the one-time "review your starter
-// template" notice. The starter template itself is untouched.
+// template" notice. The starter template itself is untouched, and a notice
+// already dismissed keeps its first acknowledgement time.
 func (s *GuildSettingsService) AcknowledgeStarterPolicyNotice(ctx context.Context, guildContext *GuildStaffContext) (*GuildSettingsResponse, error) {
 	ctx = ensureTraceContext(ctx)
 	const action = string(AuditActionStarterNoticeAcknowledge)
@@ -245,28 +372,17 @@ func (s *GuildSettingsService) AcknowledgeStarterPolicyNotice(ctx context.Contex
 		return nil, errNoGuildContext
 	}
 	if !guildContext.Can(PermissionActionGuildSettingsWrite) {
-		_ = s.audit(ctx, guildContext, action, AuditResultDenied, ErrGuildSettingsPermissionDenied.Error())
 		return nil, ErrGuildSettingsPermissionDenied
-	}
-	settings, err := s.store.GetGuildSettings(ctx, guildContext.Guild.ID)
-	if err != nil {
-		return nil, err
-	}
-	if settings == nil {
-		return nil, ErrGuildSettingsNotFound
-	}
-	if settings.StarterPolicyNoticePending {
-		now := time.Now().UTC()
-		settings.StarterPolicyNoticePending = false
-		settings.StarterPolicyNoticeAcknowledgedAt = &now
 	}
 	states, err := s.moduleStates(ctx, guildContext.Guild.ID)
 	if err != nil {
 		return nil, err
 	}
+	now := time.Now().UTC()
 	updated, err := s.store.UpdateGuildSettings(ctx, UpdateGuildSettingsParams{
-		Settings: *settings,
-		Audit:    settingsAudit(ctx, guildContext, action),
+		GuildID: guildContext.Guild.ID,
+		Patch:   GuildSettingsPatch{StarterPolicyNoticeAcknowledgedAt: &now},
+		Audit:   settingsAudit(ctx, guildContext, action),
 	})
 	if err != nil {
 		_ = s.audit(ctx, guildContext, action, AuditResultFailure, err.Error())
@@ -276,7 +392,9 @@ func (s *GuildSettingsService) AcknowledgeStarterPolicyNotice(ctx context.Contex
 	return &response, nil
 }
 
-func applyGuildSettingsInput(settings *GuildSettings, input GuildSettingsInput) error {
+// applyGuildSettingsInput validates input's values that need no Discord
+// lookup and copies them onto the settings of the guild discordGuildID.
+func applyGuildSettingsInput(settings *GuildSettings, input GuildSettingsInput, discordGuildID string) error {
 	if input.AppealQueueChannelDiscordID != nil {
 		value, err := normalizeChannelID(*input.AppealQueueChannelDiscordID)
 		if err != nil {
@@ -322,7 +440,80 @@ func applyGuildSettingsInput(settings *GuildSettings, input GuildSettingsInput) 
 		}
 		settings.NotificationFooter = value
 	}
+	if input.ModeratorRoleIDs != nil {
+		value, err := normalizeStaffRoleIDs(*input.ModeratorRoleIDs, discordGuildID)
+		if err != nil {
+			return err
+		}
+		settings.ModeratorRoleIDs = value
+	}
+	if input.RulesManagerRoleIDs != nil {
+		value, err := normalizeStaffRoleIDs(*input.RulesManagerRoleIDs, discordGuildID)
+		if err != nil {
+			return err
+		}
+		settings.RulesManagerRoleIDs = value
+	}
 	return nil
+}
+
+// guildSettingsPatch returns the write for the fields input sets, with their
+// values taken from settings, where they were validated and normalized.
+func guildSettingsPatch(settings GuildSettings, input GuildSettingsInput) GuildSettingsPatch {
+	var patch GuildSettingsPatch
+	if input.AppealQueueChannelDiscordID != nil {
+		patch.AppealQueueChannelDiscordID = &settings.AppealQueueChannelDiscordID
+	}
+	if input.AppealRejoinURL != nil {
+		patch.AppealRejoinURL = &settings.AppealRejoinURL
+	}
+	if input.AppealReviewReasonRequired != nil {
+		patch.AppealReviewReasonRequired = &settings.AppealReviewReasonRequired
+	}
+	if input.AuditMirrorChannelDiscordID != nil {
+		patch.AuditMirrorChannelDiscordID = &settings.AuditMirrorChannelDiscordID
+	}
+	if input.ManagedEvidenceChannelDiscordID != nil {
+		patch.ManagedEvidenceChannelDiscordID = &settings.ManagedEvidenceChannelDiscordID
+	}
+	if input.NotificationIntroduction != nil {
+		patch.NotificationIntroduction = &settings.NotificationIntroduction
+	}
+	if input.NotificationFooter != nil {
+		patch.NotificationFooter = &settings.NotificationFooter
+	}
+	if input.ModeratorRoleIDs != nil {
+		patch.ModeratorRoleIDs = &settings.ModeratorRoleIDs
+	}
+	if input.RulesManagerRoleIDs != nil {
+		patch.RulesManagerRoleIDs = &settings.RulesManagerRoleIDs
+	}
+	return patch
+}
+
+// normalizeStaffRoleIDs checks a staff role list's shape: decimal
+// snowflakes other than the guild's own ID (@everyone), at most
+// maxStaffRoles after dropping duplicates. It returns the list in its
+// original order.
+func normalizeStaffRoleIDs(raw []string, discordGuildID string) ([]string, error) {
+	out := make([]string, 0, len(raw))
+	for _, entry := range raw {
+		value := strings.TrimSpace(entry)
+		snowflake, err := strconv.ParseUint(value, 10, 64)
+		if err != nil || snowflake == 0 || strconv.FormatUint(snowflake, 10) != value {
+			return nil, settingsValidationError("staff roles must be Discord role IDs")
+		}
+		if value == discordGuildID {
+			return nil, settingsValidationError("@everyone cannot be a staff role")
+		}
+		if !slices.Contains(out, value) {
+			out = append(out, value)
+		}
+	}
+	if len(out) > maxStaffRoles {
+		return nil, settingsValidationError(fmt.Sprintf("choose at most %d roles for each staff level", maxStaffRoles))
+	}
+	return out, nil
 }
 
 // applyModuleInput returns states with the input's module switches applied.
@@ -409,6 +600,8 @@ func guildSettingsResponse(settings GuildSettings, modules ModuleStates) GuildSe
 		ManagedEvidenceChannelDiscordID:   settings.ManagedEvidenceChannelDiscordID,
 		NotificationIntroduction:          settings.NotificationIntroduction,
 		NotificationFooter:                settings.NotificationFooter,
+		ModeratorRoleIDs:                  nonNilStrings(settings.ModeratorRoleIDs),
+		RulesManagerRoleIDs:               nonNilStrings(settings.RulesManagerRoleIDs),
 		TicketsEnabled:                    modules.Tickets,
 		GeneralLoggingEnabled:             modules.GeneralLogging,
 		HoneypotEnabled:                   modules.Honeypot,
@@ -416,4 +609,13 @@ func guildSettingsResponse(settings GuildSettings, modules ModuleStates) GuildSe
 		StarterPolicyReviewRequired:       settings.StarterPolicyNoticePending,
 		StarterPolicyNoticeAcknowledgedAt: settings.StarterPolicyNoticeAcknowledgedAt,
 	}
+}
+
+// nonNilStrings returns values, or an empty slice for nil, so lists encode
+// as [].
+func nonNilStrings(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
 }

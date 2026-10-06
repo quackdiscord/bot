@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/quack"
@@ -45,7 +46,7 @@ func TestLiveAuthorizationPermissionMatrix(t *testing.T) {
 			if err != nil {
 				t.Fatalf("resolve live context: %v", err)
 			}
-			err = service.Authorize(context.Background(), guildContext, tt.capability, quack.AuditSourceDiscord)
+			err = guildContext.Authorize(tt.capability)
 			if tt.want && err != nil {
 				t.Fatalf("expected authorization, got %v", err)
 			}
@@ -80,15 +81,11 @@ func TestFormerStaffLosesAccessWithoutLosingAttribution(t *testing.T) {
 		t.Fatalf("expected preserved attribution cache, got %+v", current.Staff)
 	}
 	ctx := quack.ContextWithTrace(context.Background(), "req-former", "corr-former")
-	if err := service.Authorize(ctx, current, quack.PermissionActionCaseCreate, quack.AuditSourceAPI); !errors.Is(err, quack.ErrAuthorizationDenied) {
+	if err := current.Authorize(quack.PermissionActionCaseCreate); !errors.Is(err, quack.ErrAuthorizationDenied) {
 		t.Fatalf("expected former staff denial, got %v", err)
 	}
-	audits, err := repositories.ListAuditLogEntries(ctx, current.Guild.ID)
-	if err != nil || len(audits) != 1 {
-		t.Fatalf("expected one denial audit, audits=%+v err=%v", audits, err)
-	}
-	if audits[0].ActorDiscordUserID != "mod" || audits[0].ResourceID != string(quack.PermissionActionCaseCreate) || audits[0].RequestID != "req-former" || audits[0].CorrelationID != "corr-former" || audits[0].Result != quack.AuditResultDenied {
-		t.Fatalf("unexpected denial audit: %+v", audits[0])
+	if audits, err := repositories.ListAuditLogEntries(ctx, current.Guild.ID); err != nil || len(audits) != 0 {
+		t.Fatalf("a refusal about the actor was audited: audits=%+v err=%v", audits, err)
 	}
 }
 
@@ -125,8 +122,12 @@ func TestCasePreflightMatrixAndNoPartialCommit(t *testing.T) {
 			s.Actor.TopRolePosition = 30
 			s.Target.TopRolePosition = s.Bot.TopRolePosition
 		}, wantReason: "bot_hierarchy"},
-		{name: "actor missing kick", action: quack.ActionKickUser, mutate: func(s *quack.DiscordGuildAuthorization) { s.Actor.PermissionBits = moderate }, wantReason: "permission_required"},
-		{name: "actor missing ban", action: quack.ActionBanUser, mutate: func(s *quack.DiscordGuildAuthorization) { s.Actor.PermissionBits = moderate }, wantReason: "permission_required"},
+		// Moderators apply templates; Quack acts with its own permissions.
+		{name: "moderator without kick can kick", action: quack.ActionKickUser, mutate: func(s *quack.DiscordGuildAuthorization) { s.Actor.PermissionBits = moderate }, wantOK: true},
+		{name: "moderator without ban can ban", action: quack.ActionBanUser, mutate: func(s *quack.DiscordGuildAuthorization) { s.Actor.PermissionBits = moderate }, wantOK: true},
+		{name: "not a moderator", action: quack.ActionTimeoutUser, mutate: func(s *quack.DiscordGuildAuthorization) {
+			s.Actor.PermissionBits = uint64(discordgo.PermissionBanMembers)
+		}, mutateAfterResolve: true, wantReason: "permission_required"},
 		{name: "bot missing timeout", action: quack.ActionTimeoutUser, mutate: func(s *quack.DiscordGuildAuthorization) { s.Bot.PermissionBits = allActions &^ moderate }, wantReason: "bot_permission_required"},
 		{name: "bot missing kick", action: quack.ActionKickUser, mutate: func(s *quack.DiscordGuildAuthorization) {
 			s.Bot.PermissionBits = allActions &^ uint64(discordgo.PermissionKickMembers)
@@ -179,7 +180,15 @@ func TestCasePreflightMatrixAndNoPartialCommit(t *testing.T) {
 			if listErr != nil || len(cases) != 0 {
 				t.Fatalf("denial committed a case: cases=%+v err=%v", cases, listErr)
 			}
+			// Only denials caused by Quack's own Discord access are audited.
 			audits, auditErr := repositories.ListAuditLogEntries(ctx, guildContext.Guild.ID)
+			if botCaused := tt.wantReason == "bot_permission_required" || tt.wantReason == "bot_hierarchy" ||
+				tt.wantReason == "bot_not_in_guild"; !botCaused {
+				if auditErr != nil || len(audits) != 0 {
+					t.Fatalf("a refusal about the actor or target was audited: audits=%+v err=%v", audits, auditErr)
+				}
+				return
+			}
 			if auditErr != nil || len(audits) != 1 {
 				t.Fatalf("expected exactly one denial audit, audits=%+v err=%v", audits, auditErr)
 			}
@@ -187,6 +196,73 @@ func TestCasePreflightMatrixAndNoPartialCommit(t *testing.T) {
 				t.Fatalf("unexpected denial audit: %+v", audits[0])
 			}
 		})
+	}
+}
+
+// TestStaffRolesAndMFAGateModeration checks moderator roles end to end:
+// a role moderator without any moderation permission can time out, Moderate
+// Members alone stops counting once roles are set, and a guild requiring
+// 2FA refuses staff until Quack has confirmed theirs, auditing why.
+func TestStaffRolesAndMFAGateModeration(t *testing.T) {
+	ctx := context.Background()
+	repositories := newMigratedStore(t)
+	guildID := configureStaffRoles(t, repositories, "guild-1", quack.StaffRoles{ModeratorRoleIDs: []string{"mods"}})
+	templateID := createAuthorizationTemplate(t, repositories, guildID, quack.ActionTimeoutUser)
+	snapshot := authorizationSnapshot("owner", "mod", 0)
+	snapshot.Actor.RoleIDs = []string{"mods"}
+	snapshot.Target = &quack.DiscordMemberAuthorization{DiscordUserID: "target", Present: true, TopRolePosition: 1}
+	services := quack.New(quack.Deps{Store: repositories, Guilds: fakeDiscordClient{botGuild: &snapshot.Guild, authorization: snapshot}})
+	create := func() error {
+		staff, err := services.Guilds.ResolveStaffContext(ctx, testSession("mod"), "guild-1")
+		if err != nil {
+			t.Fatalf("resolve: %v", err)
+		}
+		if err := staff.Authorize(quack.PermissionActionCaseCreate); err != nil {
+			return err
+		}
+		_, err = services.Cases.Create(ctx, staff, quack.CaseInput{
+			TemplateID: templateID, TargetDiscordUserID: "target", Source: quack.CaseSourceDashboard, IdempotencyKey: quack.NewID(),
+		})
+		return err
+	}
+	if err := create(); err != nil {
+		t.Fatalf("role moderator timeout: %v", err)
+	}
+
+	snapshot.Actor.RoleIDs = nil
+	snapshot.Actor.PermissionBits = uint64(discordgo.PermissionModerateMembers)
+	if err := create(); !errors.Is(err, quack.ErrAuthorizationDenied) || !strings.Contains(err.Error(), "permission_required") {
+		t.Fatalf("Moderate Members without the role = %v, want permission_required", err)
+	}
+
+	snapshot.Actor.RoleIDs = []string{"mods"}
+	snapshot.Guild.MFARequired = true
+	err := create()
+	if !errors.Is(err, quack.ErrAuthorizationDenied) || !strings.Contains(err.Error(), quack.DenyReasonMFARequired) {
+		t.Fatalf("unconfirmed 2FA = %v, want mfa_required", err)
+	}
+	audits, auditErr := repositories.ListAuditLogEntries(ctx, guildID)
+	if auditErr != nil || len(audits) == 0 || audits[len(audits)-1].Result == quack.AuditResultDenied {
+		t.Fatalf("2FA refusal was audited: %+v, %v", audits, auditErr)
+	}
+	if err := repositories.RecordDiscordUserMFA(ctx, "mod", true, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := create(); err != nil {
+		t.Fatalf("confirmed 2FA timeout: %v", err)
+	}
+
+	// A rules manager gets templates and nothing else.
+	configureStaffRoles(t, repositories, "guild-1", quack.StaffRoles{ModeratorRoleIDs: []string{"mods"}, RulesManagerRoleIDs: []string{"rules"}})
+	snapshot.Actor.RoleIDs = []string{"rules"}
+	snapshot.Actor.PermissionBits = 0
+	staff, err := services.Guilds.ResolveStaffContext(ctx, testSession("mod"), "guild-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !staff.Can(quack.PermissionActionCaseTemplateWrite) || !staff.Can(quack.PermissionActionCaseTemplateDelete) ||
+		staff.Can(quack.PermissionActionCaseCreate) || staff.Can(quack.PermissionActionGuildSettingsRead) {
+		t.Fatalf("rules manager permissions = %v", staff.Permissions)
 	}
 }
 
@@ -212,4 +288,89 @@ func createAuthorizationTemplate(t *testing.T, repositories *store.Store, guildI
 		t.Fatalf("create authorization template: %v", err)
 	}
 	return created.Template.ID
+}
+
+// TestStaffGatesAndRecords checks the membership-only check, the staff
+// gate, and the 2FA gate, and that only staff get a staff record.
+func TestStaffGatesAndRecords(t *testing.T) {
+	ctx := context.Background()
+	repositories := newMigratedStore(t)
+	snapshot := authorizationSnapshot("owner", "member", uint64(discordgo.PermissionSendMessages))
+	service := quack.NewGuildService(repositories, fakeDiscordClient{botGuild: &snapshot.Guild, authorization: snapshot})
+	resolve := func() *quack.GuildStaffContext {
+		t.Helper()
+		staff, err := service.ResolveStaffContext(ctx, testSession(snapshot.Actor.DiscordUserID), "guild-1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return staff
+	}
+	denials := func(guildID string) []string {
+		t.Helper()
+		audits, err := repositories.ListAuditLogEntries(ctx, guildID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var reasons []string
+		for _, audit := range audits {
+			reasons = append(reasons, audit.FailureReason)
+		}
+		return reasons
+	}
+
+	member := resolve()
+	if record, err := repositories.GetStaffMember(ctx, member.Guild.ID, "member"); err != nil || record != nil {
+		t.Fatalf("a member who is not staff got a staff record: %+v, %v", record, err)
+	}
+	if member.Staff == nil || member.Staff.DiscordUserID != "member" || member.Staff.ID != "" {
+		t.Fatalf("member attribution = %+v, want an unsaved record", member.Staff)
+	}
+	if err := member.Authorize(""); err != nil {
+		t.Fatalf("membership check refused a member: %v", err)
+	}
+	if err := member.RequireConfirmedMFA(); err != nil {
+		t.Fatalf("2FA gate refused a member who is not staff: %v", err)
+	}
+	if err := member.AuthorizeStaff(); !errors.Is(err, quack.ErrAuthorizationDenied) {
+		t.Fatalf("staff gate let a member through: %v", err)
+	}
+	if got := denials(member.Guild.ID); len(got) != 0 {
+		t.Fatalf("denials = %v, want none: refusals about the actor are not audited", got)
+	}
+
+	// A moderator held back only by 2FA keeps member access, gets no new
+	// record, and is refused by both staff gates with mfa_required.
+	snapshot.Actor.DiscordUserID = "blocked"
+	snapshot.Actor.PermissionBits = uint64(discordgo.PermissionModerateMembers)
+	snapshot.Guild.MFARequired = true
+	blocked := resolve()
+	if !blocked.MFARequired || blocked.Can(quack.PermissionActionCaseRead) {
+		t.Fatalf("blocked moderator = %+v", blocked)
+	}
+	if record, err := repositories.GetStaffMember(ctx, blocked.Guild.ID, "blocked"); err != nil || record != nil {
+		t.Fatalf("2FA-blocked moderator got a staff record: %+v, %v", record, err)
+	}
+	if err := blocked.Authorize(""); err != nil {
+		t.Fatalf("membership check refused a 2FA-blocked member: %v", err)
+	}
+	for name, gate := range map[string]func() error{
+		"capability": func() error {
+			return blocked.Authorize(quack.PermissionActionCaseRead)
+		},
+		"staff": func() error { return blocked.AuthorizeStaff() },
+		"2FA":   func() error { return blocked.RequireConfirmedMFA() },
+	} {
+		if err := gate(); err == nil || !strings.Contains(err.Error(), quack.DenyReasonMFARequired) {
+			t.Errorf("%s gate = %v, want mfa_required", name, err)
+		}
+	}
+
+	snapshot.Guild.MFARequired = false
+	moderator := resolve()
+	if record, err := repositories.GetStaffMember(ctx, moderator.Guild.ID, "blocked"); err != nil || record == nil {
+		t.Fatalf("moderator got no staff record: %v", err)
+	}
+	if err := moderator.AuthorizeStaff(); err != nil {
+		t.Fatalf("staff gate refused a moderator: %v", err)
+	}
 }

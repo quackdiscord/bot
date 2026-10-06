@@ -4,8 +4,9 @@
 // Admins define case templates with escalation levels. Moderators apply a
 // template to a member, and Quack picks the level from the member's history,
 // records the case, and enforces it in Discord. Members are notified once per
-// case and can appeal. Every change and every denied request is audited;
-// successful reads are not.
+// case and can appeal. Every change is audited, and so is a request refused
+// because of Quack's own Discord access; reads and refusals of the person
+// acting are not.
 //
 // Case creation runs under a per-guild lock so case numbers and escalation
 // counts stay consistent. Enforcement is durable: each action is a stored
@@ -51,7 +52,8 @@ type QueueStats struct {
 // Deps is everything New needs. Store is required. A nil Discord dependency
 // disables what needs it: without Guilds there is no live authorization or
 // case preflight, without Evidence message links are rejected, and without
-// Channels the audit channel cannot be configured.
+// Channels the audit channel cannot be configured. Staff roles can only be
+// configured when Channels also implements GuildRoleReader.
 type Deps struct {
 	Store     Store
 	Guilds    GuildDirectory

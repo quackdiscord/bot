@@ -20,7 +20,9 @@ import (
 // counts how often Discord would have been asked.
 type fakeDirectory struct {
 	actorBits uint64
-	calls     atomic.Int64
+	// mfaRequired makes the guild require 2FA for moderation.
+	mfaRequired bool
+	calls       atomic.Int64
 }
 
 func (f *fakeDirectory) UserGuilds(context.Context, string) ([]quack.DiscordUserGuild, error) {
@@ -34,7 +36,7 @@ func (f *fakeDirectory) BotGuilds(context.Context) ([]quack.DiscordBotGuild, err
 func (f *fakeDirectory) GuildAuthorization(_ context.Context, _, actorID, targetID string) (*quack.DiscordGuildAuthorization, error) {
 	f.calls.Add(1)
 	return &quack.DiscordGuildAuthorization{
-		Guild:  quack.DiscordBotGuild{ID: "guild-1", Name: "Guild", OwnerID: "owner-1"},
+		Guild:  quack.DiscordBotGuild{ID: "guild-1", Name: "Guild", OwnerID: "owner-1", MFARequired: f.mfaRequired},
 		Actor:  quack.DiscordMemberAuthorization{DiscordUserID: actorID, Present: true, PermissionBits: f.actorBits, TopRolePosition: 10},
 		Bot:    quack.DiscordMemberAuthorization{DiscordUserID: "quack", Present: true, PermissionBits: ^uint64(0), TopRolePosition: 20, Bot: true},
 		Target: &quack.DiscordMemberAuthorization{DiscordUserID: targetID, Present: targetID != "", TopRolePosition: 1},

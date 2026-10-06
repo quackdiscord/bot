@@ -35,6 +35,9 @@ type Storage interface {
 	RefreshSession(ctx context.Context, session *quack.AuthSession, ttl time.Duration) (bool, error)
 	DeleteSession(ctx context.Context, sessionID string) error
 	RevokeUserSessions(ctx context.Context, discordUserID string) error
+	// RecordDiscordUserMFA saves the 2FA status Discord reported for a user
+	// at sign-in, which guilds requiring 2FA check before staff act.
+	RecordDiscordUserMFA(ctx context.Context, discordUserID string, enabled bool, checkedAt time.Time) error
 	GetGuildByDiscordID(ctx context.Context, discordGuildID string) (*quack.Guild, error)
 	PingDatabase(ctx context.Context) error
 	PingRedis(ctx context.Context) error

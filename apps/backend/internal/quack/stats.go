@@ -65,11 +65,10 @@ type StaffStatistics struct {
 }
 
 // Get returns the guild's statistics for the requested range, which may
-// span at most 366 days. It needs audit read access; only denials are
-// audited.
+// span at most 366 days. It needs audit read access. Reads, refused or
+// not, are not audited.
 func (s *StaffStatisticsService) Get(ctx context.Context, guildContext *GuildStaffContext, input StatisticsInput) (*StaffStatistics, error) {
 	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil || !guildContext.Can(PermissionActionAuditRead) {
-		_ = s.auditDenied(ctx, guildContext)
 		return nil, ErrStatisticsPermissionDenied
 	}
 	from, to, err := statisticsRange(input, time.Now().UTC())
@@ -97,32 +96,4 @@ func statisticsRange(input StatisticsInput, now time.Time) (from, to time.Time, 
 		return time.Time{}, time.Time{}, statisticsValidationError("range must be positive and at most 366 days")
 	}
 	return from, to, nil
-}
-
-// auditDenied records a denied statistics request.
-func (s *StaffStatisticsService) auditDenied(ctx context.Context, guildContext *GuildStaffContext) error {
-	if guildContext == nil || guildContext.Guild == nil {
-		return nil
-	}
-	actorID := ""
-	bits := uint64(0)
-	if guildContext.Staff != nil {
-		actorID = guildContext.Staff.DiscordUserID
-		bits = guildContext.PermissionBits
-	}
-	requestID, correlationID := TraceIDsFromContext(ctx)
-	return recordAudit(ctx, s.store, &AuditLogEntry{
-		GuildID:             guildContext.Guild.ID,
-		ActorDiscordUserID:  actorID,
-		ActorPermissionBits: bits,
-		Source:              AuditSourceAPI,
-		Action:              string(AuditActionStatisticsRead),
-		ResourceType:        "statistics",
-		ResourceID:          "guild",
-		Result:              AuditResultDenied,
-		FailureReason:       "permission_denied",
-		RequestID:           requestID,
-		CorrelationID:       correlationID,
-		MetadataJSON:        "{}",
-	})
 }

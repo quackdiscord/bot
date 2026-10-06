@@ -58,7 +58,7 @@ type Module struct {
 func New(db *gorm.DB, registry *modules.Registry, audit modules.Auditor, guilds *modules.Guilds, session *discordgo.Session, core CoreStore, cases CaseCreator, templates TemplateService) *Module {
 	templateCheck := templateValidator{store: core}
 	channelCheck := channelValidator{session: session, guilds: guilds}
-	applier := caseApplier{cases: cases, store: core, session: session}
+	applier := caseApplier{cases: cases, store: core, session: session, guilds: guilds}
 	service := NewService(registry, NewStore(db), audit, channelCheck, templateCheck, applier)
 	locks := &guildLocks{}
 	cleanupCtx, cancel := context.WithCancel(context.Background())

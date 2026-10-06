@@ -15,7 +15,14 @@ export type SettingsForm = {
   evidenceChannel: string;
   introduction: string;
   footer: string;
+  /** Moderator role IDs, in the order they were picked. */
+  moderatorRoles: string[];
+  /** Rules manager role IDs, in the order they were picked. */
+  rulesManagerRoles: string[];
 };
+
+/** maxStaffRoles is the most roles the backend accepts per staff level. */
+export const maxStaffRoles = 25;
 
 /** formFromSettings starts a form from saved settings. */
 export function formFromSettings(s: Settings): SettingsForm {
@@ -27,6 +34,8 @@ export function formFromSettings(s: Settings): SettingsForm {
     evidenceChannel: s.managed_evidence_channel_discord_id ?? "",
     introduction: s.notification_introduction ?? "",
     footer: s.notification_footer ?? "",
+    moderatorRoles: s.moderator_role_ids,
+    rulesManagerRoles: s.rules_manager_role_ids,
   };
 }
 
@@ -34,7 +43,8 @@ export function formFromSettings(s: Settings): SettingsForm {
  * settingsPatch is the PATCH body for what changed between saved and draft.
  * The API leaves omitted fields alone and clears a field sent as "", so
  * unchanged fields are left out and cleared ones are sent empty, never null.
- * Text is compared trimmed, since the server trims it anyway.
+ * Text is compared trimmed, since the server trims it anyway. A staff role
+ * list is sent whole when its set of roles changed; order doesn't matter.
  */
 export function settingsPatch(saved: SettingsForm, draft: SettingsForm): SettingsInput {
   const patch: SettingsInput = {};
@@ -51,7 +61,36 @@ export function settingsPatch(saved: SettingsForm, draft: SettingsForm): Setting
   if (text(saved.introduction, draft.introduction))
     patch.notification_introduction = draft.introduction.trim();
   if (text(saved.footer, draft.footer)) patch.notification_footer = draft.footer.trim();
+  if (!sameRoles(saved.moderatorRoles, draft.moderatorRoles))
+    patch.moderator_role_ids = [...draft.moderatorRoles];
+  if (!sameRoles(saved.rulesManagerRoles, draft.rulesManagerRoles))
+    patch.rules_manager_role_ids = [...draft.rulesManagerRoles];
   return patch;
+}
+
+function sameRoles(a: readonly string[], b: readonly string[]): boolean {
+  const left = new Set(a);
+  const right = new Set(b);
+  return left.size === right.size && [...left].every((id) => right.has(id));
+}
+
+/**
+ * staffRolesProblem checks a staff role list the way the backend does when
+ * it changes: there can be at most maxStaffRoles, and roles not already
+ * saved must still exist in the server. Saved roles deleted in Discord
+ * don't block saving; the backend drops them. known is the server's
+ * current role IDs, or undefined while they load. It returns what's wrong,
+ * or null.
+ */
+export function staffRolesProblem(
+  roleIds: readonly string[],
+  saved: readonly string[],
+  known: ReadonlySet<string> | undefined,
+): string | null {
+  if (roleIds.length > maxStaffRoles) return `Pick at most ${maxStaffRoles} roles.`;
+  if (known && roleIds.some((id) => !saved.includes(id) && !known.has(id)))
+    return "A role you added was deleted in Discord. Remove it to save.";
+  return null;
 }
 
 /**

@@ -150,7 +150,7 @@ func TestAppealSettingsValidateRejoinURLAndQueueChannel(t *testing.T) {
 	ctx := context.Background()
 	store := newMigratedStore(t)
 	admin := templateGuildContext(t, store, "guild-1", "admin-1", uint64(discordgo.PermissionManageGuild))
-	if err := store.DB().Create(&quack.GuildSettings{ULIDModel: quack.ULIDModel{ID: quack.NewID()}, GuildID: admin.Guild.ID}).Error; err != nil {
+	if err := insertGuildSettings(store, quack.GuildSettings{GuildID: admin.Guild.ID}); err != nil {
 		t.Fatal(err)
 	}
 	service := quack.NewGuildSettingsService(store, nil, nil)

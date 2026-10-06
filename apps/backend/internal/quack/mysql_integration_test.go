@@ -207,6 +207,16 @@ func TestMySQLUnavailableEvidenceSnapshotUsesPersistableTimestamp(t *testing.T) 
 	}
 }
 
+// TestMySQLGuildSettingsUpdateKeepsConcurrentStaffRoleChanges checks the
+// staff role compare-and-swap under MySQL's row locks.
+func TestMySQLGuildSettingsUpdateKeepsConcurrentStaffRoleChanges(t *testing.T) {
+	repositories := store.New(openIsolatedMySQLDB(t), nil)
+	if err := repositories.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	testConcurrentStaffRoleChanges(t, repositories)
+}
+
 // openIsolatedMySQLDB creates a disposable database for a MySQL integration test.
 func openIsolatedMySQLDB(t *testing.T) *gorm.DB {
 	t.Helper()

@@ -252,6 +252,15 @@ type GuildSettings struct {
 	StarterPolicyTemplateID           string
 	StarterPolicyNoticePending        bool
 	StarterPolicyNoticeAcknowledgedAt *time.Time
+	// ModeratorRoleIDs and RulesManagerRoleIDs are the guild's staff roles;
+	// see StaffRoles.
+	ModeratorRoleIDs    []string
+	RulesManagerRoleIDs []string
+}
+
+// StaffRoles returns the staff roles the settings configure.
+func (s GuildSettings) StaffRoles() StaffRoles {
+	return StaffRoles{ModeratorRoleIDs: s.ModeratorRoleIDs, RulesManagerRoleIDs: s.RulesManagerRoleIDs}
 }
 
 // StaffMember caches the last seen identity and permissions of someone who

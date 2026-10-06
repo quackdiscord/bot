@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -30,13 +31,17 @@ const (
 // else a new text channel called name with permissions for kind, a topic,
 // and, for staff destinations, a short introduction post.
 //
+// A new staff channel admits moderatorRoleIDs, the guild's configured
+// moderator roles, or when none of them exist every role with
+// Administrator or Moderate Members.
+//
 // Only a configured channel Discord confirms is gone is replaced; any other
 // failure stops setup, so a transient error never creates a duplicate.
 // Callers must check Manage Server first and validate Quack's own
 // permissions before saving. Every error is a *UserError.
 func SetupChannel(
 	ctx context.Context, session *discordgo.Session,
-	guildID, specified, configured, name string, kind SetupChannelKind,
+	guildID, specified, configured, name string, kind SetupChannelKind, moderatorRoleIDs []string,
 ) (string, error) {
 	if specified != "" {
 		return specified, nil
@@ -64,7 +69,7 @@ func SetupChannel(
 		Name:                 name,
 		Type:                 discordgo.ChannelTypeGuildText,
 		Topic:                topic,
-		PermissionOverwrites: setupChannelPermissions(guild, botID, kind),
+		PermissionOverwrites: setupChannelPermissions(guild, botID, kind, moderatorRoleIDs),
 	}, rest(ctx)...)
 	if err != nil || channel.ID == "" {
 		return "", &UserError{Message: fmt.Sprintf(
@@ -92,11 +97,12 @@ func isUnknownChannel(err error) bool {
 }
 
 // setupChannelPermissions gives a new channel usable defaults without
-// guessing role names. Staff destinations admit the roles that count as
-// staff for ValidateStaffChannel, so the channel passes that check;
-// administrators keep Discord's normal bypass. Quack's own overwrite grants
-// what each feature needs.
-func setupChannelPermissions(guild *discordgo.Guild, botID string, kind SetupChannelKind) []*discordgo.PermissionOverwrite {
+// guessing role names. Staff destinations admit the guild's configured
+// moderator roles, or when none still exist the roles holding
+// staffPermissions, as quack's moderator fallback does, so
+// the channel passes ValidateStaffChannel; administrators keep Discord's
+// normal bypass. Quack's own overwrite grants what each feature needs.
+func setupChannelPermissions(guild *discordgo.Guild, botID string, kind SetupChannelKind, moderatorRoleIDs []string) []*discordgo.PermissionOverwrite {
 	read := int64(discordgo.PermissionViewChannel | discordgo.PermissionReadMessageHistory)
 	write := read | discordgo.PermissionSendMessages | discordgo.PermissionAttachFiles | discordgo.PermissionEmbedLinks
 	everyone := &discordgo.PermissionOverwrite{ID: guild.ID, Type: discordgo.PermissionOverwriteTypeRole}
@@ -105,8 +111,18 @@ func setupChannelPermissions(guild *discordgo.Guild, botID string, kind SetupCha
 	switch kind {
 	case SetupStaffChannel:
 		everyone.Deny = discordgo.PermissionViewChannel
+		byRole := slices.ContainsFunc(guild.Roles, func(role *discordgo.Role) bool {
+			return role != nil && role.ID != guild.ID && slices.Contains(moderatorRoleIDs, role.ID)
+		})
 		for _, role := range guild.Roles {
-			if role != nil && role.ID != guild.ID && role.Permissions&staffPermissions != 0 {
+			if role == nil || role.ID == guild.ID {
+				continue
+			}
+			staff := role.Permissions&staffPermissions != 0
+			if byRole {
+				staff = slices.Contains(moderatorRoleIDs, role.ID)
+			}
+			if staff {
 				overwrites = append(overwrites, &discordgo.PermissionOverwrite{
 					ID:    role.ID,
 					Type:  discordgo.PermissionOverwriteTypeRole,

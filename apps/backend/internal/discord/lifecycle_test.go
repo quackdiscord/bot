@@ -31,9 +31,10 @@ func TestLifecycleCreateUpdateDeleteChannelLeaveAndRejoin(t *testing.T) {
 		t.Fatalf("guild create did not create settings/starter: settings=%+v err=%v", settings, err)
 	}
 	starterID := settings.StarterPolicyTemplateID
-	settings.AuditMirrorChannelDiscordID = "audit-channel"
-	settings.ManagedEvidenceChannelDiscordID = "evidence-channel"
-	if _, err := repository.UpdateGuildSettings(ctx, quack.UpdateGuildSettingsParams{Settings: *settings}); err != nil {
+	auditChannel, evidenceChannel := "audit-channel", "evidence-channel"
+	if _, err := repository.UpdateGuildSettings(ctx, quack.UpdateGuildSettingsParams{GuildID: guild.ID, Patch: quack.GuildSettingsPatch{
+		AuditMirrorChannelDiscordID: &auditChannel, ManagedEvidenceChannelDiscordID: &evidenceChannel,
+	}}); err != nil {
 		t.Fatalf("configure lifecycle channels: %v", err)
 	}
 

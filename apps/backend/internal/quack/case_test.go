@@ -282,8 +282,7 @@ func TestCaseContextEvidenceVoidReplacementAndMemberProjection(t *testing.T) {
 	guildDiscordID := "111111111111111111"
 	admin := templateGuildContext(t, store, guildDiscordID, "admin-1", uint64(discordgo.PermissionManageGuild))
 	moderator := templateGuildContext(t, store, guildDiscordID, "mod-1", uint64(discordgo.PermissionModerateMembers))
-	settings := quack.GuildSettings{GuildID: admin.Guild.ID, ManagedEvidenceChannelDiscordID: "999999999999999999"}
-	if err := store.DB().Create(&settings).Error; err != nil {
+	if err := insertGuildSettings(store, quack.GuildSettings{GuildID: admin.Guild.ID, ManagedEvidenceChannelDiscordID: "999999999999999999"}); err != nil {
 		t.Fatalf("create evidence settings: %v", err)
 	}
 	input := validTemplateInput("evidence-policy")

@@ -457,6 +457,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/guilds/{discordGuildID}/directory/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The guild's roles, for staff role pickers
+         * @description Highest first. @everyone is left out.
+         */
+        get: operations["listRoles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/guilds/{discordGuildID}/directory/users": {
         parameters: {
             query?: never;
@@ -1189,6 +1209,13 @@ export interface components {
             position: number;
             type: components["schemas"]["ApiChannelType"];
         };
+        ApiDirectoryRole: {
+            color: number;
+            id: string;
+            managed: boolean;
+            name: string;
+            position: number;
+        };
         ApiDirectoryUser: {
             avatar_url: string;
             bot: boolean;
@@ -1200,7 +1227,7 @@ export interface components {
             username: string;
         };
         /** @enum {string} */
-        ApiErrorCode: "validation_failed" | "authentication_required" | "reauthentication_required" | "authorization_denied" | "not_found" | "conflict" | "rate_limited" | "csrf_rejected" | "origin_rejected" | "body_too_large" | "dependency_unavailable" | "internal_error";
+        ApiErrorCode: "validation_failed" | "authentication_required" | "reauthentication_required" | "authorization_denied" | "mfa_required" | "not_found" | "conflict" | "rate_limited" | "csrf_rejected" | "origin_rejected" | "body_too_large" | "dependency_unavailable" | "internal_error";
         ApiErrorDetail: {
             code: components["schemas"]["ApiErrorCode"];
             correlation_id: string;
@@ -1286,6 +1313,9 @@ export interface components {
             appeal_id?: null | string;
             confirm?: boolean;
             original_execution_id?: string;
+        };
+        ApiRoleListResponse: {
+            roles: components["schemas"]["ApiDirectoryRole"][];
         };
         ApiSessionTimes: {
             /** Format: date-time */
@@ -1747,8 +1777,10 @@ export interface components {
             general_logging_enabled?: null | boolean;
             honeypot_enabled?: null | boolean;
             managed_evidence_channel_discord_id?: null | string;
+            moderator_role_ids?: null | string[];
             notification_footer?: null | string;
             notification_introduction?: null | string;
+            rules_manager_role_ids?: null | string[];
             tickets_enabled?: null | boolean;
         };
         QuackGuildSettingsResponse: {
@@ -1761,8 +1793,10 @@ export interface components {
             honeypot_enabled?: boolean;
             id?: string;
             managed_evidence_channel_discord_id?: string;
+            moderator_role_ids: string[];
             notification_footer?: string;
             notification_introduction?: string;
+            rules_manager_role_ids: string[];
             /** Format: date-time */
             starter_policy_notice_acknowledged_at?: null | string;
             starter_policy_review_required?: boolean;
@@ -2009,11 +2043,13 @@ export interface components {
         };
         QuackUserGuildListItem: {
             can_manage_guild: boolean;
+            can_manage_rules: boolean;
             can_moderate: boolean;
             discord_guild_id: string;
             icon_url: string;
             is_administrator: boolean;
             is_owner: boolean;
+            mfa_required: boolean;
             name: string;
             permission_bits: string;
             quack_guild_name?: string;
@@ -4359,6 +4395,100 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiMemberSearchResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Any other error, such as a 500 */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    listRoles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                discordGuildID: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiRoleListResponse"];
                 };
             };
             /** @description Bad Request */

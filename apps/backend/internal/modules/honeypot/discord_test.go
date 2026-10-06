@@ -24,7 +24,7 @@ func TestProjectionUsesCurrentMemberState(t *testing.T) {
 	event := &discordgo.MessageCreate{Message: &discordgo.Message{
 		ID: "message", GuildID: "guild", ChannelID: "channel", Author: &discordgo.User{ID: "author", Bot: true},
 	}}
-	message, err := projectMessage("internal-guild", event, guild, channel, member, "quack")
+	message, err := projectMessage("internal-guild", event, guild, channel, member, quack.StaffRoles{}, "quack")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,11 +33,11 @@ func TestProjectionUsesCurrentMemberState(t *testing.T) {
 		t.Fatalf("projection trusted the event over live state: %+v", message)
 	}
 	member.User.Bot = true
-	message, _ = projectMessage("internal-guild", event, guild, channel, member, "author")
+	message, _ = projectMessage("internal-guild", event, guild, channel, member, quack.StaffRoles{}, "author")
 	if !message.IsBot || !message.IsQuack {
 		t.Fatalf("live bot identity ignored: %+v", message)
 	}
-	if _, err := projectMessage("", event, guild, channel, member, "author"); err == nil {
+	if _, err := projectMessage("", event, guild, channel, member, quack.StaffRoles{}, "author"); err == nil {
 		t.Fatal("projected a message without an internal guild")
 	}
 }
@@ -48,8 +48,12 @@ func TestExemptionUsesGuildModerationAuthority(t *testing.T) {
 	for _, test := range []struct {
 		name                     string
 		permissions, allow, deny int64
+		moderatorRoleIDs         []string
 		owner, want              bool
 	}{
+		{name: "moderator role", moderatorRoleIDs: []string{"role"}, want: true},
+		{name: "moderate members beside moderator roles", permissions: discordgo.PermissionModerateMembers, moderatorRoleIDs: []string{"other"}, want: true},
+		{name: "other moderator role", moderatorRoleIDs: []string{"other"}},
 		{name: "moderator", permissions: discordgo.PermissionModerateMembers, want: true},
 		{name: "administrator", permissions: discordgo.PermissionAdministrator, want: true},
 		{name: "owner", owner: true, want: true},
@@ -68,7 +72,7 @@ func TestExemptionUsesGuildModerationAuthority(t *testing.T) {
 			}}
 			member := &discordgo.Member{User: &discordgo.User{ID: "member"}, Roles: []string{"role"}}
 			event := &discordgo.MessageCreate{Message: &discordgo.Message{ID: "message", GuildID: "guild", ChannelID: "trap", Author: member.User}}
-			projection, err := projectMessage("internal", event, guild, channel, member, "bot")
+			projection, err := projectMessage("internal", event, guild, channel, member, quack.StaffRoles{ModeratorRoleIDs: test.moderatorRoleIDs}, "bot")
 			if err != nil || projection.AuthorCanModerate != test.want {
 				t.Fatalf("exempt = %v, want %v (err %v)", projection.AuthorCanModerate, test.want, err)
 			}

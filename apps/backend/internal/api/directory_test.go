@@ -54,6 +54,16 @@ func (f *fakeDirectory) Channels(context.Context, string) ([]DirectoryChannel, e
 	}, nil
 }
 
+func (f *fakeDirectory) Roles(context.Context, string) ([]DirectoryRole, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return []DirectoryRole{
+		{ID: "20", Name: "Moderators", Color: 0x5865f2, Position: 3},
+		{ID: "21", Name: "Quack", Position: 2, Managed: true},
+	}, nil
+}
+
 // directoryServer serves guild-1 to a caller with permissions, backed by
 // directory (none if nil).
 func directoryServer(t *testing.T, permissions uint64, directory Directory) (*Server, string) {
@@ -74,9 +84,12 @@ func TestDirectoryRoutesRequireCapabilities(t *testing.T) {
 	expectStatus(t, send(t, moderator, http.MethodGet, "/guilds/guild-1/directory/users?ids=1", "", moderatorSession), http.StatusOK)
 	assertEnvelope(t, send(t, moderator, http.MethodGet, "/guilds/guild-1/directory/channels", "", moderatorSession),
 		http.StatusForbidden, codeAuthorization)
+	assertEnvelope(t, send(t, moderator, http.MethodGet, "/guilds/guild-1/directory/roles", "", moderatorSession),
+		http.StatusForbidden, codeAuthorization)
 
 	manager, managerSession := directoryServer(t, uint64(discordgo.PermissionManageGuild), &fakeDirectory{})
 	expectStatus(t, send(t, manager, http.MethodGet, "/guilds/guild-1/directory/channels", "", managerSession), http.StatusOK)
+	expectStatus(t, send(t, manager, http.MethodGet, "/guilds/guild-1/directory/roles", "", managerSession), http.StatusOK)
 	assertEnvelope(t, send(t, manager, http.MethodGet, "/guilds/guild-1/directory/members?query=du", "", managerSession),
 		http.StatusForbidden, codeAuthorization)
 	assertEnvelope(t, send(t, manager, http.MethodGet, "/guilds/guild-1/directory/users?ids=1", "", managerSession),
@@ -160,9 +173,21 @@ func TestListChannels(t *testing.T) {
 	}
 }
 
+func TestListRoles(t *testing.T) {
+	server, sessionID := directoryServer(t, uint64(discordgo.PermissionManageGuild), &fakeDirectory{})
+	response := send(t, server, http.MethodGet, "/guilds/guild-1/directory/roles", "", sessionID)
+	expectStatus(t, response, http.StatusOK)
+	want := `{"roles":[` +
+		`{"id":"20","name":"Moderators","color":5793266,"position":3,"managed":false},` +
+		`{"id":"21","name":"Quack","color":0,"position":2,"managed":true}]}`
+	if body := response.Body.String(); body != want {
+		t.Errorf("body = %s\nwant   %s", body, want)
+	}
+}
+
 func TestDirectoryUnavailable(t *testing.T) {
 	server, sessionID := directoryServer(t, uint64(discordgo.PermissionAdministrator), nil)
-	for _, path := range []string{"members?query=du", "users?ids=1", "channels"} {
+	for _, path := range []string{"members?query=du", "users?ids=1", "channels", "roles"} {
 		assertEnvelope(t, send(t, server, http.MethodGet, "/guilds/guild-1/directory/"+path, "", sessionID),
 			http.StatusServiceUnavailable, codeDependency)
 	}

@@ -269,6 +269,17 @@ const permissionPhrases: Record<string, string> = {
   "action_failure.dismiss": "dismiss failed actions",
 };
 
+/**
+ * quackBlockedReasons are the denial reasons about Quack's own Discord
+ * access. They are the only denials Quack still records; older entries may
+ * also hold denials of the person acting.
+ */
+const quackBlockedReasons = new Set([
+  "bot_permission_required",
+  "bot_hierarchy",
+  "bot_not_in_guild",
+]);
+
 /** metadataOf returns an entry's metadata as an object, or an empty one. */
 export function metadataOf(entry: Pick<AuditEntry, "metadata">): Record<string, unknown> {
   const m = entry.metadata;
@@ -309,15 +320,23 @@ function isRef(id: string | undefined): id is string {
 /**
  * describe turns an audit entry into a sentence that follows the actor's
  * name: "voided case #12", "couldn't complete the ban on case #4". Unknown
- * actions fall back to their humanized name.
+ * actions fall back to their humanized name. A denial caused by Quack's own
+ * permissions or role position says so, since the actor wasn't at fault.
  */
 export function describe(
-  entry: Pick<AuditEntry, "action" | "result" | "metadata" | "resource_type" | "resource_id">,
+  entry: Pick<
+    AuditEntry,
+    "action" | "result" | "metadata" | "resource_type" | "resource_id" | "failure_reason"
+  >,
 ): Description {
   const m = metadataOf(entry);
+  const quackBlocked =
+    entry.result === "denied" && quackBlockedReasons.has(entry.failure_reason ?? "");
   if (entry.action === "authorization.denied") {
     const what = permissionPhrases[entry.resource_id] ?? humanize(entry.resource_id).toLowerCase();
-    return { icon: "lock", parts: [`was denied permission to ${what}`] };
+    return quackBlocked
+      ? { icon: "lock", parts: [`couldn't ${what}: Quack lacks the permission or role position`] }
+      : { icon: "lock", parts: [`was denied permission to ${what}`] };
   }
   if (entry.action === "case_action.succeeded" && m.reversal_noop === true) {
     return fill("found the punishment on {case} had already ended", "success", entry);
@@ -333,6 +352,9 @@ export function describe(
   const act = phrase?.act ?? (phrase ? null : fallback);
   const icon: QuackIconName = entry.result === "denied" ? "lock" : "error";
   if (!act) return fill(phrase!.did, icon, entry);
+  if (quackBlocked) {
+    return fill(`couldn't ${act}: Quack lacks the permission or role position`, icon, entry);
+  }
   const lead = entry.result === "denied" ? "was denied permission to" : "couldn't";
   return fill(`${lead} ${act}`, icon, entry);
 }

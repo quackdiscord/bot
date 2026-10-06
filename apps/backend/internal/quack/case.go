@@ -136,11 +136,11 @@ func (s *CaseService) Void(ctx context.Context, guildContext *GuildStaffContext,
 	}
 	caseRef = strings.TrimSpace(caseRef)
 	defer func() {
-		if err == nil {
+		if err == nil || isActorDenial(err) {
 			return
 		}
 		result := AuditResultFailure
-		if errors.Is(err, ErrCasePermissionDenied) || errors.Is(err, ErrAuthorizationDenied) {
+		if errors.Is(err, ErrAuthorizationDenied) {
 			result = AuditResultDenied
 		}
 		_ = s.audit(ctx, guildContext, staffAttribution, string(AuditActionCaseVoid), "case", caseRef, result, err.Error())
@@ -249,15 +249,15 @@ func (s *CaseService) commit(ctx context.Context, guildContext *GuildStaffContex
 }
 
 // createFailed audits a failed creation and returns the error to report.
-// Discord denials are audited as such; validation and permission failures
-// as a failed case.create.
+// A denial caused by Quack's own Discord access is audited as such, and
+// validation failures as a failed case.create. Denials about the actor or
+// their chosen target are not audited.
 func (s *CaseService) createFailed(ctx context.Context, guildContext *GuildStaffContext, attribution caseAttribution, err error) error {
 	var denial *AuthorizationError
 	if errors.As(err, &denial) && s.guilds != nil {
-		_ = s.guilds.auditDenial(ctx, guildContext, denial.Capability, AuditSourceFromContext(ctx), denial.Reason, denial.MetadataJSON)
+		_ = s.guilds.auditBotDenial(ctx, guildContext, denial.Capability, AuditSourceFromContext(ctx), denial.Reason, denial.MetadataJSON)
 	}
-	if errors.Is(err, ErrCaseValidation) || errors.Is(err, ErrCasePermissionDenied) ||
-		errors.Is(err, ErrCaseTemplateNotAvailable) || errors.Is(err, errPreflightStale) {
+	if errors.Is(err, ErrCaseValidation) || errors.Is(err, ErrCaseTemplateNotAvailable) || errors.Is(err, errPreflightStale) {
 		_ = s.audit(ctx, guildContext, attribution, string(AuditActionCaseCreate), "case", "unknown", AuditResultFailure, err.Error())
 	}
 	if errors.Is(err, errPreflightStale) {

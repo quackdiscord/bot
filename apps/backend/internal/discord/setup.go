@@ -192,15 +192,12 @@ type setupTask func(ctx context.Context, staff *quack.GuildStaffContext, userID 
 // dashboard page named by page. what completes "You need Manage Server
 // permission to ...".
 func (s *setup) run(i *discordgo.InteractionCreate, what string, page []string, task setupTask) Result {
-	userID, name := interactionMember(i)
+	userID, _ := interactionMember(i)
 	return AsyncPublic(func(ctx context.Context, responder Responder) error {
-		staff, err := s.services.Guilds.ResolveDiscordStaffContext(ctx, quack.DiscordStaffContextInput{
-			DiscordGuildID: i.GuildID,
-			DiscordUserID:  userID,
-			DisplayName:    name,
-		})
+		staff, err := liveStaff(ctx, s.services, i)
 		if err != nil {
-			_, err = responder.EditOriginal(ErrorEdit("Could not verify your server permissions. Try again."))
+			_, err = responder.EditOriginal(ErrorEdit(staffDenied(err, fmt.Sprintf("You need Manage Server permission to %s.", what),
+				"Could not verify your server permissions. Try again.")))
 			return err
 		}
 		if !staff.Can(quack.PermissionActionGuildSettingsWrite) {
@@ -236,7 +233,7 @@ func (s *setup) appeals(command *discordgo.ApplicationCommandInteractionDataOpti
 			return Message{}, &UserError{Message: "Could not load appeal settings. Try again."}
 		}
 		channelID, err := SetupChannel(ctx, s.session, staff.Guild.DiscordGuildID,
-			specified, settings.AppealQueueChannelDiscordID, "appeals", SetupStaffChannel)
+			specified, settings.AppealQueueChannelDiscordID, "appeals", SetupStaffChannel, staff.StaffRoles.ModeratorRoleIDs)
 		if err != nil {
 			return Message{}, err
 		}
@@ -277,7 +274,7 @@ func (s *setup) audit(command *discordgo.ApplicationCommandInteractionDataOption
 			return Message{}, &UserError{Message: "Could not load audit settings. Try again."}
 		}
 		channelID, err := SetupChannel(ctx, s.session, staff.Guild.DiscordGuildID,
-			specified, settings.AuditMirrorChannelDiscordID, "moderation-log", SetupStaffChannel)
+			specified, settings.AuditMirrorChannelDiscordID, "moderation-log", SetupStaffChannel, staff.StaffRoles.ModeratorRoleIDs)
 		if err != nil {
 			return Message{}, err
 		}
@@ -307,7 +304,7 @@ func (s *setup) evidence(command *discordgo.ApplicationCommandInteractionDataOpt
 			return Message{}, &UserError{Message: "Could not load evidence settings. Try again."}
 		}
 		channelID, err := SetupChannel(ctx, s.session, staff.Guild.DiscordGuildID,
-			specified, settings.ManagedEvidenceChannelDiscordID, "evidence", SetupStaffChannel)
+			specified, settings.ManagedEvidenceChannelDiscordID, "evidence", SetupStaffChannel, staff.StaffRoles.ModeratorRoleIDs)
 		if err != nil {
 			return Message{}, err
 		}

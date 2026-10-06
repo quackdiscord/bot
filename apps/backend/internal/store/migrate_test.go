@@ -13,6 +13,9 @@ import (
 )
 
 // tables is every table the baseline owns, including the module tables.
+// discord_user_mfa is left out: the baseline creates it on a fresh
+// database, but rolling back its own migration drops it, so the tests
+// check it separately.
 var tables = []string{
 	"guilds", "guild_settings", "staff_members",
 	"case_templates", "case_template_context_fields", "case_template_levels", "case_template_level_actions",
@@ -31,6 +34,14 @@ func TestMigrateCreatesSchemaOnce(t *testing.T) {
 		t.Fatalf("second migrate: %v", err)
 	}
 	assertSchema(t, db, true)
+	if !db.Migrator().HasTable("discord_user_mfa") {
+		t.Error("table discord_user_mfa is missing")
+	}
+	for _, column := range []string{"moderator_role_ids", "rules_manager_role_ids"} {
+		if !db.Migrator().HasColumn("guild_settings", column) {
+			t.Errorf("guild_settings has no %s column", column)
+		}
+	}
 	var ledger []struct {
 		Version uint64
 		Name    string
@@ -38,12 +49,17 @@ func TestMigrateCreatesSchemaOnce(t *testing.T) {
 	if err := db.Raw("SELECT version, name FROM quack_schema_migrations").Scan(&ledger).Error; err != nil {
 		t.Fatal(err)
 	}
-	if len(ledger) != 3 || ledger[0].Name != "baseline" || ledger[1].Version != 2 || ledger[1].Name != "audit_mirror_deliveries" ||
-		ledger[2].Version != 3 || ledger[2].Name != "launch_announcement" {
-		t.Fatalf("ledger = %+v, want the baseline, audit_mirror_deliveries, and launch_announcement", ledger)
+	wantLedger := []string{"baseline", "audit_mirror_deliveries", "launch_announcement", "staff_roles", "discord_user_mfa"}
+	if len(ledger) != len(wantLedger) {
+		t.Fatalf("ledger = %+v, want %v", ledger, wantLedger)
 	}
-	if version, err := s.MigrationReadiness(context.Background()); err != nil || version != 3 {
-		t.Fatalf("MigrationReadiness = %d, %v; want 3, nil", version, err)
+	for i, name := range wantLedger {
+		if ledger[i].Version != uint64(i+1) || ledger[i].Name != name {
+			t.Fatalf("ledger = %+v, want %v", ledger, wantLedger)
+		}
+	}
+	if version, err := s.MigrationReadiness(context.Background()); err != nil || version != 5 {
+		t.Fatalf("MigrationReadiness = %d, %v; want 5, nil", version, err)
 	}
 	for _, dropped := range []string{"action_manual_reviews", "module_import_records",
 		"quack_v5_0002_template_compatibility", "quack_v5_0003_case_compatibility"} {
@@ -136,8 +152,8 @@ func TestMigrateAuditMirrorDeliveries(t *testing.T) {
 	if err := s.Migrate(); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	if version, err := s.MigrationReadiness(ctx); err != nil || version != 3 {
-		t.Fatalf("MigrationReadiness = %d, %v; want 3", version, err)
+	if version, err := s.MigrationReadiness(ctx); err != nil || version != 5 {
+		t.Fatalf("MigrationReadiness = %d, %v; want 5", version, err)
 	}
 	var queued int64
 	if err := db.Table("audit_mirror_deliveries").Count(&queued).Error; err != nil || queued != 0 {
@@ -156,10 +172,44 @@ func TestMigrateAuditMirrorDeliveries(t *testing.T) {
 	}
 }
 
+// TestMigrateStaffRolesAndMFA upgrades a database at launch_announcement:
+// existing guilds get empty staff roles, so Moderate Members keeps meaning
+// moderator, and nobody's 2FA is known yet.
+func TestMigrateStaffRolesAndMFA(t *testing.T) {
+	ctx := context.Background()
+	db := testutil.NewSQLiteDB(t)
+	for _, statement := range []string{
+		"DROP TABLE discord_user_mfa",
+		"ALTER TABLE guild_settings DROP COLUMN moderator_role_ids",
+		"ALTER TABLE guild_settings DROP COLUMN rules_manager_role_ids",
+		"DELETE FROM quack_schema_migrations WHERE version >= 4",
+		`INSERT INTO guild_settings (id, created_at, updated_at, guild_id, notification_introduction, notification_footer, starter_policy_notice_pending)
+			VALUES ('settings', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'guild', '', '', false)`,
+	} {
+		if err := db.Exec(statement).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := store.New(db, nil)
+	if err := s.Migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if version, err := s.MigrationReadiness(ctx); err != nil || version != 5 {
+		t.Fatalf("MigrationReadiness = %d, %v; want 5", version, err)
+	}
+	settings, err := s.GetGuildSettings(ctx, "guild")
+	if err != nil || settings == nil || len(settings.ModeratorRoleIDs) != 0 || len(settings.RulesManagerRoleIDs) != 0 {
+		t.Fatalf("existing settings = %+v, %v; want no staff roles", settings, err)
+	}
+	if enabled, err := s.DiscordUserMFAEnabled(ctx, "user"); err != nil || enabled {
+		t.Fatalf("2FA after upgrade = %v, %v; want unknown", enabled, err)
+	}
+}
+
 func TestMigrateRefusesUnknownLedger(t *testing.T) {
 	db := testutil.NewSQLiteDB(t)
 	future := "INSERT INTO quack_schema_migrations (version, name, applied_at) " +
-		"VALUES (4, 'from_the_future', CURRENT_TIMESTAMP)"
+		"VALUES (6, 'from_the_future', CURRENT_TIMESTAMP)"
 	if err := db.Exec(future).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -171,6 +221,20 @@ func TestMigrateRefusesUnknownLedger(t *testing.T) {
 func TestRollbackBaseline(t *testing.T) {
 	db := testutil.NewSQLiteDB(t)
 	s := store.New(db, nil)
+	if err := s.Rollback(false); err != nil {
+		t.Fatalf("Rollback(false) of discord_user_mfa: %v", err)
+	}
+	if db.Migrator().HasTable("discord_user_mfa") {
+		t.Fatal("rolling back discord_user_mfa kept its table")
+	}
+	if err := s.Rollback(false); err != nil {
+		t.Fatalf("Rollback(false) of staff_roles: %v", err)
+	}
+	for _, column := range []string{"moderator_role_ids", "rules_manager_role_ids"} {
+		if db.Migrator().HasColumn("guild_settings", column) {
+			t.Fatalf("rolling back staff_roles kept guild_settings.%s", column)
+		}
+	}
 	if err := s.Rollback(false); err != nil {
 		t.Fatalf("Rollback(false) of launch_announcement: %v", err)
 	}

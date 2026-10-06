@@ -24,7 +24,7 @@ func TestOAuthCallback(t *testing.T) {
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
-			_, _ = w.Write([]byte(`{"id":"user-1","username":"user","global_name":"User","avatar":"avatar"}`))
+			_, _ = w.Write([]byte(`{"id":"user-1","username":"user","global_name":"User","avatar":"avatar","mfa_enabled":true}`))
 		}
 	})
 	revoked := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -50,8 +50,14 @@ func TestOAuthCallback(t *testing.T) {
 	}
 
 	t.Run("json mode returns only the safe user contract", func(t *testing.T) {
-		response, _ := callback(t, discord, "json", "state-id")
+		response, store := callback(t, discord, "json", "state-id")
 		expectStatus(t, response, http.StatusOK)
+		if enabled, err := store.DiscordUserMFAEnabled(context.Background(), "user-1"); err != nil || !enabled {
+			t.Fatalf("sign-in did not record 2FA: %v, %v", enabled, err)
+		}
+		if strings.Contains(response.Body.String(), "mfa") {
+			t.Fatalf("callback exposed the 2FA status: %s", response.Body.String())
+		}
 		for _, secret := range []string{"access-secret", "refresh-secret", "code-secret", "state-id", "session_id"} {
 			if strings.Contains(response.Body.String(), secret) {
 				t.Fatalf("callback exposed %q: %s", secret, response.Body.String())

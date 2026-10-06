@@ -41,6 +41,21 @@ func (d directory) Channels(ctx context.Context, discordGuildID string) ([]api.D
 	return out, nil
 }
 
+// Roles implements api.Directory.
+func (d directory) Roles(ctx context.Context, discordGuildID string) ([]api.DirectoryRole, error) {
+	roles, err := d.bot.GuildRoles(ctx, discordGuildID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]api.DirectoryRole, len(roles))
+	for i, role := range roles {
+		out[i] = api.DirectoryRole{
+			ID: role.ID, Name: role.Name, Color: role.Color, Position: role.Position, Managed: role.Managed,
+		}
+	}
+	return out, nil
+}
+
 func directoryUsers(users []discord.DirectoryUser) []api.DirectoryUser {
 	if users == nil {
 		return nil

@@ -3,7 +3,9 @@ package quack
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -25,6 +27,11 @@ const (
 	PermissionActionGuildSettingsWrite PermissionAction = "guild_settings.write"
 	PermissionActionCaseVoid           PermissionAction = "case.void"
 	PermissionActionFailureDismiss     PermissionAction = "action_failure.dismiss"
+	// PermissionActionStaffRolesWrite changes the moderator roles. Only the
+	// owner and Administrators hold it: a moderator role lets Quack time
+	// out, kick, and ban for its holders, which is more than Manage Guild
+	// can grant in Discord.
+	PermissionActionStaffRolesWrite PermissionAction = "staff_roles.write"
 )
 
 // OAuthState is the server-side half of a Discord OAuth login in progress.
@@ -76,7 +83,28 @@ type GuildStaffContext struct {
 	Permissions        map[PermissionAction]bool
 	IsAdmin            bool
 	IsModerator        bool
-	Live               DiscordGuildAuthorization
+	// MFARequired means the actor would be staff, but the guild requires
+	// two-factor authentication that Quack has not confirmed for them, so
+	// every capability is withheld until they turn it on and sign in to
+	// the dashboard.
+	MFARequired bool
+	// StaffRoles are the guild's configured staff roles, read with the
+	// context so later Discord re-checks apply the same configuration.
+	StaffRoles StaffRoles
+	// ActorMFAEnabled is whether Quack has confirmed the actor's 2FA. It is
+	// only read when the guild requires 2FA.
+	ActorMFAEnabled bool
+	Live            DiscordGuildAuthorization
+}
+
+// isStaff reports whether the context grants any capability.
+func (c *GuildStaffContext) isStaff() bool {
+	for _, allowed := range c.Permissions {
+		if allowed {
+			return true
+		}
+	}
+	return false
 }
 
 // Can reports whether the context grants action.
@@ -96,50 +124,62 @@ func (c *GuildStaffContext) actorID() string {
 	return c.ActorDiscordUserID
 }
 
-// applyLive refreshes the context's permissions from a new snapshot.
+// applyLive refreshes the context's capabilities from a new snapshot, with
+// the staff roles and 2FA status already on the context.
 func (c *GuildStaffContext) applyLive(snapshot *DiscordGuildAuthorization, actorID string) {
 	c.Live = *snapshot
 	c.PermissionBits = snapshot.Actor.PermissionBits
-	role := roleFromPermissions(snapshot.Actor.PermissionBits, snapshot.Guild.OwnerID == actorID)
-	c.Permissions = role.permissions
-	c.IsAdmin = role.isAdmin
-	c.IsModerator = role.isModerator
+	access := deriveStaffAccess(staffAccessInput{
+		permissionBits:   snapshot.Actor.PermissionBits,
+		isOwner:          snapshot.Guild.OwnerID == actorID,
+		roleIDs:          snapshot.Actor.RoleIDs,
+		roles:            c.StaffRoles,
+		guildRoleIDs:     snapshot.Guild.RoleIDs,
+		guildRequiresMFA: snapshot.Guild.MFARequired,
+		actorMFAEnabled:  c.ActorMFAEnabled,
+	})
+	c.Permissions = access.permissions
+	c.IsAdmin = access.isAdmin
+	c.IsModerator = access.isModerator
+	c.MFARequired = access.mfaRequired
 }
 
-// staffRole is what a member's Discord permissions allow them to do in
-// Quack.
-type staffRole struct {
-	isAdmin     bool
-	isModerator bool
-	permissions map[PermissionAction]bool
-}
-
-// roleFromPermissions maps Discord permissions to Quack capabilities.
-// Moderate Members can apply and read cases; Manage Guild can configure
-// templates and settings; owners and administrators can do both.
-func roleFromPermissions(bits uint64, isOwner bool) staffRole {
-	isAdmin := isOwner || hasAllBits(bits, permissionAdministrator)
-	hasModerate := hasAllBits(bits, permissionModerateMembers)
-	canManage := isAdmin || hasAllBits(bits, permissionManageGuild)
-	canModerate := isAdmin || hasModerate
-	return staffRole{
-		isAdmin:     isAdmin,
-		isModerator: !isAdmin && hasModerate,
-		permissions: map[PermissionAction]bool{
-			PermissionActionCaseCreate:         canModerate,
-			PermissionActionCaseRead:           canModerate,
-			PermissionActionCaseTemplateRead:   canModerate || canManage,
-			PermissionActionCaseTemplateWrite:  canManage,
-			PermissionActionCaseTemplateDelete: canManage,
-			PermissionActionAppealReview:       canModerate,
-			PermissionActionTicketResolve:      canModerate,
-			PermissionActionAuditRead:          canModerate,
-			PermissionActionGuildSettingsRead:  canManage,
-			PermissionActionGuildSettingsWrite: canManage,
-			PermissionActionCaseVoid:           canModerate,
-			PermissionActionFailureDismiss:     canModerate,
-		},
+// loadStaffAccess reads what capabilities depend on besides the Discord
+// snapshot: the guild's configured staff roles and, when the guild requires
+// 2FA, whether Quack has confirmed the actor's.
+func (s *GuildService) loadStaffAccess(ctx context.Context, guildContext *GuildStaffContext, snapshot *DiscordGuildAuthorization) error {
+	settings, err := s.store.GetGuildSettings(ctx, guildContext.Guild.ID)
+	if err != nil {
+		return err
 	}
+	guildContext.StaffRoles = StaffRoles{}
+	if settings != nil {
+		guildContext.StaffRoles = settings.StaffRoles()
+	}
+	guildContext.ActorMFAEnabled = false
+	if actorID := guildContext.actorID(); snapshot.Guild.MFARequired && actorID != "" {
+		enabled, err := s.store.DiscordUserMFAEnabled(ctx, actorID)
+		if err != nil {
+			return err
+		}
+		guildContext.ActorMFAEnabled = enabled
+	}
+	return nil
+}
+
+// GuildStaffRoles returns the staff roles configured for a guild, or none
+// for a guild Quack has no settings for. Discord adapters use it for staff
+// channels, ticket threads, and the honeypot exemption.
+func (s *GuildService) GuildStaffRoles(ctx context.Context, discordGuildID string) (StaffRoles, error) {
+	guild, err := s.store.GetGuildByDiscordID(ctx, strings.TrimSpace(discordGuildID))
+	if err != nil || guild == nil {
+		return StaffRoles{}, err
+	}
+	settings, err := s.store.GetGuildSettings(ctx, guild.ID)
+	if err != nil || settings == nil {
+		return StaffRoles{}, err
+	}
+	return settings.StaffRoles(), nil
 }
 
 // PermissionMapStrings converts a capability map to string keys for JSON.
@@ -151,7 +191,8 @@ func PermissionMapStrings(permissions map[PermissionAction]bool) map[string]bool
 	return out
 }
 
-// UserGuildListItem is a guild the signed-in user can manage or moderate.
+// UserGuildListItem is a guild where the signed-in user is staff, or would
+// be once they confirm 2FA.
 type UserGuildListItem struct {
 	DiscordGuildID  string `json:"discord_guild_id"`
 	Name            string `json:"name"`
@@ -161,12 +202,29 @@ type UserGuildListItem struct {
 	IsAdministrator bool   `json:"is_administrator"`
 	CanManageGuild  bool   `json:"can_manage_guild"`
 	CanModerate     bool   `json:"can_moderate"`
-	QuackInGuild    bool   `json:"quack_in_guild"`
-	QuackGuildName  string `json:"quack_guild_name,omitempty"`
+	// CanManageRules is template management, from Manage Guild or a
+	// configured rules manager role.
+	CanManageRules bool `json:"can_manage_rules"`
+	// MFARequired means the guild requires 2FA that Quack has not confirmed
+	// for the user; every capability above is then false.
+	MFARequired    bool   `json:"mfa_required"`
+	QuackInGuild   bool   `json:"quack_in_guild"`
+	QuackGuildName string `json:"quack_guild_name,omitempty"`
 }
 
-// ListUserManageableGuilds lists the session user's guilds where they can
-// manage or moderate, and whether Quack is installed in each.
+// userGuildRoleLookups bounds how many guilds ListUserManageableGuilds
+// reads the user's roles in at once.
+const userGuildRoleLookups = 4
+
+// ListUserManageableGuilds lists the session user's guilds where they are
+// staff, and whether Quack is installed in each.
+//
+// Discord's guild list carries permission bits but no roles, so the user's
+// roles are read from the bot's member state only where they can change the
+// answer: guilds with Quack installed, where the user is not the owner or an
+// administrator, that configured moderator roles (or rules manager roles,
+// for users without Manage Guild). Those guilds' staff roles come from one
+// store query and the lookups run a few at a time.
 func (s *GuildService) ListUserManageableGuilds(ctx context.Context, session *AuthSession) ([]UserGuildListItem, error) {
 	if s.discord == nil {
 		return nil, errors.New("guild service is not configured")
@@ -187,12 +245,54 @@ func (s *GuildService) ListUserManageableGuilds(ctx context.Context, session *Au
 		botGuildsByID[guild.ID] = guild
 	}
 
+	// Only installed guilds the bits do not settle need their staff roles,
+	// and only guilds requiring 2FA need the user's 2FA status.
+	var unsettled []string
+	requiresMFA := false
+	for _, guild := range userGuilds {
+		botGuild, installed := botGuildsByID[guild.ID]
+		if !installed {
+			continue
+		}
+		requiresMFA = requiresMFA || botGuild.MFARequired
+		if !guild.Owner && !hasAllBits(guild.Permissions, permissionAdministrator) {
+			unsettled = append(unsettled, guild.ID)
+		}
+	}
+	staffRoles := map[string]StaffRoles{}
+	if len(unsettled) > 0 {
+		if staffRoles, err = s.store.ListGuildStaffRoles(ctx, unsettled); err != nil {
+			return nil, err
+		}
+	}
+	mfaEnabled := false
+	if requiresMFA {
+		if mfaEnabled, err = s.store.DiscordUserMFAEnabled(ctx, session.DiscordUserID); err != nil {
+			return nil, err
+		}
+	}
+	lookups := s.userGuildRoles(ctx, session.DiscordUserID, userGuilds, staffRoles)
+
 	out := make([]UserGuildListItem, 0, len(userGuilds))
 	for _, guild := range userGuilds {
-		isAdmin := hasAllBits(guild.Permissions, permissionAdministrator)
-		canManage := guild.Owner || isAdmin || hasAllBits(guild.Permissions, permissionManageGuild)
-		canModerate := guild.Owner || isAdmin || hasAllBits(guild.Permissions, permissionModerateMembers)
-		if !canManage && !canModerate {
+		botGuild, installed := botGuildsByID[guild.ID]
+		roles := staffRoles[guild.ID]
+		lookup, looked := lookups[guild.ID]
+		if looked && lookup.failed {
+			// Without the member's roles only their permission bits can
+			// answer, so the guild shows as the bits alone would have it.
+			roles = StaffRoles{}
+		}
+		access := deriveStaffAccess(staffAccessInput{
+			permissionBits:   guild.Permissions,
+			isOwner:          guild.Owner,
+			roleIDs:          lookup.roleIDs,
+			roles:            roles,
+			guildRoleIDs:     lookup.guildRoleIDs,
+			guildRequiresMFA: installed && botGuild.MFARequired,
+			actorMFAEnabled:  mfaEnabled,
+		})
+		if !access.canManageGuild && !access.canModerate && !access.canManageRules && !access.mfaRequired {
 			continue
 		}
 		item := UserGuildListItem{
@@ -201,17 +301,71 @@ func (s *GuildService) ListUserManageableGuilds(ctx context.Context, session *Au
 			IconURL:         discordGuildIconURL(guild.ID, guild.Icon),
 			PermissionBits:  PermissionBitsString(guild.Permissions),
 			IsOwner:         guild.Owner,
-			IsAdministrator: isAdmin,
-			CanManageGuild:  canManage,
-			CanModerate:     canModerate,
+			IsAdministrator: hasAllBits(guild.Permissions, permissionAdministrator),
+			CanManageGuild:  access.canManageGuild,
+			CanModerate:     access.canModerate,
+			CanManageRules:  access.canManageRules,
+			MFARequired:     access.mfaRequired,
 		}
-		if botGuild, ok := botGuildsByID[guild.ID]; ok {
+		if installed {
 			item.QuackInGuild = true
 			item.QuackGuildName = botGuild.Name
 		}
 		out = append(out, item)
 	}
 	return out, nil
+}
+
+// userGuildRoleLookup is what ListUserManageableGuilds learned about the
+// user's roles in one guild.
+type userGuildRoleLookup struct {
+	roleIDs, guildRoleIDs []string
+	// failed means Discord could not say, so only permission bits count.
+	failed bool
+}
+
+// userGuildRoles reads the user's current roles, and the guild's, in each
+// guild whose configured staff roles could change their access,
+// userGuildRoleLookups at a time. A failed lookup is logged and marked
+// failed.
+func (s *GuildService) userGuildRoles(ctx context.Context, userID string, guilds []DiscordUserGuild, staffRoles map[string]StaffRoles) map[string]userGuildRoleLookup {
+	var lookups []string
+	for _, guild := range guilds {
+		roles, ok := staffRoles[guild.ID]
+		if !ok {
+			continue
+		}
+		manages := hasAllBits(guild.Permissions, permissionManageGuild)
+		if len(roles.ModeratorRoleIDs) > 0 || (len(roles.RulesManagerRoleIDs) > 0 && !manages) {
+			lookups = append(lookups, guild.ID)
+		}
+	}
+	found := make([]userGuildRoleLookup, len(lookups))
+	limit := make(chan struct{}, userGuildRoleLookups)
+	var wg sync.WaitGroup
+	for i, guildID := range lookups {
+		wg.Go(func() {
+			limit <- struct{}{}
+			defer func() { <-limit }()
+			snapshot, err := s.discord.GuildAuthorization(ctx, guildID, userID, "")
+			switch {
+			case err != nil || snapshot == nil || snapshot.Actor.DiscordUserID != userID:
+				slog.WarnContext(ctx, "Server list role lookup failed; using permissions only",
+					"discord_guild_id", guildID, "error", err)
+				found[i] = userGuildRoleLookup{failed: true}
+			case snapshot.Actor.Present:
+				found[i] = userGuildRoleLookup{roleIDs: snapshot.Actor.RoleIDs, guildRoleIDs: snapshot.Guild.RoleIDs}
+			default:
+				found[i] = userGuildRoleLookup{guildRoleIDs: snapshot.Guild.RoleIDs}
+			}
+		})
+	}
+	wg.Wait()
+	out := make(map[string]userGuildRoleLookup, len(lookups))
+	for i, guildID := range lookups {
+		out[guildID] = found[i]
+	}
+	return out
 }
 
 // ResolveStaffContext builds the staff context for a dashboard session in a
@@ -235,7 +389,8 @@ type DiscordStaffContextInput struct {
 
 // ResolveDiscordStaffContext builds the staff context for a Discord
 // interaction from live Discord state. The interaction's own permission bits
-// are not trusted.
+// are not trusted. A member the guild's 2FA requirement blocks gets a context with
+// MFARequired set and no capabilities; Authorize refuses it.
 func (s *GuildService) ResolveDiscordStaffContext(ctx context.Context, input DiscordStaffContextInput) (*GuildStaffContext, error) {
 	if s.discord != nil && strings.TrimSpace(input.DiscordGuildID) != "" && strings.TrimSpace(input.DiscordUserID) == "" {
 		return nil, errors.New("missing discord user id")
@@ -244,7 +399,8 @@ func (s *GuildService) ResolveDiscordStaffContext(ctx context.Context, input Dis
 }
 
 // resolve fetches the guild and actor from Discord, refreshes the cached
-// guild and staff records, and derives the actor's capabilities.
+// guild and staff records, reads the guild's staff roles and the actor's
+// 2FA status, and derives the actor's capabilities.
 func (s *GuildService) resolve(ctx context.Context, discordGuildID, actorID, fallbackDisplayName string) (*GuildStaffContext, error) {
 	if s.discord == nil {
 		return nil, errors.New("discord client is not configured")
@@ -270,15 +426,25 @@ func (s *GuildService) resolve(ctx context.Context, discordGuildID, actorID, fal
 	if err != nil {
 		return nil, err
 	}
+	guildContext := &GuildStaffContext{Guild: guild, ActorDiscordUserID: actorID}
+	if err := s.loadStaffAccess(ctx, guildContext, snapshot); err != nil {
+		return nil, err
+	}
+	guildContext.applyLive(snapshot, actorID)
+
+	// Only staff get a staff record written. Members who are not staff,
+	// including those whose staff role the 2FA requirement withholds, keep
+	// any record they already have; a present member without one gets an
+	// unsaved record, so denials still name them.
+	displayName := strings.TrimSpace(snapshot.Actor.DisplayName)
+	if displayName == "" {
+		displayName = strings.TrimSpace(fallbackDisplayName)
+	}
+	if displayName == "" {
+		displayName = actorID
+	}
 	var staff *StaffMember
-	if snapshot.Actor.Present {
-		displayName := strings.TrimSpace(snapshot.Actor.DisplayName)
-		if displayName == "" {
-			displayName = strings.TrimSpace(fallbackDisplayName)
-		}
-		if displayName == "" {
-			displayName = actorID
-		}
+	if snapshot.Actor.Present && guildContext.isStaff() {
 		staff, err = s.store.UpsertStaffMember(ctx, UpsertStaffMemberParams{
 			GuildID:                guild.ID,
 			DiscordUserID:          actorID,
@@ -288,13 +454,19 @@ func (s *GuildService) resolve(ctx context.Context, discordGuildID, actorID, fal
 		})
 	} else {
 		staff, err = s.store.GetStaffMember(ctx, guild.ID, actorID)
+		if err == nil && staff == nil && snapshot.Actor.Present {
+			staff = &StaffMember{
+				GuildID:                guild.ID,
+				DiscordUserID:          actorID,
+				LastSeenPermissionBits: snapshot.Actor.PermissionBits,
+				LastKnownDisplayName:   displayName,
+			}
+		}
 	}
 	if err != nil {
 		return nil, err
 	}
-
-	guildContext := &GuildStaffContext{Guild: guild, Staff: staff, ActorDiscordUserID: actorID}
-	guildContext.applyLive(snapshot, actorID)
+	guildContext.Staff = staff
 	return guildContext, nil
 }
 

@@ -12,8 +12,8 @@ import (
 // returns.
 const compactEventLimit = 6
 
-// Get returns one case, by ID or case number, with its full history. Only
-// denials are audited.
+// Get returns one case, by ID or case number, with its full history. Reads
+// are not audited.
 func (s *CaseService) Get(ctx context.Context, guildContext *GuildStaffContext, caseRef string) (*CaseDetailResponse, error) {
 	return s.detail(ctx, guildContext, caseRef, false)
 }
@@ -81,11 +81,10 @@ func (s *CaseService) detail(ctx context.Context, guildContext *GuildStaffContex
 }
 
 // readCase checks case read access and loads the guild's case by ID or
-// number, auditing a denial.
+// number.
 func (s *CaseService) readCase(ctx context.Context, guildContext *GuildStaffContext, caseRef string) (*Case, error) {
 	caseRef = strings.TrimSpace(caseRef)
 	if err := requireCaseRead(guildContext); err != nil {
-		_ = s.audit(ctx, guildContext, staffAttribution, string(AuditActionCaseRead), "case", caseRef, AuditResultDenied, "permission_denied")
 		return nil, err
 	}
 	if caseRef == "" {

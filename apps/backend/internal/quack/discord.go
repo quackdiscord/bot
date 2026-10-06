@@ -89,6 +89,13 @@ type DiscordBotGuild struct {
 	Name    string
 	Icon    string
 	OwnerID string
+	// MFARequired is Discord's elevated MFA level: the guild requires
+	// two-factor authentication for moderation, and Quack then requires it
+	// for every staff capability.
+	MFARequired bool
+	// RoleIDs are the guild's current roles, @everyone included, when the
+	// adapter read them (GuildAuthorization does); nil means unknown.
+	RoleIDs []string
 }
 
 // DiscordGuildAuthorization is a live snapshot of the guild, the bot, the
@@ -107,8 +114,38 @@ type DiscordMemberAuthorization struct {
 	DisplayName     string
 	PermissionBits  uint64
 	TopRolePosition int
-	Present         bool
-	Bot             bool
+	// RoleIDs are the member's current roles, which configured staff roles
+	// are matched against. @everyone is not listed.
+	RoleIDs []string
+	Present bool
+	Bot     bool
+}
+
+// DiscordRole is one guild role, for staff role pickers and validation.
+type DiscordRole struct {
+	ID   string
+	Name string
+	// Color is the role color as an RGB integer, 0 for none.
+	Color    int
+	Position int
+	// Managed roles belong to an integration, such as a bot's own role.
+	Managed bool
+}
+
+// StaffRoleChannelValidator is a StaffChannelValidator that can judge a
+// channel by staff roles not saved yet, so a settings update that changes
+// both checks the channel against the roles it is saving. discord.Bot
+// implements it.
+type StaffRoleChannelValidator interface {
+	ValidateStaffChannelForRoles(ctx context.Context, discordGuildID, channelID string, roles StaffRoles) error
+}
+
+// GuildRoleReader lists a guild's roles from Discord. A
+// StaffChannelValidator may implement it; the settings service then uses
+// it to check configured staff roles.
+type GuildRoleReader interface {
+	// GuildRoles lists the guild's roles except @everyone, highest first.
+	GuildRoles(ctx context.Context, discordGuildID string) ([]DiscordRole, error)
 }
 
 // DiscordError is a Discord failure classified by the adapter. Retryable

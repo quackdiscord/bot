@@ -183,10 +183,9 @@ func nextRetryTime(execution CaseActionExecution) time.Time {
 }
 
 // ListFailures returns a page of the guild's failed executions awaiting
-// review. Only denials are audited.
+// review. Reads are not audited.
 func (s *ActionService) ListFailures(ctx context.Context, guildContext *GuildStaffContext, limit, offset int) (*FailedCaseActionResult, error) {
 	if guildContext == nil || guildContext.Guild == nil || !guildContext.Can(PermissionActionCaseRead) {
-		_ = s.audit(ctx, guildContext, string(AuditActionActionFailureRead), "list", AuditResultDenied, "permission_denied")
 		return nil, ErrCasePermissionDenied
 	}
 	return s.store.ListFailedCaseActions(ctx, FailedCaseActionFilter{
@@ -346,14 +345,15 @@ func (s *ActionService) checkReversal(ctx context.Context, item *Case, original 
 	return nil
 }
 
-// auditControlFailure records a failed or denied staff control. Successes
-// are audited by the store in the same transaction as the change.
+// auditControlFailure records a failed staff control, or one Quack's own
+// Discord access denied. Successes are audited by the store in the same
+// transaction as the change; denials about the actor are not audited.
 func (s *ActionService) auditControlFailure(ctx context.Context, guildContext *GuildStaffContext, action, executionID string, err error) {
-	if err == nil {
+	if err == nil || isActorDenial(err) {
 		return
 	}
 	result := AuditResultFailure
-	if errors.Is(err, ErrCasePermissionDenied) || errors.Is(err, ErrAuthorizationDenied) {
+	if errors.Is(err, ErrAuthorizationDenied) {
 		result = AuditResultDenied
 	}
 	_ = s.audit(ctx, guildContext, action, executionID, result, err.Error())

@@ -63,7 +63,7 @@ func updateFixture(t *testing.T) (*storage.Store, *quack.CaseService, *quack.Gui
 	store := newMigratedStore(t)
 	admin := templateGuildContext(t, store, updateGuildDiscordID, "admin-1", uint64(discordgo.PermissionManageGuild))
 	moderator := templateGuildContext(t, store, updateGuildDiscordID, "mod-1", uint64(discordgo.PermissionModerateMembers))
-	if err := store.DB().Create(&quack.GuildSettings{ULIDModel: quack.ULIDModel{ID: quack.NewID()}, GuildID: admin.Guild.ID, ManagedEvidenceChannelDiscordID: "999999999999999999"}).Error; err != nil {
+	if err := insertGuildSettings(store, quack.GuildSettings{GuildID: admin.Guild.ID, ManagedEvidenceChannelDiscordID: "999999999999999999"}); err != nil {
 		t.Fatal(err)
 	}
 	template := createAppTemplate(t, ctx, store, admin, validTemplateInput("updates"))

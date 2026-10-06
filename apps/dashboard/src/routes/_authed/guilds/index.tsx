@@ -1,14 +1,16 @@
 import { useSuspenseQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { BookOpen, LifeBuoy, Plus, Server } from "lucide-react";
+import { BookOpen, LifeBuoy, Lock, Plus, Server } from "lucide-react";
 
 import { guildsQuery } from "~/api/queries";
+import { useSignInAgain } from "~/api/session";
 import type { UserGuild } from "~/api/types";
-import { staffGuilds } from "~/features/shell/ServerRail";
+import { guildRole, staffGuilds } from "~/features/shell/guilds";
 import { NavExternal, NavGroup, NavItem, Sidebar } from "~/features/shell/Sidebar";
 import { inviteTo, inviteUrl, supportUrl } from "~/lib/links";
 import { Avatar } from "~/ui/Avatar";
-import { ButtonLink, ExternalButton } from "~/ui/Button";
+import { Button, ButtonLink, ExternalButton } from "~/ui/Button";
 import { Page, Section } from "~/ui/Page";
 import { Empty } from "~/ui/States";
 
@@ -21,7 +23,9 @@ export const Route = createFileRoute("/_authed/guilds/")({
 
 function Servers() {
   const { data } = useSuspenseQuery(guildsQuery);
-  const ready = staffGuilds(data);
+  const staff = staffGuilds(data);
+  const ready = staff.filter((g) => !g.mfa_required);
+  const locked = staff.filter((g) => g.mfa_required);
   const missing = data.filter((g) => !g.quack_in_guild && g.can_manage_guild);
 
   return (
@@ -46,7 +50,15 @@ function Servers() {
       </Sidebar>
       <main className={s.main}>
         <Page icon={<Server size={20} />} title="Your servers" width="narrow">
-          {ready.length === 0 ? (
+          {ready.length > 0 ? (
+            <Section title="Staff">
+              <ul className={s.grid}>
+                {ready.map((g, i) => (
+                  <GuildTile key={g.discord_guild_id} guild={g} index={i} />
+                ))}
+              </ul>
+            </Section>
+          ) : locked.length === 0 ? (
             <Empty
               title="No servers to moderate yet"
               action={
@@ -58,18 +70,13 @@ function Servers() {
                 </div>
               }
             >
-              Servers show up here once Quack is in them and you can moderate members. Looking for
-              one of your own cases? Open the link Quack sent you in Discord.
+              Servers show up here once Quack is in them and you're a moderator, rules manager, or
+              manager there. Looking for one of your own cases? Open the link Quack sent you in
+              Discord.
             </Empty>
-          ) : (
-            <Section title="Moderate">
-              <ul className={s.grid}>
-                {ready.map((g, i) => (
-                  <GuildTile key={g.discord_guild_id} guild={g} index={i} />
-                ))}
-              </ul>
-            </Section>
-          )}
+          ) : null}
+
+          {locked.length > 0 ? <NeedsMfa guilds={locked} /> : null}
 
           {missing.length > 0 ? (
             <Section
@@ -99,12 +106,47 @@ function Servers() {
   );
 }
 
-/** role names the user's place in a server in plain words. */
-function role(guild: UserGuild): string {
-  if (guild.is_owner) return "Owner";
-  if (guild.is_administrator) return "Admin";
-  if (guild.can_manage_guild) return "Manager";
-  return "Moderator";
+/**
+ * NeedsMfa lists servers that require 2FA for moderation where Quack hasn't
+ * confirmed the user's. They can't open until the user signs in again.
+ */
+function NeedsMfa({ guilds }: { guilds: UserGuild[] }) {
+  const signInAgain = useSignInAgain();
+  const [pending, setPending] = useState(false);
+  return (
+    <Section
+      title="Needs 2FA"
+      description="These servers require two-factor authentication for moderation, so Quack does too. Turn on two-factor authentication in Discord, then sign out and back in."
+      actions={
+        <Button
+          size="sm"
+          variant="secondary"
+          pending={pending}
+          onClick={() => {
+            setPending(true);
+            void signInAgain();
+          }}
+        >
+          Sign in again
+        </Button>
+      }
+    >
+      <ul className={s.list}>
+        {guilds.map((g) => {
+          const name = g.quack_guild_name || g.name;
+          return (
+            <li key={g.discord_guild_id} className={s.row} data-locked>
+              <Avatar src={g.icon_url} name={name} size={36} square />
+              <span className={s.rowName}>{name}</span>
+              <span className={s.locked}>
+                <Lock size={14} aria-hidden /> Needs 2FA
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </Section>
+  );
 }
 
 function GuildTile({ guild, index }: { guild: UserGuild; index: number }) {
@@ -115,7 +157,7 @@ function GuildTile({ guild, index }: { guild: UserGuild; index: number }) {
         <Avatar src={guild.icon_url} name={name} size={56} square />
         <span className={s.text}>
           <span className={s.name}>{name}</span>
-          <span className={s.role}>{role(guild)}</span>
+          <span className={s.role}>{guildRole(guild)}</span>
         </span>
       </Link>
     </li>

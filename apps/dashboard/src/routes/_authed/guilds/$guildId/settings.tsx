@@ -4,11 +4,13 @@ import { Settings as SettingsIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
 import { ApiError, api, unwrap } from "~/api/client";
+import { rolesQuery } from "~/api/directory";
 import { guildMeQuery, guildOpsQuery, keys, settingsQuery } from "~/api/queries";
 import type { Settings } from "~/api/types";
 import { ChannelPicker } from "~/features/channels/ChannelPicker";
 import { enableProblem } from "~/features/modules/enable";
 import { Callout, Command } from "~/features/modules/ModuleParts";
+import { RolePicker } from "~/features/roles/RolePicker";
 import {
   buildCaseDm,
   caseDmLength,
@@ -19,9 +21,11 @@ import { DmPreview } from "~/features/settings/DmPreview";
 import {
   brandingProblem,
   formFromSettings,
+  maxStaffRoles,
   rejoinUrlProblem,
   type SettingsForm,
   settingsPatch,
+  staffRolesProblem,
 } from "~/features/settings/form";
 import { healthChecklist } from "~/features/settings/health";
 import { useCan } from "~/lib/permissions";
@@ -54,6 +58,7 @@ function SettingsPage() {
   const { data: me } = useSuspenseQuery(guildMeQuery(guildId));
   const can = useCan(guildId);
   const canWrite = can("guild_settings.write");
+  const canWriteModerators = canWrite && can("staff_roles.write");
   const queryClient = useQueryClient();
 
   const [edits, setEdits] = useState<SettingsForm | null>(null);
@@ -75,6 +80,17 @@ function SettingsPage() {
   const rejoinError = rejoinUrlProblem(form.rejoinUrl);
   const introError = brandingProblem(form.introduction);
   const footerError = brandingProblem(form.footer);
+  // Only a changed role list is checked on save, so only flag those.
+  const roles = useQuery(rolesQuery(guildId));
+  const knownRoles = roles.data ? new Set(roles.data.map((r) => r.id)) : undefined;
+  const moderatorError =
+    "moderator_role_ids" in patch
+      ? staffRolesProblem(form.moderatorRoles, saved.moderatorRoles, knownRoles)
+      : null;
+  const rulesManagerError =
+    "rules_manager_role_ids" in patch
+      ? staffRolesProblem(form.rulesManagerRoles, saved.rulesManagerRoles, knownRoles)
+      : null;
 
   const save = useMutation({
     mutationFn: () =>
@@ -87,12 +103,22 @@ function SettingsPage() {
     onSuccess: (next) => {
       queryClient.setQueryData(settingsQuery(guildId).queryKey, next);
       void queryClient.invalidateQueries({ queryKey: [...keys.guild(guildId), "ops"] });
+      // Staff roles can change who is staff, the saver included.
+      if ("moderator_role_ids" in patch || "rules_manager_role_ids" in patch) {
+        void queryClient.invalidateQueries({ queryKey: [...keys.guild(guildId), "me"] });
+        void queryClient.invalidateQueries({ queryKey: keys.guilds });
+      }
       reset();
       toast.success("Settings saved.");
     },
     onError: (e) =>
       setSaveError(
-        e instanceof ApiError ? enableProblem(e.message).message : "Couldn't save settings.",
+        // 409: the staff roles changed after this page loaded them.
+        e instanceof ApiError && e.status === 409
+          ? "Settings changed while you were editing. Reload and try again."
+          : e instanceof ApiError
+            ? enableProblem(e.message).message
+            : "Couldn't save settings.",
       ),
   });
 
@@ -114,6 +140,67 @@ function SettingsPage() {
       ) : null}
 
       <Health guildId={guildId} />
+
+      <Section title="Staff roles" description="Who can moderate and manage rules.">
+        <div className={s.fields}>
+          <Field
+            label="Moderator roles"
+            error={moderatorError}
+            hint={
+              canWriteModerators
+                ? "Moderators add and void cases, review appeals, and read the audit log. With no roles picked, members with Discord's Timeout Members permission are moderators. Once you pick any, only these roles are."
+                : "Only the server owner or Administrators can change moderator roles."
+            }
+          >
+            {(id) => (
+              <RolePicker
+                id={id}
+                guildId={guildId}
+                value={form.moderatorRoles}
+                onChange={(moderatorRoles) => set({ moderatorRoles })}
+                max={maxStaffRoles}
+                invalid={Boolean(moderatorError)}
+                disabled={!canWriteModerators}
+                emptyLabel="None picked. Members with Timeout Members are moderators."
+                placeholder="Add a moderator role"
+              />
+            )}
+          </Field>
+          {canWriteModerators ? (
+            <p className={s.note}>
+              Moderators don't need Timeout, Kick, or Ban Members in Discord. Quack acts with its
+              own permissions, so only pick roles you trust with every punishment your rules can
+              give.
+            </p>
+          ) : null}
+          <Field
+            label="Rules manager roles"
+            error={rulesManagerError}
+            hint="Rules managers can create, edit, import, export, and archive rules."
+          >
+            {(id) => (
+              <RolePicker
+                id={id}
+                guildId={guildId}
+                value={form.rulesManagerRoles}
+                onChange={(rulesManagerRoles) => set({ rulesManagerRoles })}
+                max={maxStaffRoles}
+                invalid={Boolean(rulesManagerError)}
+                disabled={!canWrite}
+                emptyLabel="None picked."
+                placeholder="Add a rules manager role"
+              />
+            )}
+          </Field>
+          <p className={s.note}>
+            If this server requires 2FA for moderation in Discord, Quack requires it for all staff
+            too, the owner included. Staff turn it on in Discord, then sign in to this dashboard
+            again.
+          </p>
+        </div>
+      </Section>
+
+      <Divider />
 
       <Section
         title="Appeals"
@@ -275,7 +362,9 @@ function SettingsPage() {
           onSave={() => save.mutate()}
           pending={save.isPending}
           error={saveError}
-          saveDisabled={Boolean(rejoinError || introError || footerError)}
+          saveDisabled={Boolean(
+            rejoinError || introError || footerError || moderatorError || rulesManagerError,
+          )}
         />
       ) : null}
     </Page>

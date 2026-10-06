@@ -13,8 +13,10 @@ import (
 // or missing. Anything unexpected is logged.
 func caseErrorMessage(err error) string {
 	switch {
+	case isMFADenial(err):
+		return MFARequiredMessage
 	case errors.Is(err, quack.ErrCasePermissionDenied), errors.Is(err, quack.ErrAuthorizationDenied):
-		return "You don’t have permission to do that. Ask a moderator with the required permission."
+		return "You don’t have permission to do that. Ask a moderator to handle it."
 	case errors.Is(err, quack.ErrCaseTemplateNotAvailable):
 		return "That rule is no longer available. Choose another from the suggestions."
 	case errors.Is(err, quack.ErrCaseNotFound):
@@ -37,7 +39,7 @@ func caseCreateErrorMessage(err error) string {
 	}
 	switch {
 	case errors.Is(err, quack.ErrCasePermissionDenied):
-		return "No case was created. You need Moderate Members permission to create cases. Ask a staff member with that permission to handle this case."
+		return "No case was created. Only moderators can create cases. Ask a moderator to handle this case."
 	case errors.Is(err, quack.ErrAuthorizationDenied):
 		return "No case was created. Your permissions or role position don’t allow this action."
 	case errors.Is(err, quack.ErrAuthorizationUnavailable):
@@ -52,19 +54,18 @@ func caseCreateErrorMessage(err error) string {
 func caseAuthorizationErrorMessage(denial *quack.AuthorizationError) string {
 	const prefix = "No case was created. "
 	switch denial.Reason {
-	case "permission_required", "bot_permission_required":
-		permission := deniedPermission(denial)
-		if permission == "" {
-			break
-		}
-		if denial.Reason == "bot_permission_required" {
+	case quack.DenyReasonMFARequired:
+		return prefix + MFARequiredMessage
+	case "permission_required":
+		return prefix + "Only moderators can create cases. Ask a moderator to handle this case."
+	case "bot_permission_required":
+		if permission := deniedPermission(denial); permission != "" {
 			return prefix + "Quack needs " + permission + " permission for the selected outcome. Ask a server administrator to update Quack's permissions, then try again."
 		}
-		return prefix + "You need " + permission + " for this outcome. Ask a staff member with that permission to handle it."
 	case "self_target":
 		return prefix + "You cannot create a case against yourself. Select another member, or ask another authorized staff member to review your case."
 	case "actor_hierarchy":
-		return prefix + "The target's highest role is equal to or above yours. Ask a staff member with a higher role and the required permissions to handle this case."
+		return prefix + "The target's highest role is equal to or above yours. Ask a moderator with a higher role to handle this case."
 	case "bot_hierarchy":
 		return prefix + "The target's highest role is equal to or above Quack's. Ask a server administrator to review Quack's role position before trying again."
 	case "bot_target":
@@ -81,8 +82,9 @@ func caseAuthorizationErrorMessage(denial *quack.AuthorizationError) string {
 	return prefix + "Quack could not confirm authority for this case. Ask a server administrator to review your permissions and the target, then try again."
 }
 
-// deniedPermission names the Discord permission the selected outcome needs,
-// read from the denial's selected action, or "" when it is unknown.
+// deniedPermission names the Discord permission Quack needs for the
+// selected outcome, read from the denial's selected action, or "" when it
+// is unknown.
 func deniedPermission(denial *quack.AuthorizationError) string {
 	var metadata struct {
 		SelectedAction quack.ActionType `json:"selected_action"`

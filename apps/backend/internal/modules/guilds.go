@@ -10,10 +10,11 @@ import (
 // ErrUnknownGuild is returned for a guild Quack has no record of.
 var ErrUnknownGuild = errors.New("guild is not registered")
 
-// GuildStore looks up guild records.
+// GuildStore looks up guild records and their core settings.
 type GuildStore interface {
 	GetGuildByID(ctx context.Context, guildID string) (*quack.Guild, error)
 	GetGuildByDiscordID(ctx context.Context, discordGuildID string) (*quack.Guild, error)
+	GetGuildSettings(ctx context.Context, guildID string) (*quack.GuildSettings, error)
 }
 
 // Guilds maps between Discord guild IDs, which gateway events and Discord
@@ -48,6 +49,21 @@ func (g *Guilds) InternalIDAny(ctx context.Context, discordGuildID string) (stri
 		return "", ErrUnknownGuild
 	}
 	return guild.ID, nil
+}
+
+// StaffRoles returns the staff roles a guild configured, or none for a
+// guild Quack has no settings for. Modules use them with
+// quack.StaffRoles.IsDiscordStaff to recognize staff in Discord.
+func (g *Guilds) StaffRoles(ctx context.Context, discordGuildID string) (quack.StaffRoles, error) {
+	guild, err := g.store.GetGuildByDiscordID(ctx, discordGuildID)
+	if err != nil || guild == nil {
+		return quack.StaffRoles{}, err
+	}
+	settings, err := g.store.GetGuildSettings(ctx, guild.ID)
+	if err != nil || settings == nil {
+		return quack.StaffRoles{}, err
+	}
+	return settings.StaffRoles(), nil
 }
 
 // DiscordID returns the Discord ID of an active guild.

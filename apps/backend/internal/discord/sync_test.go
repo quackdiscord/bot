@@ -16,11 +16,11 @@ import (
 // guild, so it must be deliberate.
 func TestCommandDefinitionsAreUnchanged(t *testing.T) {
 	want := map[string]string{
-		caseCommandName:        "3dd34455ab6f53897bb837b02466099d5682eb603798a87ba5e73d0000c31b64",
-		messageCaseCommandName: "57ff5e9c60b08d46c0742deaad1239e86ee00415a67b5b5a54f31c2852797d46",
-		userCaseCommandName:    "8deda4a790a677cbccc1b8192e176be4c5bbda9fe5ea7540de64b8a8c5f09d8c",
-		templateCommandName:    "7094a68153fa4671fe89ecf8372fcef92a53215fe92446b14cc255771d37c51b",
-		appealsCommandName:     "c4c28da3d479feb6128a58df54a86f3ec144841a812275f3ba017e6c5bbb09ca",
+		caseCommandName:        "4ce1fd9e27ae0625a993641f2210c0d883796be320e760fcf3b5e08dfaebf653",
+		messageCaseCommandName: "82ab876577883a8670e419e70302e1c1f37ce354b9f73b03aba0f0cc8cba7f42",
+		userCaseCommandName:    "e33c3c5c40865b954227986e9b21cbdb1ace42a47e70d7e235a216788684708e",
+		templateCommandName:    "e791dbe49f47a33bb1356b23db29185d8f7abc5382e9607fb9dbc1562342cb8a",
+		appealsCommandName:     "ab97db8e3935da880271d94c552c59141e81c4aeb87897c8528bbb1bb64a0c2b",
 		helpCommandName:        "45656e62a33c545f254b43453d75d86f8113fed9d75cb2189186fcab7e3469e8",
 		uiPreviewCommandName:   "f796b81f7fecdc7372a908d5cf7ed78392e310cb78ac5d65559e6a8227e5e82a",
 		setupCommandName:       "62815bb5436129a64b726e8209613c919f757dfbe6c3c57b2888a3d394267ba1",
@@ -33,6 +33,35 @@ func TestCommandDefinitionsAreUnchanged(t *testing.T) {
 		if hash != want[command.Name] {
 			t.Errorf("%s changed: %s\n%s", command.Name, hash, body)
 		}
+	}
+}
+
+// TestStaffCommandsHaveNoDefaultPermission keeps moderator and rules
+// manager commands visible to members whose staff role carries no Discord
+// permission; the handlers check Quack's capabilities instead.
+func TestStaffCommandsHaveNoDefaultPermission(t *testing.T) {
+	for _, command := range syncedCommands(false) {
+		staffCommand := command.Name != setupCommandName && command.Name != helpCommandName
+		if staffCommand && command.DefaultMemberPermissions != nil {
+			t.Errorf("%s is hidden behind default member permissions %d", command.Name, *command.DefaultMemberPermissions)
+		}
+	}
+}
+
+// TestEditClearsDefaultMemberPermissions checks that an edit sends an
+// explicit null, since Discord keeps fields a PATCH leaves out.
+func TestEditClearsDefaultMemberPermissions(t *testing.T) {
+	body, err := editCommandBody(caseCommand())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body["default_member_permissions"]) != "null" || string(body["name"]) != `"case"` {
+		t.Fatalf("edit body = %s / %s", body["default_member_permissions"], body["name"])
+	}
+	permissions := int64(discordgo.PermissionManageGuild)
+	setup := &discordgo.ApplicationCommand{Name: "setup", DefaultMemberPermissions: &permissions}
+	if body, err := editCommandBody(setup); err != nil || string(body["default_member_permissions"]) != `"32"` {
+		t.Fatalf("edit kept %s, %v; want the set permission", body["default_member_permissions"], err)
 	}
 }
 

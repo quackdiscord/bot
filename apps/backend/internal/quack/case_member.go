@@ -125,7 +125,7 @@ func (s *CaseService) ListMemberCases(ctx context.Context, guildID, memberDiscor
 }
 
 // GetMemberCase returns a case to the member it targets. Anyone else gets
-// ErrCaseNotFound, and the attempt is audited.
+// ErrCaseNotFound. Reads are not audited.
 func (s *CaseService) GetMemberCase(ctx context.Context, caseID, memberDiscordUserID string) (*MemberCaseDetail, error) {
 	memberDiscordUserID = strings.TrimSpace(memberDiscordUserID)
 	item, err := s.store.GetCaseByID(ctx, strings.TrimSpace(caseID))
@@ -136,7 +136,6 @@ func (s *CaseService) GetMemberCase(ctx context.Context, caseID, memberDiscordUs
 		return nil, ErrCaseNotFound
 	}
 	if item.TargetDiscordUserID != memberDiscordUserID {
-		_ = s.memberReadAudit(ctx, item.GuildID, memberDiscordUserID, "member_case.read", "case", item.ID, AuditResultDenied, "not_case_target")
 		return nil, ErrCaseNotFound
 	}
 	evidence, attachments, err := s.store.ListCaseEvidence(ctx, item.ID)
@@ -201,11 +200,4 @@ func (s *CaseService) GetMemberCase(ctx context.Context, caseID, memberDiscordUs
 		detail.AppealID, detail.AppealStatus = appeal.ID, appeal.Status
 	}
 	return detail, nil
-}
-
-// memberReadAudit records a member's denied attempt to read a case.
-func (s *CaseService) memberReadAudit(ctx context.Context, guildID, memberID, action, resourceType, resourceID string, result AuditResult, failureReason string) error {
-	entry := webAudit(ctx, guildID, memberID, 0, action, resourceType, resourceID, result)
-	entry.FailureReason = failureReason
-	return recordAudit(ctx, s.store, &entry)
 }

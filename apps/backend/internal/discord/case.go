@@ -147,18 +147,18 @@ func userCaseCommand() *discordgo.ApplicationCommand {
 	})
 }
 
-// moderatorCommand limits command to guilds and, by default, to members with
-// Moderate Members. Server admins can widen or narrow that in Discord's
-// integration settings; handlers still check live permissions either way.
+// moderatorCommand limits command to guilds. It sets no default member
+// permission: moderators may come from configured roles rather than
+// Moderate Members, so Discord shows the command to every member and the
+// handlers check Quack's live capabilities instead. Server admins can still
+// narrow it in Discord's integration settings.
 //
 // DMPermission is deprecated in favor of Contexts, but it is what the
 // registered commands use and it is part of their fingerprint. Switching
 // would change every command's hash and re-register them for no change in
 // behavior, so it stays until the definitions change for another reason.
 func moderatorCommand(command *discordgo.ApplicationCommand) *discordgo.ApplicationCommand {
-	permissions := int64(discordgo.PermissionModerateMembers)
 	dmAllowed := false
-	command.DefaultMemberPermissions = &permissions
 	//lint:ignore SA1019 see the comment above.
 	command.DMPermission = &dmAllowed
 	return command
@@ -240,14 +240,9 @@ func (c *cases) command(ctx context.Context, i *discordgo.InteractionCreate) Res
 }
 
 // staff resolves who is acting, from live Discord state rather than the
-// permissions the interaction carries.
+// permissions the interaction carries; see liveStaff.
 func (c *cases) staff(ctx context.Context, i *discordgo.InteractionCreate) (*quack.GuildStaffContext, error) {
-	userID, name := interactionMember(i)
-	return c.services.Guilds.ResolveDiscordStaffContext(ctx, quack.DiscordStaffContextInput{
-		DiscordGuildID: i.GuildID,
-		DiscordUserID:  userID,
-		DisplayName:    name,
-	})
+	return liveStaff(ctx, c.services, i)
 }
 
 // template finds an active template by ID or slug. An unknown value comes
@@ -270,13 +265,12 @@ func (c *cases) template(ctx context.Context, staff *quack.GuildStaffContext, va
 }
 
 // autocomplete suggests active templates matching what the moderator typed.
-// It answers with no choices when they cannot create cases.
+// It answers with no choices when they cannot create cases, without
+// auditing: it runs on every keystroke, and the command itself audits a
+// refusal once.
 func (c *cases) autocomplete(ctx context.Context, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
-	staff, err := c.staff(ctx, i)
-	if err == nil {
-		err = c.services.Guilds.Authorize(ctx, staff, quack.PermissionActionCaseCreate, quack.AuditSourceDiscord)
-	}
-	if err != nil {
+	staff, err := quietStaff(ctx, c.services, i)
+	if err != nil || !staff.Can(quack.PermissionActionCaseCreate) {
 		return Autocomplete(nil)
 	}
 	add := i.ApplicationCommandData().GetOption("add")

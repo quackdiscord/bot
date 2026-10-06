@@ -430,7 +430,10 @@ func (r *trackingResponder) EditOriginal(edit Edit) (*discordgo.Message, error) 
 // the channel is not left "thinking". A private defer is simply replaced.
 func (r *trackingResponder) fail(response *discordgo.InteractionResponse, err error) {
 	message := "I couldn’t finish that. Try again in a moment."
-	if errors.Is(err, quack.ErrCasePermissionDenied) || errors.Is(err, quack.ErrAuthorizationDenied) {
+	switch {
+	case isMFADenial(err):
+		message = MFARequiredMessage
+	case errors.Is(err, quack.ErrCasePermissionDenied) || errors.Is(err, quack.ErrAuthorizationDenied):
 		message = "You do not have permission to use this control."
 	}
 	deferredUpdate := response.Type == discordgo.InteractionResponseDeferredMessageUpdate

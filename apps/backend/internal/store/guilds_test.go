@@ -88,11 +88,10 @@ func TestGuildLeaveAndRejoinKeepsSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	settings := bootstrap.Settings
-	settings.AuditMirrorChannelDiscordID = "audit-channel"
-	settings.ManagedEvidenceChannelDiscordID = "evidence-channel"
-	settings.NotificationIntroduction = "Welcome"
-	if _, err := s.UpdateGuildSettings(ctx, quack.UpdateGuildSettingsParams{Settings: settings}); err != nil {
+	auditChannel, evidenceChannel, introduction := "audit-channel", "evidence-channel", "Welcome"
+	if _, err := s.UpdateGuildSettings(ctx, quack.UpdateGuildSettingsParams{GuildID: bootstrap.Guild.ID, Patch: quack.GuildSettingsPatch{
+		AuditMirrorChannelDiscordID: &auditChannel, ManagedEvidenceChannelDiscordID: &evidenceChannel, NotificationIntroduction: &introduction,
+	}}); err != nil {
 		t.Fatal(err)
 	}
 

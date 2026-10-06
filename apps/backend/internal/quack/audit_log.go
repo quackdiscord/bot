@@ -2,7 +2,6 @@ package quack
 
 import (
 	"context"
-	"encoding/json"
 	"strconv"
 	"strings"
 	"time"
@@ -32,10 +31,7 @@ type AuditListInput struct {
 	MemberDiscordUserID string
 	CreatedAfter        string
 	CreatedBefore       string
-	// ReadSource is the adapter performing the read, recorded on the
-	// audit.read entry when the read is denied.
-	ReadSource AuditSource
-	BeforeID   string
+	BeforeID            string
 }
 
 // AuditListResponse is a page of audit entries. NextCursor is set when the
@@ -67,14 +63,13 @@ type AuditEntryResponse struct {
 	Metadata            any         `json:"metadata"`
 }
 
-// List returns a filtered page of the guild's audit log. Only denied reads
-// are audited.
+// List returns a filtered page of the guild's audit log. Reads, refused or
+// not, are not audited.
 func (s *AuditService) List(ctx context.Context, guildContext *GuildStaffContext, input AuditListInput) (*AuditListResponse, error) {
 	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
 		return nil, auditValidationError("missing guild context")
 	}
 	if !guildContext.Can(PermissionActionAuditRead) {
-		_ = s.recordDenied(ctx, guildContext, input)
 		return nil, ErrAuditPermissionDenied
 	}
 
@@ -163,48 +158,6 @@ func (s *AuditService) List(ctx context.Context, guildContext *GuildStaffContext
 		Offset:     offset,
 		NextCursor: nextCursor,
 	}, nil
-}
-
-// recordDenied audits a denied audit log read. The metadata says which
-// filters were used, never their values.
-func (s *AuditService) recordDenied(ctx context.Context, guildContext *GuildStaffContext, input AuditListInput) error {
-	if guildContext == nil || guildContext.Guild == nil {
-		return nil
-	}
-	actorID := ""
-	permissionBits := uint64(0)
-	if guildContext.Staff != nil {
-		actorID = guildContext.Staff.DiscordUserID
-		permissionBits = guildContext.PermissionBits
-	}
-	requestID, correlationID := TraceIDsFromContext(ctx)
-	metadata, _ := json.Marshal(map[string]any{
-		"actor_filter":    strings.TrimSpace(input.ActorDiscordUserID) != "",
-		"source_filter":   strings.TrimSpace(input.Source) != "",
-		"action_filter":   strings.TrimSpace(input.Action) != "",
-		"resource_filter": strings.TrimSpace(input.ResourceType) != "" || strings.TrimSpace(input.ResourceID) != "",
-		"case_filter":     strings.TrimSpace(input.CaseID) != "",
-		"member_filter":   strings.TrimSpace(input.MemberDiscordUserID) != "",
-		"date_filter":     strings.TrimSpace(input.CreatedAfter) != "" || strings.TrimSpace(input.CreatedBefore) != "",
-	})
-	readSource := input.ReadSource
-	if !validAuditSource(readSource) {
-		readSource = AuditSourceAPI
-	}
-	return recordAudit(ctx, s.store, &AuditLogEntry{
-		GuildID:             guildContext.Guild.ID,
-		ActorDiscordUserID:  actorID,
-		ActorPermissionBits: permissionBits,
-		Source:              readSource,
-		Action:              string(AuditActionAuditRead),
-		ResourceType:        "audit_log",
-		ResourceID:          "list",
-		Result:              AuditResultDenied,
-		FailureReason:       "permission_denied",
-		RequestID:           requestID,
-		CorrelationID:       correlationID,
-		MetadataJSON:        string(metadata),
-	})
 }
 
 // parsePage parses limit and offset query values. Limit defaults to 50 and

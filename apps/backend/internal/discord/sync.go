@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"slices"
 	"strings"
 
@@ -90,10 +91,48 @@ func (c sessionCommands) create(
 	return c.session.ApplicationCommandCreate(appID, guildID, command, syncRest(ctx)...)
 }
 
+// edit replaces a registered command. discordgo's ApplicationCommandEdit
+// leaves out unset fields, and Discord's PATCH keeps what is left out, so a
+// command that drops its default member permission would keep the old one;
+// editCommandBody sends it as an explicit null instead.
 func (c sessionCommands) edit(
 	ctx context.Context, appID, guildID, commandID string, command *discordgo.ApplicationCommand,
 ) (*discordgo.ApplicationCommand, error) {
-	return c.session.ApplicationCommandEdit(appID, guildID, commandID, command, syncRest(ctx)...)
+	body, err := editCommandBody(command)
+	if err != nil {
+		return nil, err
+	}
+	endpoint := discordgo.EndpointApplicationGlobalCommand(appID, commandID)
+	if guildID != "" {
+		endpoint = discordgo.EndpointApplicationGuildCommand(appID, guildID, commandID)
+	}
+	response, err := c.session.RequestWithBucketID(http.MethodPatch, endpoint, body, endpoint, syncRest(ctx)...)
+	if err != nil {
+		return nil, err
+	}
+	var updated discordgo.ApplicationCommand
+	if err := json.Unmarshal(response, &updated); err != nil {
+		return nil, fmt.Errorf("decode edited command: %w", err)
+	}
+	return &updated, nil
+}
+
+// editCommandBody is command as a PATCH body that clears
+// default_member_permissions when command sets none, so Discord shows it to
+// every member again.
+func editCommandBody(command *discordgo.ApplicationCommand) (map[string]json.RawMessage, error) {
+	encoded, err := json.Marshal(command)
+	if err != nil {
+		return nil, err
+	}
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &body); err != nil {
+		return nil, err
+	}
+	if _, ok := body["default_member_permissions"]; !ok {
+		body["default_member_permissions"] = json.RawMessage("null")
+	}
+	return body, nil
 }
 
 func (c sessionCommands) delete(ctx context.Context, appID, guildID, commandID string) error {

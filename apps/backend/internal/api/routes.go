@@ -27,9 +27,12 @@ var (
 	caseFailures     = []int{http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound}
 	templateFailures = []int{http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound, http.StatusConflict}
 	settingsFailures = []int{http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound}
-	appealFailures   = []int{http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound, http.StatusConflict}
-	auditFailures    = []int{http.StatusBadRequest, http.StatusForbidden}
-	unavailable      = []int{http.StatusServiceUnavailable}
+	// settingsUpdateFailures adds the conflict when staff roles change
+	// while an update is being decided.
+	settingsUpdateFailures = []int{http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound, http.StatusConflict}
+	appealFailures         = []int{http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound, http.StatusConflict}
+	auditFailures          = []int{http.StatusBadRequest, http.StatusForbidden}
+	unavailable            = []int{http.StatusServiceUnavailable}
 )
 
 // routes is the API's table of contents. Each helper below names the
@@ -122,7 +125,7 @@ func (s *Server) routes() {
 	})
 	s.staff("PATCH /guilds/{discordGuildID}/settings", quack.PermissionActionGuildSettingsWrite, s.updateSettings, Doc{
 		ID: "updateSettings", Summary: "Change some of the guild's settings",
-		Body: quack.GuildSettingsInput{}, Response: settingsEnvelope{}, Errors: settingsFailures,
+		Body: quack.GuildSettingsInput{}, Response: settingsEnvelope{}, Errors: settingsUpdateFailures,
 	})
 	s.staff("POST /guilds/{discordGuildID}/settings/starter-policy-notice/acknowledge",
 		quack.PermissionActionGuildSettingsWrite, s.acknowledgeStarterPolicyNotice, Doc{
@@ -220,8 +223,8 @@ func (s *Server) routes() {
 			Body:        reverseActionRequest{}, Status: http.StatusAccepted, Response: actionEnvelope{}, Errors: caseFailures,
 		})
 
-	// Discord display data: member search, user names and avatars, and
-	// channels. Discord answers these; the adapter caches them briefly.
+	// Discord display data: member search, user names and avatars,
+	// channels, and roles. Discord answers these; the adapter caches them briefly.
 	s.staff("GET /guilds/{discordGuildID}/directory/members", quack.PermissionActionCaseRead, s.searchMembers, Doc{
 		ID: "searchMembers", Summary: "Search the guild's current members by name",
 		Description: "Matches the start of a username or nickname. limit defaults to 10 and is capped at 25.",
@@ -236,6 +239,11 @@ func (s *Server) routes() {
 		ID: "listChannels", Summary: "The guild's channels, for channel pickers",
 		Description: "Already in Discord's sidebar order. Threads are left out.",
 		Response:    channelListResponse{}, Errors: directoryFailures,
+	})
+	s.staff("GET /guilds/{discordGuildID}/directory/roles", quack.PermissionActionGuildSettingsRead, s.listRoles, Doc{
+		ID: "listRoles", Summary: "The guild's roles, for staff role pickers",
+		Description: "Highest first. @everyone is left out.",
+		Response:    roleListResponse{}, Errors: directoryFailures,
 	})
 
 	// Audit log and statistics.
@@ -345,10 +353,14 @@ func (s *Server) staff(pattern string, action quack.PermissionAction, h http.Han
 }
 
 // staffClass registers a guild staff route: endpoint policy, session, live
-// authorization for action, and for writes an Idempotency-Key.
+// authorization for action (with an empty action, only the 2FA check of
+// confirmedMFA), and for writes an Idempotency-Key.
 func (s *Server) staffClass(pattern, class string, action quack.PermissionAction, h http.HandlerFunc, d Doc) {
 	p := Protection{Auth: AuthSession, RateLimited: true, Guild: true}
 	mws := []middleware{s.policy(class), s.requireAuth, s.guild(action)}
+	if action == "" {
+		mws = append(mws, s.confirmedMFA)
+	}
 	if isWrite(patternMethod(pattern)) {
 		p.Idempotent = true
 		mws = append(mws, s.idempotent("dashboard-write:"+class, s.endpointWriteSubject))
@@ -357,8 +369,8 @@ func (s *Server) staffClass(pattern, class string, action quack.PermissionAction
 }
 
 // appealRead registers an appeal review read. Appeal routes only require
-// guild membership up front; the appeal service checks capabilities, and
-// failures use the appeal error messages.
+// guild membership and confirmed 2FA up front; the appeal service checks
+// capabilities, and failures use the appeal error messages.
 func (s *Server) appealRead(pattern string, h http.HandlerFunc, d Doc) {
 	s.appealRoute(pattern, classRead, h, d)
 }
@@ -389,6 +401,7 @@ func (s *Server) appealRoute(pattern, class string, h http.HandlerFunc, d Doc, m
 		s.policy(class),
 		s.requireAuth,
 		s.guild(""),
+		s.confirmedMFA,
 		s.limit("appeal-staff", s.cfg.Limits.MemberRead, guildActorSubject),
 	}, mws...)...)
 }
@@ -415,7 +428,9 @@ func (s *Server) memberRoute(pattern string, p Protection, h http.HandlerFunc, d
 }
 
 // module registers a module route under modulePrefix. idempotent says
-// whether h already requires an Idempotency-Key.
+// whether h already requires an Idempotency-Key. Module routes serve
+// members too (their own tickets), so they skip confirmedMFA; the modules
+// check staff capabilities, which a 2FA-blocked caller does not hold.
 func (s *Server) module(pattern string, idempotent bool, d modules.Doc, h http.Handler) {
 	method, path, _ := strings.Cut(pattern, " ")
 	p := Protection{Auth: AuthSession, RateLimited: true, Guild: true, Idempotent: idempotent}

@@ -10,9 +10,12 @@ import (
 )
 
 // guild resolves the caller's live Discord permissions in the
-// {discordGuildID} guild and requires action. An empty action only requires
-// that the caller is present in the guild; such routes check finer
-// capabilities themselves. It must run after requireAuth.
+// {discordGuildID} guild and requires action, answering mfa_required when
+// only the guild's 2FA requirement withholds it. An empty action only
+// requires that the caller is present in the guild, so members reach
+// their own resources (module routes such as their tickets); staff-only
+// routes with an empty action add confirmedMFA. It must run after
+// requireAuth.
 func (s *Server) guild(action quack.PermissionAction) middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -30,16 +33,49 @@ func (s *Server) guild(action quack.PermissionAction) middleware {
 				}
 				return
 			}
-			if err := s.services.Guilds.Authorize(ctx, staff, action, quack.AuditSourceAPI); err != nil {
+			if err := staff.Authorize(action); err != nil {
 				slog.WarnContext(ctx, "guild permission denied",
 					"actor_discord_user_id", session.DiscordUserID, "discord_guild_id", discordGuildID,
 					"permission_action", string(action))
+				if isMFADenial(err) {
+					writeMFARequired(w, r)
+					return
+				}
 				writeError(w, r, http.StatusForbidden, codeAuthorization, "access denied")
 				return
 			}
 			next.ServeHTTP(w, r.WithContext(quack.ContextWithStaff(ctx, staff)))
 		})
 	}
+}
+
+// confirmedMFA refuses, with mfa_required, a caller whom only the guild's
+// 2FA requirement keeps from being staff. It guards staff-only routes whose
+// guild middleware has an empty action: /me, appeal review, and guild ops
+// status. Members who are not staff pass, and their routes deny them as
+// before. It must run after guild.
+func (s *Server) confirmedMFA(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		staff := quack.StaffFromContext(r.Context())
+		if err := staff.RequireConfirmedMFA(); err != nil {
+			writeMFARequired(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// isMFADenial reports whether err refused the caller for the guild's 2FA
+// requirement.
+func isMFADenial(err error) bool {
+	denial, ok := errors.AsType[*quack.AuthorizationError](err)
+	return ok && denial.Reason == quack.DenyReasonMFARequired
+}
+
+// writeMFARequired answers a caller refused for the guild's 2FA requirement.
+func writeMFARequired(w http.ResponseWriter, r *http.Request) {
+	writeError(w, r, http.StatusForbidden, codeMFARequired,
+		"this server requires two-factor authentication; turn it on in Discord, then sign in again")
 }
 
 // allow gates a route on a check that needs the guild context, answering
@@ -114,8 +150,24 @@ type settingsEnvelope struct {
 }
 
 // guildMe describes the guild and the caller's live staff permissions in it.
+// A member who is not staff gets every permission false and, unless they
+// once were staff, a summary without a staff record ID.
 func (s *Server) guildMe(w http.ResponseWriter, r *http.Request) {
 	staff := quack.StaffFromContext(r.Context())
+	summary := staffSummary{
+		DiscordUserID:       staff.ActorDiscordUserID,
+		DisplayName:         staff.Live.Actor.DisplayName,
+		PermissionBits:      quack.PermissionBitsString(staff.PermissionBits),
+		IsAdmin:             staff.IsAdmin,
+		IsModerator:         staff.IsModerator,
+		LastSeenPermissions: quack.PermissionBitsString(0),
+	}
+	if record := staff.Staff; record != nil {
+		summary.ID = record.ID
+		summary.DisplayName = record.LastKnownDisplayName
+		summary.LastActiveAt = record.LastActiveAt
+		summary.LastSeenPermissions = quack.PermissionBitsString(record.LastSeenPermissionBits)
+	}
 	writeJSON(w, http.StatusOK, guildMeResponse{
 		Guild: guildSummary{
 			ID:                 staff.Guild.ID,
@@ -124,16 +176,7 @@ func (s *Server) guildMe(w http.ResponseWriter, r *http.Request) {
 			IconURL:            staff.Guild.IconURL,
 			OwnerDiscordUserID: staff.Guild.OwnerDiscordUserID,
 		},
-		Staff: staffSummary{
-			ID:                  staff.Staff.ID,
-			DiscordUserID:       staff.Staff.DiscordUserID,
-			DisplayName:         staff.Staff.LastKnownDisplayName,
-			PermissionBits:      quack.PermissionBitsString(staff.PermissionBits),
-			IsAdmin:             staff.IsAdmin,
-			IsModerator:         staff.IsModerator,
-			LastActiveAt:        staff.Staff.LastActiveAt,
-			LastSeenPermissions: quack.PermissionBitsString(staff.Staff.LastSeenPermissionBits),
-		},
+		Staff:       summary,
 		Permissions: quack.PermissionMapStrings(staff.Permissions),
 	})
 }

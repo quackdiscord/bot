@@ -67,7 +67,7 @@ function TicketsPage() {
     return (
       <Page icon={<Ticket size={22} />} title="Tickets">
         <Empty icon="lock" title="Tickets are for staff">
-          Ticket settings need Manage Server, and the queue needs Moderate Members.
+          Ticket settings need Manage Server, and the queue is for moderators.
         </Empty>
       </Page>
     );

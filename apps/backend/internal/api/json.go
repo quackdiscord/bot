@@ -21,6 +21,7 @@ const (
 	codeAuthentication errorCode = "authentication_required"
 	codeReauthenticate errorCode = "reauthentication_required"
 	codeAuthorization  errorCode = "authorization_denied"
+	codeMFARequired    errorCode = "mfa_required"
 	codeNotFound       errorCode = "not_found"
 	codeConflict       errorCode = "conflict"
 	codeRateLimited    errorCode = "rate_limited"
@@ -99,6 +100,7 @@ var settingsErrors = serviceErrors{
 		{quack.ErrGuildSettingsValidation, http.StatusBadRequest, codeValidation, ""},
 		{quack.ErrGuildSettingsPermissionDenied, http.StatusForbidden, codeAuthorization, ""},
 		{quack.ErrGuildSettingsNotFound, http.StatusNotFound, codeNotFound, ""},
+		{quack.ErrGuildSettingsConflict, http.StatusConflict, codeConflict, ""},
 	},
 	fallback: "guild settings operation failed",
 }

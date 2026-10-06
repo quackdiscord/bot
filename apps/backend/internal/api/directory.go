@@ -27,6 +27,8 @@ type Directory interface {
 	// Channels lists the guild's text, announcement, forum, voice, stage,
 	// and category channels in Discord's sidebar order.
 	Channels(ctx context.Context, discordGuildID string) ([]DirectoryChannel, error)
+	// Roles lists the guild's roles except @everyone, highest first.
+	Roles(ctx context.Context, discordGuildID string) ([]DirectoryRole, error)
 }
 
 // DirectoryUser is how the dashboard shows a Discord user.
@@ -73,6 +75,19 @@ type DirectoryChannel struct {
 	Position int `json:"position"`
 }
 
+// DirectoryRole is one guild role, for the staff role pickers.
+type DirectoryRole struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Color is the role color as an RGB integer, 0 for none.
+	Color int `json:"color"`
+	// Position is Discord's role position; higher roles come first.
+	Position int `json:"position"`
+	// Managed roles belong to an integration, such as a bot's own role,
+	// and cannot be given to members by hand.
+	Managed bool `json:"managed"`
+}
+
 // Directory request bounds.
 const (
 	memberSearchDefaultLimit = 10
@@ -105,6 +120,10 @@ type userLookupResponse struct {
 
 type channelListResponse struct {
 	Channels []DirectoryChannel `json:"channels" nullable:"false"`
+}
+
+type roleListResponse struct {
+	Roles []DirectoryRole `json:"roles" nullable:"false"`
 }
 
 // directoryFailures are the statuses a directory handler answers with
@@ -174,6 +193,19 @@ func (s *Server) listChannels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, channelListResponse{Channels: nonNil(channels)})
+}
+
+// listRoles lists the guild's roles for the staff role pickers.
+func (s *Server) listRoles(w http.ResponseWriter, r *http.Request) {
+	if !s.directoryAvailable(w, r) {
+		return
+	}
+	roles, err := s.directory.Roles(r.Context(), r.PathValue("discordGuildID"))
+	if err != nil {
+		writeDirectoryError(w, r, err, "failed to list discord roles")
+		return
+	}
+	writeJSON(w, http.StatusOK, roleListResponse{Roles: nonNil(roles)})
 }
 
 // directoryAvailable answers 503 when the server was built without a

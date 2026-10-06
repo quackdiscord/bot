@@ -88,7 +88,7 @@ func (t templates) manage(i *discordgo.InteractionCreate, option *discordgo.Appl
 		}
 		staff, err := liveStaff(ctx, t.services, i)
 		if err != nil || !staff.Can(quack.PermissionActionCaseTemplateWrite) {
-			return fail("You need Manage Server permission to manage templates.")
+			return fail(staffDenied(err, rulesPermissionMessage("manage rules"), rulesPermissionMessage("manage rules")))
 		}
 		all, err := t.services.Templates.List(ctx, staff)
 		if err != nil {

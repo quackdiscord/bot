@@ -121,8 +121,8 @@ type TemplateActionResponse struct {
 	MaxRetries             uint8      `json:"max_retries"`
 }
 
-// List returns all of the guild's templates, including archived ones. Only
-// denials are audited.
+// List returns all of the guild's templates, including archived ones.
+// Reads are not audited.
 func (s *TemplateService) List(ctx context.Context, guildContext *GuildStaffContext) ([]TemplateResponse, error) {
 	ctx = ensureTraceContext(ctx)
 	if err := s.requireRead(ctx, guildContext, "list"); err != nil {
@@ -154,7 +154,7 @@ func (s *TemplateService) ListActive(ctx context.Context, guildContext *GuildSta
 	return active, nil
 }
 
-// Get returns one template. Only denials are audited.
+// Get returns one template. Reads are not audited.
 func (s *TemplateService) Get(ctx context.Context, guildContext *GuildStaffContext, templateID string) (*TemplateResponse, error) {
 	ctx = ensureTraceContext(ctx)
 	if err := s.requireRead(ctx, guildContext, templateID); err != nil {
@@ -284,13 +284,12 @@ func (s *TemplateService) setArchived(ctx context.Context, guildContext *GuildSt
 	return logTemplate(ctx, logMessage, changed), nil
 }
 
-// requireRead checks template read access, auditing a denial.
+// requireRead checks template read access.
 func (s *TemplateService) requireRead(ctx context.Context, guildContext *GuildStaffContext, templateID string) error {
 	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
 		return errNoGuildContext
 	}
 	if !guildContext.Can(PermissionActionCaseTemplateRead) {
-		_ = s.audit(ctx, guildContext, string(AuditActionTemplateRead), templateID, AuditResultDenied, ErrTemplatePermissionDenied.Error())
 		return ErrTemplatePermissionDenied
 	}
 	return nil
@@ -301,7 +300,6 @@ func (s *TemplateService) requireRead(ctx context.Context, guildContext *GuildSt
 func (s *TemplateService) requireWrite(ctx context.Context, guildContext *GuildStaffContext, action, templateID string) error {
 	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil ||
 		!guildContext.Can(PermissionActionCaseTemplateWrite) {
-		_ = s.audit(ctx, guildContext, action, templateID, AuditResultDenied, "permission_denied")
 		return ErrTemplatePermissionDenied
 	}
 	return nil

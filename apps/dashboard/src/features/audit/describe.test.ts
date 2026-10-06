@@ -11,7 +11,10 @@ import {
   sentence,
 } from "./describe";
 
-type Entry = Pick<AuditEntry, "action" | "result" | "metadata" | "resource_type" | "resource_id">;
+type Entry = Pick<
+  AuditEntry,
+  "action" | "result" | "metadata" | "resource_type" | "resource_id" | "failure_reason"
+>;
 
 const entry = (patch: Partial<Entry>): Entry => ({
   action: "case.void",
@@ -72,6 +75,27 @@ group("describe", () => {
         ),
       ),
     ).toBe("was denied permission to open cases");
+  });
+
+  it("blames Quack for denials about its own access", () => {
+    expect(
+      sentence(
+        describe(
+          entry({
+            action: "authorization.denied",
+            result: "denied",
+            resource_type: "permission",
+            resource_id: "case.create",
+            failure_reason: "bot_permission_required",
+          }),
+        ),
+      ),
+    ).toBe("couldn't open cases: Quack lacks the permission or role position");
+    expect(
+      sentence(
+        describe(entry({ action: "case.void", result: "denied", failure_reason: "bot_hierarchy" })),
+      ),
+    ).toBe("couldn't void a case: Quack lacks the permission or role position");
   });
 
   it("links appeals", () => {

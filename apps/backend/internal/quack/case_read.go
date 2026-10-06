@@ -158,13 +158,12 @@ type CaseNotificationResponse struct {
 	SentAt        *time.Time         `json:"sent_at,omitempty"`
 }
 
-// List returns a filtered page of the guild's cases. Only denials are
+// List returns a filtered page of the guild's cases. Reads are not
 // audited.
 func (s *CaseService) List(ctx context.Context, guildContext *GuildStaffContext, input CaseListInput) (*CaseListResponse, error) {
 	params, err := caseListParams(guildContext, input)
 	if err != nil {
 		if errors.Is(err, ErrCasePermissionDenied) {
-			_ = s.audit(ctx, guildContext, staffAttribution, string(AuditActionCaseSearch), "case", "list", AuditResultDenied, "permission_denied")
 		}
 		return nil, err
 	}

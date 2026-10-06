@@ -129,7 +129,11 @@ func closeWithFeedback(ctx context.Context, responder discord.Responder, closer 
 		if !expectedError(err) {
 			slog.ErrorContext(ctx, "Ticket close failed", "ticket_id", ticketID, "error", err)
 		}
-		_, editErr := responder.EditOriginal(discord.EditMessage(closeFailureMessage(ticket, err)))
+		message := closeFailureMessage(ticket, err)
+		if ticket == nil && refusedFor2FA(ctx, err) {
+			message = discord.Signal("error", discord.MFARequiredMessage, true)
+		}
+		_, editErr := responder.EditOriginal(discord.EditMessage(message))
 		return editErr
 	}
 	if ticket.ThreadDiscordChannelID == originChannelID {
@@ -156,22 +160,42 @@ func componentPayload(interaction *discordgo.InteractionCreate) (string, error) 
 // task acknowledges with acknowledgement, resolves the caller's live
 // authority, and runs fn. Discord's interaction permissions and the gateway
 // cache never grant staff authority.
+//
+// A member whom only the guild's 2FA requirement keeps from being staff
+// acts as a member, so their own ticket still works. If fn is refused for
+// lack of staff authority, the reply tells them how to fix it. Refusals
+// are not audited.
 func (m *Module) task(interaction *discordgo.InteractionCreate, acknowledgement *discordgo.InteractionResponse, fn func(context.Context, discord.Responder, modules.Actor) error) discord.Result {
 	return discord.Async(acknowledgement, func(ctx context.Context, responder discord.Responder) error {
 		ctx = quack.ContextWithAuditSource(ctx, quack.AuditSourceDiscord)
-		actor, err := m.actor(ctx, interaction)
+		actor, staff, err := m.actor(ctx, interaction)
 		if err != nil {
 			_, _ = responder.EditOriginal(discord.ErrorEdit("Quack could not verify your ticket access."))
 			return nil
+		}
+		if staff.MFARequired {
+			ctx = context.WithValue(ctx, mfaBlockedKey{}, true)
 		}
 		return fn(ctx, responder, actor)
 	})
 }
 
-// actor resolves the interaction's member against live Discord state.
-func (m *Module) actor(ctx context.Context, interaction *discordgo.InteractionCreate) (modules.Actor, error) {
+// mfaBlockedKey marks a context whose member only the guild's 2FA
+// requirement keeps from being staff. See task.
+type mfaBlockedKey struct{}
+
+// refusedFor2FA reports whether err refused staff authority that only the
+// guild's 2FA requirement withholds.
+func refusedFor2FA(ctx context.Context, err error) bool {
+	blocked, _ := ctx.Value(mfaBlockedKey{}).(bool)
+	return blocked && errors.Is(err, ErrPermissionDenied)
+}
+
+// actor resolves the interaction's member against live Discord state, and
+// returns the staff context it came from.
+func (m *Module) actor(ctx context.Context, interaction *discordgo.InteractionCreate) (modules.Actor, *quack.GuildStaffContext, error) {
 	if interaction.GuildID == "" {
-		return modules.Actor{}, errors.New("ticket interactions require a guild")
+		return modules.Actor{}, nil, errors.New("ticket interactions require a guild")
 	}
 	userID := ""
 	if interaction.Member != nil && interaction.Member.User != nil {
@@ -180,15 +204,15 @@ func (m *Module) actor(ctx context.Context, interaction *discordgo.InteractionCr
 		userID = interaction.User.ID
 	}
 	if userID == "" {
-		return modules.Actor{}, errors.New("ticket interaction user is unavailable")
+		return modules.Actor{}, nil, errors.New("ticket interaction user is unavailable")
 	}
 	staff, err := m.staff.ResolveDiscordStaffContext(ctx, quack.DiscordStaffContextInput{
 		DiscordGuildID: interaction.GuildID, DiscordUserID: userID,
 	})
 	if err != nil || staff == nil || !staff.Live.Actor.Present {
-		return modules.Actor{}, quack.ErrAuthorizationDenied
+		return modules.Actor{}, nil, quack.ErrAuthorizationDenied
 	}
-	return modules.ActorFor(staff), nil
+	return modules.ActorFor(staff), staff, nil
 }
 
 // showError replaces the deferred response with copy safe to show the
@@ -200,6 +224,10 @@ func showError(ctx context.Context, responder discord.Responder, err error) erro
 	} else {
 		slog.ErrorContext(ctx, "Ticket interaction failed", "error", err)
 	}
-	_, _ = responder.EditOriginal(discord.ErrorEdit(errorMessage(err)))
+	message := errorMessage(err)
+	if refusedFor2FA(ctx, err) {
+		message = discord.MFARequiredMessage
+	}
+	_, _ = responder.EditOriginal(discord.ErrorEdit(message))
 	return nil
 }

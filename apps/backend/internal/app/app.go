@@ -131,16 +131,21 @@ func build(ctx context.Context, cfg config.Config, st *store.Store, rdb *redis.C
 	bot.Dashboard = quack.NewDashboardLinks(cfg.DashboardURL())
 	registry := modules.NewRegistry(st.DB())
 	services := quack.New(quack.Deps{
-		Store:            st,
-		Guilds:           bot,
-		Enforcer:         bot,
-		Messenger:        bot,
-		Evidence:         bot,
+		Store:     st,
+		Guilds:    bot,
+		Enforcer:  bot,
+		Messenger: bot,
+		Evidence:  bot,
+		// The bot is also the quack.GuildRoleReader settings check staff
+		// roles with.
 		Channels:         bot,
 		Scheduler:        w,
 		Modules:          registry,
 		DashboardBaseURL: bot.Dashboard.Base(),
 	})
+
+	// Staff-only channel checks count the guild's moderator roles.
+	bot.StaffRoles = services.Guilds
 
 	audit := modules.NewAuditLog(st)
 	guilds := modules.NewGuilds(st)

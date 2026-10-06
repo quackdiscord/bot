@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 
 import { appealsQuery, failuresQuery, guildMeQuery } from "~/api/queries";
+import { showsOverview } from "~/features/shell/guilds";
 import { NavGroup, NavItem, Sidebar } from "~/features/shell/Sidebar";
 import { useCan } from "~/lib/permissions";
 import { Avatar } from "~/ui/Avatar";
@@ -60,6 +61,7 @@ function GuildLayout() {
   });
 
   const params = { guildId };
+  const moderates = can("case.read") || can("appeal.review") || can("audit.read");
   return (
     <>
       <Sidebar
@@ -70,48 +72,52 @@ function GuildLayout() {
           </>
         }
       >
-        <NavGroup>
-          <NavItem
-            to="/guilds/$guildId"
-            params={params}
-            activeOptions={{ exact: true }}
-            icon={<LayoutGrid size={18} />}
-          >
-            Overview
-          </NavItem>
-        </NavGroup>
-        <NavGroup title="Moderation">
-          {can("case.read") ? (
-            <NavItem to="/guilds/$guildId/cases" params={params} icon={<FolderOpen size={18} />}>
-              Cases
-            </NavItem>
-          ) : null}
-          {can("appeal.review") ? (
+        {showsOverview(me) ? (
+          <NavGroup>
             <NavItem
-              to="/guilds/$guildId/appeals"
+              to="/guilds/$guildId"
               params={params}
-              icon={<Scale size={18} />}
-              count={pendingAppeals.data?.total ?? 0}
+              activeOptions={{ exact: true }}
+              icon={<LayoutGrid size={18} />}
             >
-              Appeals
+              Overview
             </NavItem>
-          ) : null}
-          {can("case.read") ? (
-            <NavItem
-              to="/guilds/$guildId/failures"
-              params={params}
-              icon={<TriangleAlert size={18} />}
-              count={failures.data?.total ?? 0}
-            >
-              Failed actions
-            </NavItem>
-          ) : null}
-          {can("audit.read") ? (
-            <NavItem to="/guilds/$guildId/audit" params={params} icon={<ScrollText size={18} />}>
-              Audit log
-            </NavItem>
-          ) : null}
-        </NavGroup>
+          </NavGroup>
+        ) : null}
+        {moderates ? (
+          <NavGroup title="Moderation">
+            {can("case.read") ? (
+              <NavItem to="/guilds/$guildId/cases" params={params} icon={<FolderOpen size={18} />}>
+                Cases
+              </NavItem>
+            ) : null}
+            {can("appeal.review") ? (
+              <NavItem
+                to="/guilds/$guildId/appeals"
+                params={params}
+                icon={<Scale size={18} />}
+                count={pendingAppeals.data?.total ?? 0}
+              >
+                Appeals
+              </NavItem>
+            ) : null}
+            {can("case.read") ? (
+              <NavItem
+                to="/guilds/$guildId/failures"
+                params={params}
+                icon={<TriangleAlert size={18} />}
+                count={failures.data?.total ?? 0}
+              >
+                Failed actions
+              </NavItem>
+            ) : null}
+            {can("audit.read") ? (
+              <NavItem to="/guilds/$guildId/audit" params={params} icon={<ScrollText size={18} />}>
+                Audit log
+              </NavItem>
+            ) : null}
+          </NavGroup>
+        ) : null}
         {can("case_template.read") ? (
           <NavGroup title="Rules">
             <NavItem to="/guilds/$guildId/rules" params={params} icon={<BookOpen size={18} />}>

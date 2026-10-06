@@ -35,12 +35,13 @@ func (m *Module) Setup(ctx context.Context, req discord.SetupRequest) (discord.M
 	}
 	session := m.channels.session
 	entryID, err := discord.SetupChannel(ctx, session, discordGuildID,
-		req.String("entry"), settings.EntryChannelDiscordID, "support", discord.SetupTicketEntry)
+		req.String("entry"), settings.EntryChannelDiscordID, "support", discord.SetupTicketEntry, nil)
 	if err != nil {
 		return discord.Message{}, err
 	}
 	queueID, err := discord.SetupChannel(ctx, session, discordGuildID,
-		req.String("queue"), settings.QueueChannelDiscordID, "ticket-log", discord.SetupStaffChannel)
+		req.String("queue"), settings.QueueChannelDiscordID, "ticket-log", discord.SetupStaffChannel,
+		req.Guild.StaffRoles.ModeratorRoleIDs)
 	if err != nil {
 		return discord.Message{}, err
 	}
@@ -51,7 +52,9 @@ func (m *Module) Setup(ctx context.Context, req discord.SetupRequest) (discord.M
 	if err != nil || entry.GuildID != discordGuildID || entry.Type != discordgo.ChannelTypeGuildText {
 		return discord.Message{}, &discord.UserError{Message: "The entry must be a text channel in this server that Quack can access."}
 	}
-	if err := m.channels.bot().ValidateStaffChannel(ctx, discordGuildID, queueID); err != nil {
+	// The request already carries the guild's staff roles, the same ones a
+	// new queue channel was just created for.
+	if err := m.channels.bot().ValidateStaffChannelForRoles(ctx, discordGuildID, queueID, req.Guild.StaffRoles); err != nil {
 		return discord.Message{}, &discord.UserError{Message: "Quack needs to view, send, read history and attach files in the queue channel."}
 	}
 	if err := m.channels.checkBotPermissions(ctx, discordGuildID, entryID, queueID); err != nil {

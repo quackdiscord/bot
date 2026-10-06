@@ -44,8 +44,11 @@ func respond(status int, body string) *http.Response {
 func reply(body string) *http.Response { return respond(http.StatusOK, body) }
 
 // guildStore knows one active guild: "internal" in Quack, discordID in
-// Discord.
-type guildStore struct{ discordID string }
+// Discord, with moderatorRoleIDs as its moderator roles.
+type guildStore struct {
+	discordID        string
+	moderatorRoleIDs []string
+}
 
 func (s guildStore) guild() *quack.Guild {
 	return &quack.Guild{ULIDModel: quack.ULIDModel{ID: "internal"}, DiscordGuildID: s.discordID, IsActive: true}
@@ -65,9 +68,17 @@ func (s guildStore) GetGuildByDiscordID(_ context.Context, id string) (*quack.Gu
 	return s.guild(), nil
 }
 
-// testChannels returns a client for the Discord guild "guild".
+func (s guildStore) GetGuildSettings(_ context.Context, id string) (*quack.GuildSettings, error) {
+	if id != "internal" {
+		return nil, nil
+	}
+	return &quack.GuildSettings{GuildID: id, ModeratorRoleIDs: s.moderatorRoleIDs}, nil
+}
+
+// testChannels returns a client for the Discord guild "guild", whose
+// moderator role is "mod-role".
 func testChannels(session *discordgo.Session) channels {
-	return channels{session: session, guilds: modules.NewGuilds(guildStore{discordID: "guild"})}
+	return channels{session: session, guilds: modules.NewGuilds(guildStore{discordID: "guild", moderatorRoleIDs: []string{"mod-role"}})}
 }
 
 func TestCreateThreadIsPrivateAndNotInvitable(t *testing.T) {
@@ -105,12 +116,14 @@ func TestThreadSyncKeepsCurrentStaffAndRemovesFormerStaff(t *testing.T) {
 				return reply(fmt.Sprintf(`{"id":"guild","roles":[{"id":"staff-role","permissions":"%d"}]}`, discordgo.PermissionModerateMembers)), nil
 			case strings.HasSuffix(r.URL.Path, "/members/current-staff"):
 				return reply(`{"user":{"id":"current-staff"},"roles":["staff-role"]}`), nil
+			case strings.HasSuffix(r.URL.Path, "/members/role-moderator"):
+				return reply(`{"user":{"id":"role-moderator"},"roles":["mod-role"]}`), nil
 			case strings.HasSuffix(r.URL.Path, "/members/former-staff"):
 				return reply(`{"user":{"id":"former-staff"},"roles":[]}`), nil
 			case strings.HasSuffix(r.URL.Path, "/members/departed"):
 				return respond(http.StatusNotFound, `{"code":10007,"message":"Unknown Member"}`), nil
 			case strings.Contains(r.URL.Path, "/channels/thread/thread-members"):
-				return reply(`[{"user_id":"owner"},{"user_id":"bot"},{"user_id":"former-staff"},{"user_id":"current-staff"},{"user_id":"departed"}]`), nil
+				return reply(`[{"user_id":"owner"},{"user_id":"bot"},{"user_id":"former-staff"},{"user_id":"current-staff"},{"user_id":"role-moderator"},{"user_id":"departed"}]`), nil
 			}
 		case http.MethodPut:
 			added = append(added, r.URL.Path)

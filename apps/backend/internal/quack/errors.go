@@ -53,6 +53,9 @@ var (
 	ErrGuildSettingsPermissionDenied = errors.New("guild settings permission denied")
 	// ErrGuildSettingsNotFound means the guild has not been bootstrapped.
 	ErrGuildSettingsNotFound = errors.New("guild settings not found")
+	// ErrGuildSettingsConflict means the staff roles changed since the
+	// update read them. Reload the settings and try again.
+	ErrGuildSettingsConflict = errors.New("settings changed while you were editing; reload and try again")
 
 	// ErrEvidenceValidation means a message link is malformed or points
 	// outside the case's guild or target.

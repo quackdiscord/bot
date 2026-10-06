@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/internal/modules"
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
@@ -33,6 +34,8 @@ type caseApplier struct {
 	cases   CaseCreator
 	store   CoreStore
 	session *discordgo.Session
+	// guilds supplies the staff roles recovery exempts.
+	guilds *modules.Guilds
 }
 
 // ApplyHoneypotCase checks that the request is a complete, system-attributed
@@ -144,7 +147,11 @@ func (a caseApplier) PrepareHoneypotRecovery(ctx context.Context, request ApplyR
 	if guild.ID != channel.GuildID || member.User == nil || member.User.ID != request.TargetDiscordUserID {
 		return request, errors.New("honeypot recovery member is unavailable")
 	}
-	if member.User.ID == quackID || canModerate(guild, member) {
+	staffRoles, err := a.guilds.StaffRoles(ctx, guild.ID)
+	if err != nil {
+		return request, err
+	}
+	if member.User.ID == quackID || canModerate(guild, member, staffRoles) {
 		return request, ErrExempt
 	}
 	request.ContextURL = messageURL(channel.GuildID, channel.ID, message.ID)

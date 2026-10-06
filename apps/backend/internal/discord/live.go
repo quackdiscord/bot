@@ -166,9 +166,9 @@ func (l *liveState) fetched(guildID, userID string, now time.Time) (*discordgo.M
 	return &member, true
 }
 
-// stateGuild returns a copy of the guild and its roles from gateway state,
-// or false when state cannot answer: the session is not live, the guild is
-// not there, or it has not loaded yet.
+// stateGuild returns a copy of the guild, its MFA level, and its roles from
+// gateway state, or false when state cannot answer: the session is not
+// live, the guild is not there, or it has not loaded yet.
 func (b *Bot) stateGuild(guildID string) (*discordgo.Guild, bool) {
 	state := b.Session.State
 	if !b.live.live.Load() || state == nil {
@@ -191,11 +191,12 @@ func (b *Bot) stateGuild(guildID string) (*discordgo.Guild, bool) {
 		}
 	}
 	return &discordgo.Guild{
-		ID:      guild.ID,
-		Name:    guild.Name,
-		Icon:    guild.Icon,
-		OwnerID: guild.OwnerID,
-		Roles:   roles,
+		ID:       guild.ID,
+		Name:     guild.Name,
+		Icon:     guild.Icon,
+		OwnerID:  guild.OwnerID,
+		MfaLevel: guild.MfaLevel,
+		Roles:    roles,
 	}, true
 }
 

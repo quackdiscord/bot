@@ -292,11 +292,9 @@ func (s *AppealService) eligibleCase(ctx context.Context, caseID, memberDiscordU
 		return nil, ErrAppealNotFound
 	}
 	if item.TargetDiscordUserID != memberDiscordUserID {
-		_ = s.auditMember(ctx, item.GuildID, memberDiscordUserID, string(AuditActionAppealRead), item.ID, AuditResultDenied)
 		return nil, ErrAppealNotFound
 	}
 	if !canAppeal(*item, nil) {
-		_ = s.auditMember(ctx, item.GuildID, memberDiscordUserID, string(AuditActionAppealRead), item.ID, AuditResultDenied)
 		return nil, ErrAppealCaseIneligible
 	}
 	existing, err := s.store.GetAppealByCaseID(ctx, item.ID)
@@ -330,8 +328,8 @@ func (s *AppealService) reviewReasonRequired(ctx context.Context, guildID string
 	return settings != nil && settings.AppealReviewReasonRequired, nil
 }
 
-// GetMember returns an appeal to the member who filed it. Only another
-// member's attempt to read it is audited.
+// GetMember returns an appeal to the member who filed it. Anyone else gets
+// ErrAppealNotFound; reads are not audited.
 func (s *AppealService) GetMember(ctx context.Context, appealID, memberDiscordUserID string) (*AppealResponse, error) {
 	item, err := s.store.GetAppealByID(ctx, strings.TrimSpace(appealID))
 	if err != nil {
@@ -341,7 +339,6 @@ func (s *AppealService) GetMember(ctx context.Context, appealID, memberDiscordUs
 		return nil, ErrAppealNotFound
 	}
 	if item.TargetDiscordUserID != strings.TrimSpace(memberDiscordUserID) {
-		_ = s.auditMember(ctx, item.GuildID, memberDiscordUserID, string(AuditActionAppealRead), item.ID, AuditResultDenied)
 		return nil, ErrAppealNotFound
 	}
 	return s.response(ctx, item, true)
@@ -477,9 +474,4 @@ func (s *AppealService) response(ctx context.Context, item *Appeal, member bool)
 		}
 	}
 	return response, nil
-}
-
-func (s *AppealService) auditMember(ctx context.Context, guildID, memberID, action, appealID string, result AuditResult) error {
-	entry := webAudit(ctx, guildID, memberID, 0, action, "appeal", appealID, result)
-	return recordAudit(ctx, s.store, &entry)
 }
