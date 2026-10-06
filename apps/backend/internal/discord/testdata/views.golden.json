@@ -21,7 +21,7 @@
     "AllowedMentions": null
   },
   "audit_action_failed": {
-    "Content": "{{quack:error}} Ban action failed.\n-# Case #42 · \u003c@member\u003e · Spam\n-# ban\\_permission\\_denied\n-# By Quack\n-# \u003ct:1700000000:R\u003e",
+    "Content": "{{quack:error}} Ban action failed.\n-# **[Case #42](\u003chttps://dash.example/guilds/discord-guild/cases/case\u003e)** · \u003c@member\u003e · Spam\n-# ban\\_permission\\_denied\n-# By Quack\n-# \u003ct:1700000000:R\u003e",
     "Embeds": null,
     "Components": [
       {
@@ -31,13 +31,6 @@
             "style": 2,
             "disabled": false,
             "custom_id": "case:retry:v1:execution",
-            "type": 2
-          },
-          {
-            "label": "Open case",
-            "style": 5,
-            "disabled": false,
-            "url": "https://dash.example/guilds/discord-guild/cases/case",
             "type": 2
           }
         ],
@@ -49,22 +42,9 @@
     "AllowedMentions": null
   },
   "audit_case_create": {
-    "Content": "{{quack:case_add}} \u003c@moderator\u003e added a case.\n-# Case #42 · \u003c@member\u003e · Spam\n-# Level: Third case\n-# Outcome: Timeout (24h)\n-# \u003ct:1700000000:R\u003e",
+    "Content": "{{quack:case_add}} \u003c@moderator\u003e added **[a case](\u003chttps://dash.example/guilds/discord-guild/cases/case\u003e)**.\n-# Case #42 · \u003c@member\u003e · Spam\n-# Level: Third case\n-# Outcome: Timeout (24h)\n-# \u003ct:1700000000:R\u003e",
     "Embeds": null,
-    "Components": [
-      {
-        "components": [
-          {
-            "label": "Open case",
-            "style": 5,
-            "disabled": false,
-            "url": "https://dash.example/guilds/discord-guild/cases/case",
-            "type": 2
-          }
-        ],
-        "type": 1
-      }
-    ],
+    "Components": null,
     "Files": null,
     "Ephemeral": false,
     "AllowedMentions": null

@@ -452,47 +452,51 @@ func TestWebLinkAcceptsOnlySafeDestinations(t *testing.T) {
 	}
 }
 
-// TestAuditMirrorLinksDashboardPages links each entry to the page it is
-// about, next to the Retry action control when there is one.
+// TestAuditMirrorLinksDashboardPages links each entry inline, in bold, to
+// the page it is about, with no link buttons. Only the Retry action control
+// stays a button.
 func TestAuditMirrorLinksDashboardPages(t *testing.T) {
 	dashboard := quack.NewDashboardLinks("https://dash.example")
 	const guild = "https://dash.example/guilds/discord-guild"
 	for _, test := range []struct {
-		entry      quack.AuditMirrorMessage
-		url, label string
+		entry quack.AuditMirrorMessage
+		want  string
 	}{
-		{quack.AuditMirrorMessage{Action: "appeal.accepted", ResourceType: "appeal", ResourceID: "appeal-1", CaseID: "case-1"}, guild + "/appeals/appeal-1", "View appeal"},
-		{quack.AuditMirrorMessage{Action: "appeal.submit", ResourceType: "appeal"}, guild + "/appeals", "Open in dashboard"},
-		{quack.AuditMirrorMessage{Action: "case.void", ResourceType: "case", ResourceID: "case-1", CaseID: "case-1"}, guild + "/cases/case-1", "Open case"},
-		{quack.AuditMirrorMessage{Action: "case_template.update", ResourceType: "case_template", ResourceID: "rule-1"}, guild + "/rules/rule-1", "Open rule"},
-		{quack.AuditMirrorMessage{Action: "case_template.import", ResourceType: "case_template"}, guild + "/rules", "Open in dashboard"},
-		{quack.AuditMirrorMessage{Action: "guild_settings.update", ResourceType: "guild_settings", ResourceID: "settings-1"}, guild + "/settings", "Open settings"},
-		{quack.AuditMirrorMessage{Action: "ticket.open", ResourceType: "ticket", ResourceID: "ticket-1"}, guild + "/modules/tickets", "Open in dashboard"},
-		{quack.AuditMirrorMessage{Action: "honeypot.settings.update"}, guild + "/modules/honeypot", "Open settings"},
-		{quack.AuditMirrorMessage{Action: "guild.lifecycle.bootstrap", ResourceType: "guild"}, "", ""},
+		{quack.AuditMirrorMessage{Action: "appeal.accepted", ResourceType: "appeal", ResourceID: "appeal-1", CaseID: "case-1", CaseNumber: 4}, "accepted **[an appeal](<" + guild + "/appeals/appeal-1>)**."},
+		{quack.AuditMirrorMessage{Action: "appeal.submit", ResourceType: "appeal"}, "submitted **[an appeal](<" + guild + "/appeals>)**."},
+		{quack.AuditMirrorMessage{Action: "case.void", ResourceType: "case", ResourceID: "case-1", CaseID: "case-1"}, "voided **[a case](<" + guild + "/cases/case-1>)**."},
+		{quack.AuditMirrorMessage{Action: "case_action.succeeded", ActionType: quack.ActionBanUser, CaseID: "case-1", CaseNumber: 4}, "-# **[Case #4](<" + guild + "/cases/case-1>)**"},
+		{quack.AuditMirrorMessage{Action: "case_template.update", ResourceType: "case_template", ResourceID: "rule-1"}, "updated **[a template](<" + guild + "/rules/rule-1>)**."},
+		{quack.AuditMirrorMessage{Action: "case_template.import", ResourceType: "case_template"}, "imported **[templates](<" + guild + "/rules>)**."},
+		{quack.AuditMirrorMessage{Action: "guild_settings.update", ResourceType: "guild_settings", ResourceID: "settings-1"}, "updated **[Quack settings](<" + guild + "/settings>)**."},
+		{quack.AuditMirrorMessage{Action: "ticket.open", ResourceType: "ticket", ResourceID: "ticket-1"}, "opened **[a ticket](<" + guild + "/modules/tickets>)**."},
+		{quack.AuditMirrorMessage{Action: "honeypot.settings.update"}, "-# **[Open settings](<" + guild + "/modules/honeypot>)**"},
+		{quack.AuditMirrorMessage{Action: "guild.lifecycle.bootstrap", ResourceType: "guild"}, ""},
 	} {
 		test.entry.DiscordGuildID, test.entry.Result = "discord-guild", quack.AuditResultSuccess
 		message := auditMirrorMessage(test.entry, dashboard)
-		if test.url == "" {
-			if len(message.Components) != 0 {
-				t.Fatalf("%s: unexpected link %+v", test.entry.Action, message.Components)
-			}
-			continue
+		if len(message.Components) != 0 {
+			t.Fatalf("%s: unexpected buttons %+v", test.entry.Action, message.Components)
 		}
-		button := message.Components[0].(discordgo.ActionsRow).Components[0].(discordgo.Button)
-		if button.URL != test.url || button.Label != test.label || button.Style != discordgo.LinkButton {
-			t.Fatalf("%s: got %+v", test.entry.Action, button)
+		if links := strings.Count(message.Content, "]("); test.want == "" && links != 0 || test.want != "" && links != 1 {
+			t.Fatalf("%s: want one link at most: %s", test.entry.Action, message.Content)
+		}
+		if !strings.Contains(message.Content, test.want) {
+			t.Fatalf("%s: missing %q: %s", test.entry.Action, test.want, message.Content)
+		}
+		if spaced := message.ForApplication("app"); strings.Contains(spaced.Content, "spacer") {
+			t.Fatalf("%s: spacer left: %s", test.entry.Action, spaced.Content)
 		}
 	}
 	failed := auditMirrorMessage(quack.AuditMirrorMessage{
 		DiscordGuildID: "discord-guild", Action: "case_action.failed", Result: quack.AuditResultFailure,
-		ResourceType: "case_action_execution", CaseID: "case-1", RetryExecutionID: "execution",
+		ResourceType: "case_action_execution", CaseID: "case-1", CaseNumber: 4, RetryExecutionID: "execution",
 	}, dashboard)
 	row := failed.Components[0].(discordgo.ActionsRow)
-	if len(failed.Components) != 1 || len(row.Components) != 2 ||
+	if len(failed.Components) != 1 || len(row.Components) != 1 ||
 		row.Components[0].(discordgo.Button).CustomID != "case:retry:v1:execution" ||
-		row.Components[1].(discordgo.Button).URL != guild+"/cases/case-1" {
-		t.Fatalf("failed action controls: %+v", failed.Components)
+		!strings.Contains(failed.Content, "**[Case #4](<"+guild+"/cases/case-1>)**") {
+		t.Fatalf("failed action controls: %+v %s", failed.Components, failed.Content)
 	}
 }
 

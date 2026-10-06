@@ -702,9 +702,12 @@ source of truth.
   them. Case-related entries carry the case number, target, rule, level and
   outcome (on `case.create`), whether a reversal found the punishment already
   over, and the retryable execution. The Discord entry
-  (`discord/views_audit.go`) is one line with subtext details, a "Retry
-  action" button for retryable failures (same checks as `/case retry`), and a
-  link to the relevant dashboard page.
+  (`discord/views_audit.go`) is one line with subtext details and a "Retry
+  action" button for retryable failures (same checks as `/case retry`). It
+  links to the relevant dashboard page inline, like the dashboard's audit
+  log, never with a button: the sentence's object becomes a bold link
+  (`**[an appeal](<url>)**`), or else the `Case #N` subtext does, or else a
+  bold link line is added.
 - **Delivery.** Rows are leased and marked sending just before the Discord
   call. A lapsed claim is retried; a lapsed send fails with
   `delivery_outcome_unknown` and is never retried, so a crash can lose a post
@@ -748,8 +751,9 @@ the forms they open, plus Retry, Dismiss, and reversals on shared messages,
 answer privately. Paging buttons edit their own message. Custom IDs are part
 of messages already posted in Discord, so never rename them.
 
-Messages with a matching dashboard page carry a link button built by
-`quack.DashboardLinks` (`quack/dashboard.go`) from `config.Config.DashboardURL`.
+Messages with a matching dashboard page carry a link button, or for audit
+mirror entries an inline link, built by `quack.DashboardLinks`
+(`quack/dashboard.go`) from `config.Config.DashboardURL`.
 Path segments must be opaque IDs or page names, and links never carry
 evidence, context, or other text. Without a dashboard, or when a message
 already uses Discord's five rows, the link is omitted. These paths are
