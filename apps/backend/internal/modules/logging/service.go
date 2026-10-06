@@ -97,7 +97,9 @@ func (s *Service) UpdateSettings(ctx context.Context, actor modules.Actor, enabl
 }
 
 // RepairDeletedChannel removes every route to channelID, turning logging
-// off if no routes remain. It needs Manage Guild.
+// off if no routes remain. Settings are left untouched when no route uses
+// the channel, since every channel deletion in the guild lands here. It
+// needs Manage Guild.
 func (s *Service) RepairDeletedChannel(ctx context.Context, actor modules.Actor, channelID string) (Settings, bool, error) {
 	if !actor.CanManage {
 		return Settings{}, false, ErrPermissionDenied
@@ -105,6 +107,9 @@ func (s *Service) RepairDeletedChannel(ctx context.Context, actor modules.Actor,
 	settings, enabled, err := s.loadSettings(ctx, actor.GuildID)
 	if err != nil {
 		return Settings{}, false, err
+	}
+	if !slices.Contains(destinations(settings.Channels), channelID) {
+		return settings, enabled, nil
 	}
 	maps.DeleteFunc(settings.Channels, func(_ EventType, destination string) bool {
 		return destination == channelID

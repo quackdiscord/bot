@@ -251,7 +251,11 @@ func TestCacheMessageLoadsPersistedLimit(t *testing.T) {
 func TestRepairAndGuildModuleIsolation(t *testing.T) {
 	service, _ := setup(t)
 	ctx := context.Background()
-	settings, enabled, err := service.RepairDeletedChannel(ctx, admin, "staff-log")
+	settings, enabled, err := service.RepairDeletedChannel(ctx, admin, "unrelated")
+	if err != nil || !enabled || len(settings.Channels) != 4 {
+		t.Fatalf("unrelated deletion: enabled %v, settings %+v, err %v; want untouched", enabled, settings, err)
+	}
+	settings, enabled, err = service.RepairDeletedChannel(ctx, admin, "staff-log")
 	if err != nil {
 		t.Fatal(err)
 	}
