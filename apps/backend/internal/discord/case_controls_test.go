@@ -107,6 +107,12 @@ func TestEditContextSavesFreeText(t *testing.T) {
 		!strings.Contains(*evidence.edit.Content, "No evidence has been added yet.") {
 		t.Fatalf("evidence view lost the context: %s", *evidence.edit.Content)
 	}
+	viewed := run(t, h.cases.Command(context.Background(), interaction(discordgo.InteractionApplicationCommand, 0, subcommand("evidence",
+		&discordgo.ApplicationCommandInteractionDataOption{Name: "case", Type: discordgo.ApplicationCommandOptionString, Value: "1"},
+	))))
+	if !strings.Contains(*viewed.edit.Content, "Evidence for case #1") {
+		t.Fatalf("/case evidence with only a case: %s", *viewed.edit.Content)
+	}
 	history := run(t, h.cases.Component("user_detail")(context.Background(), component("case:user_detail:v1:target-1")))
 	if !strings.Contains(*history.edit.Content, "<@target-1>") || !strings.Contains(fmt.Sprint(*history.edit.Components), "https://dash.example/guilds/guild-1/members/target-1") {
 		t.Fatalf("history view: %s %+v", *history.edit.Content, *history.edit.Components)

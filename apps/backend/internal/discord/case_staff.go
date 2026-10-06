@@ -57,7 +57,16 @@ func (c *cases) runStaffCommand(
 	switch selected.Name {
 	case "evidence":
 		links := nonEmpty(strings.TrimSpace(option("message_link")))
-		detail, err := c.services.Cases.AddEvidence(ctx, staff, option("case"), links, interactionFiles(i, selected.GetOption("file")))
+		files := interactionFiles(i, selected.GetOption("file"))
+		if len(links) == 0 && len(files) == 0 {
+			// With nothing to add, show what the case already has.
+			evidence, err := c.services.Cases.EvidencePage(ctx, staff, option("case"), 1)
+			if err != nil {
+				return Message{}, err
+			}
+			return c.webLink(evidencePageMessage(evidence, 1, i.AppID), i.GuildID, "cases", evidence.CaseID), nil
+		}
+		detail, err := c.services.Cases.AddEvidence(ctx, staff, option("case"), links, files)
 		if err != nil {
 			return Message{}, err
 		}

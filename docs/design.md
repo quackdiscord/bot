@@ -209,7 +209,9 @@ Evidence enters through a message context action on a live message or a
 pasted message link (Discord or dashboard), and both use one capture flow.
 Quack snapshots the text, author, guild/channel/message IDs, timestamps,
 embed metadata, and attachment names, types, sizes, and URLs. The snapshot
-belongs to the case and survives later edits or deletion.
+belongs to the case and survives later edits or deletion. `/case evidence`
+adds a file or message link to an existing case; given only the case, it
+shows the evidence the case already has.
 
 Quack manages a staff-only evidence channel per guild and copies supported
 attachments into it. When Discord limits prevent a copy, the metadata and

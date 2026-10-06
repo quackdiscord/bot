@@ -18,7 +18,7 @@ function Commands() {
             ["/case add", "Add a case for a member under a rule."],
             ["Apps → Add case", "Right-click a message to add a case with it as evidence."],
             ["Apps → Add case for member", "Right-click a member to add a case."],
-            ["/case evidence", "Add a file or message link to a case."],
+            ["/case evidence", "Show a case's evidence, or add a file or message link to it."],
             ["/case view", "Show one case."],
             ["/case list", "Show recent cases."],
             ["/case user", "Show a member's case history."],

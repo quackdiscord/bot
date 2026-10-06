@@ -16,7 +16,7 @@ import (
 // guild, so it must be deliberate.
 func TestCommandDefinitionsAreUnchanged(t *testing.T) {
 	want := map[string]string{
-		caseCommandName:        "b6809d0a613e848ba24aeb1321c98be8296ed6a833e7842271fdfde4410fa6d2",
+		caseCommandName:        "3dd34455ab6f53897bb837b02466099d5682eb603798a87ba5e73d0000c31b64",
 		messageCaseCommandName: "57ff5e9c60b08d46c0742deaad1239e86ee00415a67b5b5a54f31c2852797d46",
 		userCaseCommandName:    "8deda4a790a677cbccc1b8192e176be4c5bbda9fe5ea7540de64b8a8c5f09d8c",
 		templateCommandName:    "7094a68153fa4671fe89ecf8372fcef92a53215fe92446b14cc255771d37c51b",

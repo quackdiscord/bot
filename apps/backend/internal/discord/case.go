@@ -102,7 +102,7 @@ func caseCommand() *discordgo.ApplicationCommand {
 				text("message_link", "Discord message link to capture as evidence.", false),
 				file("Screenshot or file to save as evidence."),
 			),
-			subcommand("evidence", "Add evidence to an existing case.",
+			subcommand("evidence", "View a case's evidence, or add a file or message link.",
 				text("case", "Case number or ID", true),
 				file("Screenshot or file to save."),
 				text("message_link", "Discord message to preserve.", false),
