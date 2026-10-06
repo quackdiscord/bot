@@ -24,8 +24,31 @@ func appealsCommand() *discordgo.ApplicationCommand {
 }
 
 // liveStaff resolves who is acting from live Discord state rather than the
-// permissions the interaction carries.
+// permissions the interaction carries, for staff commands and controls.
+// Members who are not staff, or whom the server's 2FA requirement blocks,
+// get the denial instead of a context, and staffDenied turns it into a
+// reply. Such refusals are about the person acting, so they are not
+// audited.
 func liveStaff(ctx context.Context, services *quack.Services, i *discordgo.InteractionCreate) (*quack.GuildStaffContext, error) {
+	userID, name := interactionMember(i)
+	staff, err := services.Guilds.ResolveDiscordStaffContext(ctx, quack.DiscordStaffContextInput{
+		DiscordGuildID: i.GuildID,
+		DiscordUserID:  userID,
+		DisplayName:    name,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := staff.AuthorizeStaff(); err != nil {
+		return nil, err
+	}
+	return staff, nil
+}
+
+// quietStaff resolves who is acting like liveStaff but refuses nobody and
+// audits nothing, for autocomplete, which runs on every keystroke. Callers
+// check capabilities with Can, which a 2FA-blocked member has none of.
+func quietStaff(ctx context.Context, services *quack.Services, i *discordgo.InteractionCreate) (*quack.GuildStaffContext, error) {
 	userID, name := interactionMember(i)
 	return services.Guilds.ResolveDiscordStaffContext(ctx, quack.DiscordStaffContextInput{
 		DiscordGuildID: i.GuildID,
@@ -132,7 +155,7 @@ func (a appeals) decision(i *discordgo.InteractionCreate, action, appealID, reas
 		}
 		staff, err := liveStaff(ctx, a.services, i)
 		if err != nil {
-			return fail("I couldn’t check your Discord permissions. Try again in a moment.")
+			return fail(staffDenied(err, "Only moderators can review appeals.", "I couldn’t check your Discord permissions. Try again in a moment."))
 		}
 		var decided *quack.AppealResponse
 		if action == appealAcceptAction {
@@ -144,7 +167,7 @@ func (a appeals) decision(i *discordgo.InteractionCreate, action, appealID, reas
 		case errors.Is(err, quack.ErrAppealConflict):
 			return fail("This appeal has already been decided or its case was voided.")
 		case errors.Is(err, quack.ErrAppealPermissionDenied):
-			return fail("You need Moderate Members permission to review appeals.")
+			return fail("Only moderators can review appeals.")
 		case errors.Is(err, quack.ErrAppealNotFound):
 			return fail("I couldn’t find that appeal in this server. Open /appeals to see pending appeals.")
 		case errors.Is(err, quack.ErrAppealValidation):
@@ -181,12 +204,12 @@ func (a appeals) statementPage(delta int) Handler {
 		task := func(ctx context.Context, responder Responder) error {
 			staff, err := liveStaff(ctx, a.services, i)
 			if err != nil {
-				_, err = responder.EditOriginal(ErrorEdit("I couldn’t check your Discord permissions. Try again in a moment."))
+				_, err = responder.EditOriginal(ErrorEdit(staffDenied(err, "Only moderators can review appeals.", "I couldn’t check your Discord permissions. Try again in a moment.")))
 				return err
 			}
 			appeal, err := a.services.Appeals.GetStaff(ctx, staff, appealID)
 			if err != nil {
-				_, err = responder.EditOriginal(ErrorEdit("I couldn’t open that appeal. Check that you have Moderate Members permission, then try /appeals."))
+				_, err = responder.EditOriginal(ErrorEdit("I couldn’t open that appeal. Check that you’re a moderator here, then try /appeals."))
 				return err
 			}
 			message := appealStaffPage(appeal, page+delta, i.AppID, a.staffURL(i, appeal))
@@ -236,11 +259,11 @@ func (a appeals) queue(i *discordgo.InteractionCreate, page int, update bool) Ta
 		}
 		staff, err := liveStaff(ctx, a.services, i)
 		if err != nil {
-			return fail("I couldn’t check your Discord permissions. Try again in a moment.")
+			return fail(staffDenied(err, "Only moderators can review this server’s appeals.", "I couldn’t check your Discord permissions. Try again in a moment."))
 		}
 		list, err := a.services.Appeals.ListStaff(ctx, staff, quack.AppealStatusPending, 1, page-1)
 		if err != nil {
-			return fail("You need Moderate Members permission to review this server's appeals.")
+			return fail("Only moderators can review this server’s appeals.")
 		}
 		if len(list.Appeals) == 0 && page > 1 {
 			page = 1
@@ -286,7 +309,7 @@ func appealReversal(services *quack.Services) Handler {
 		return Async(DeferEphemeral(), func(ctx context.Context, responder Responder) error {
 			staff, err := liveStaff(ctx, services, i)
 			if err != nil {
-				_, _ = responder.EditOriginal(ErrorEdit("I couldn’t check your Discord permissions. Try again in a moment."))
+				_, _ = responder.EditOriginal(ErrorEdit(staffDenied(err, "Only moderators can remove punishments.", "I couldn’t check your Discord permissions. Try again in a moment.")))
 				return nil
 			}
 			appeal, err := services.Appeals.GetStaff(ctx, staff, appealID)

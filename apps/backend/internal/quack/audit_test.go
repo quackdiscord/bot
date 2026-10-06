@@ -87,7 +87,7 @@ func TestAuditServiceRedactsAndFiltersCompleteContract(t *testing.T) {
 	seeded, _ := repository.ListAuditLogEntriesFiltered(ctx, quack.ListAuditLogEntriesParams{GuildID: moderator.Guild.ID, Limit: 100})
 
 	service := quack.NewAuditService(repository)
-	result, err := service.List(ctx, moderator, quack.AuditListInput{Source: string(quack.AuditSourceHoneypot), CaseID: "case-1", MemberDiscordUserID: "member-1", CreatedAfter: now.Add(-time.Hour).Format(time.RFC3339), CreatedBefore: now.Add(time.Hour).Format(time.RFC3339), ReadSource: quack.AuditSourceDiscord})
+	result, err := service.List(ctx, moderator, quack.AuditListInput{Source: string(quack.AuditSourceHoneypot), CaseID: "case-1", MemberDiscordUserID: "member-1", CreatedAfter: now.Add(-time.Hour).Format(time.RFC3339), CreatedBefore: now.Add(time.Hour).Format(time.RFC3339)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,12 +122,10 @@ func TestAuditServiceRedactsAndFiltersCompleteContract(t *testing.T) {
 	}
 
 	ordinary := templateGuildContext(t, repository, "audit-guild", "ordinary", uint64(discordgo.PermissionSendMessages))
-	if _, err := service.List(ctx, ordinary, quack.AuditListInput{ReadSource: quack.AuditSourceDiscord}); !errors.Is(err, quack.ErrAuditPermissionDenied) {
+	if _, err := service.List(ctx, ordinary, quack.AuditListInput{}); !errors.Is(err, quack.ErrAuditPermissionDenied) {
 		t.Fatalf("expected moderator permission denial, got %v", err)
 	}
-	audits := readAudits()
-	if len(audits) != 1 || audits[0].Result != quack.AuditResultDenied || audits[0].Source != quack.AuditSourceDiscord ||
-		audits[0].RequestID != "request-1" || audits[0].CorrelationID != "trace-1" {
-		t.Fatalf("want one trace-linked Discord denial audit, got %+v", audits)
+	if audits := readAudits(); len(audits) != 0 {
+		t.Fatalf("a refused read about the actor was audited: %+v", audits)
 	}
 }

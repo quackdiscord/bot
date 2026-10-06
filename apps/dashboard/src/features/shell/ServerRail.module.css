@@ -67,6 +67,39 @@
   transform: translateY(1px);
 }
 
+.item[data-locked] .button {
+  opacity: 0.55;
+  filter: grayscale(1);
+  transition:
+    border-radius var(--base) var(--ease-out),
+    background-color var(--base) var(--ease),
+    opacity var(--base) var(--ease),
+    filter var(--base) var(--ease);
+}
+
+.item[data-locked] .button:hover,
+.item[data-locked][data-active] .button {
+  opacity: 1;
+  filter: none;
+}
+
+.lock {
+  position: absolute;
+  right: 10px;
+  bottom: -2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 3px solid var(--bg-rail);
+  border-radius: 50%;
+  background: var(--warning);
+  color: var(--accent-ink);
+  box-sizing: content-box;
+  pointer-events: none;
+}
+
 .home,
 .home:hover,
 .item[data-active] .home {

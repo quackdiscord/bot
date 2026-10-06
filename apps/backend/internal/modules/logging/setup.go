@@ -29,7 +29,8 @@ func (m *Module) Setup(ctx context.Context, req discord.SetupRequest) (discord.M
 		return discord.Message{}, &discord.UserError{Message: "Could not load logging settings. Try again."}
 	}
 	channelID, err := discord.SetupChannel(ctx, m.client.bot.Session, discordGuildID,
-		req.String("channel"), settings.Channels[MessageEdit], "discord-log", discord.SetupStaffChannel)
+		req.String("channel"), settings.Channels[MessageEdit], "discord-log", discord.SetupStaffChannel,
+		req.Guild.StaffRoles.ModeratorRoleIDs)
 	if err != nil {
 		return discord.Message{}, err
 	}

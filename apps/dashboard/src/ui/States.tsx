@@ -1,6 +1,7 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 
 import { ApiError } from "~/api/client";
+import { useSignInAgain } from "~/api/session";
 import { cx } from "~/lib/cx";
 
 import { Button } from "./Button";
@@ -39,8 +40,12 @@ export function Empty({
   );
 }
 
-/** ErrorState shows a failed load with the server's message and a retry. */
+/**
+ * ErrorState shows a failed load with the server's message and a retry. A
+ * server's 2FA requirement gets its own explanation instead.
+ */
 export function ErrorState({ error, retry }: { error: unknown; retry?: () => void }) {
+  if (error instanceof ApiError && error.code === "mfa_required") return <MfaRequired />;
   const message =
     error instanceof ApiError
       ? error.message
@@ -59,6 +64,36 @@ export function ErrorState({ error, retry }: { error: unknown; retry?: () => voi
       }
     >
       {forbidden ? "Your Discord permissions in this server don't include this page." : message}
+    </Empty>
+  );
+}
+
+/**
+ * MfaRequired explains that the server requires 2FA for moderation and
+ * Quack hasn't confirmed the user has it. Quack only learns that when they
+ * sign in, so the way back is to turn 2FA on, then sign in again.
+ */
+export function MfaRequired() {
+  const signInAgain = useSignInAgain();
+  const [pending, setPending] = useState(false);
+  return (
+    <Empty
+      icon="lock"
+      title="This server requires 2FA"
+      action={
+        <Button
+          pending={pending}
+          onClick={() => {
+            setPending(true);
+            void signInAgain();
+          }}
+        >
+          Sign in again
+        </Button>
+      }
+    >
+      It requires two-factor authentication for moderation, so Quack does too. Turn on two-factor
+      authentication in Discord, then sign out and back in.
     </Empty>
   );
 }

@@ -153,6 +153,14 @@ func (staleStaffStore) UpsertStaffMember(context.Context, quack.UpsertStaffMembe
 	return &quack.StaffMember{DiscordUserID: "member"}, nil
 }
 
+func (staleStaffStore) GetGuildSettings(context.Context, string) (*quack.GuildSettings, error) {
+	return nil, nil
+}
+
+func (staleStaffStore) GetStaffMember(context.Context, string, string) (*quack.StaffMember, error) {
+	return nil, nil
+}
+
 // demotedDirectory reports a member whose Administrator role is gone,
 // though the interaction still claims it.
 type demotedDirectory struct {
@@ -172,7 +180,7 @@ func (d *demotedDirectory) GuildAuthorization(context.Context, string, string, s
 func TestInteractionActorUsesLiveAuthority(t *testing.T) {
 	directory := &demotedDirectory{}
 	m := &Module{staff: quack.NewGuildService(staleStaffStore{}, directory)}
-	actor, err := m.actor(context.Background(), &discordgo.InteractionCreate{
+	actor, _, err := m.actor(context.Background(), &discordgo.InteractionCreate{
 		Interaction: &discordgo.Interaction{GuildID: "guild", Member: &discordgo.Member{
 			User: &discordgo.User{ID: "member"}, Permissions: discordgo.PermissionAdministrator,
 		}},

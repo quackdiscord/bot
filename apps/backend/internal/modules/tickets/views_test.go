@@ -269,6 +269,39 @@ func (deniedStaff) ResolveDiscordStaffContext(context.Context, quack.DiscordStaf
 	return nil, quack.ErrAuthorizationDenied
 }
 
+// unconfirmed2FA is a server manager whom only the guild's 2FA requirement
+// keeps from being staff.
+type unconfirmed2FA struct{}
+
+func (unconfirmed2FA) ResolveDiscordStaffContext(context.Context, quack.DiscordStaffContextInput) (*quack.GuildStaffContext, error) {
+	return &quack.GuildStaffContext{
+		Guild:              &quack.Guild{ULIDModel: quack.ULIDModel{ID: "internal"}, DiscordGuildID: "guild"},
+		ActorDiscordUserID: "manager",
+		Permissions:        map[quack.PermissionAction]bool{},
+		MFARequired:        true,
+		Live:               quack.DiscordGuildAuthorization{Actor: quack.DiscordMemberAuthorization{DiscordUserID: "manager", Present: true}},
+	}, nil
+}
+
+// TestStaffControlsExplainThe2FARequirement checks that a ticket control
+// refused only because of the guild's 2FA requirement says so. Such
+// refusals are about the person acting, so nothing is audited.
+func TestStaffControlsExplainThe2FARequirement(t *testing.T) {
+	m := &Module{staff: unconfirmed2FA{}, adapter: &DiscordAdapter{}}
+	interaction := &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{
+		GuildID: "guild", Type: discordgo.InteractionMessageComponent,
+		Member: &discordgo.Member{User: &discordgo.User{ID: "manager"}},
+		Data:   discordgo.MessageComponentInteractionData{CustomID: customID("repair", "ticket")},
+	}}
+	responder := &progressResponder{}
+	if err := m.repairComponent(context.Background(), interaction).Task(context.Background(), responder); err != nil {
+		t.Fatal(err)
+	}
+	if len(responder.messages) != 1 || !strings.Contains(responder.messages[0], "two-factor authentication") {
+		t.Fatalf("2FA refusal = %q", responder.messages)
+	}
+}
+
 // TestRepairNeedsLiveAuthority re-checks authority when Repair ticket is
 // pressed rather than trusting who was shown the button.
 func TestRepairNeedsLiveAuthority(t *testing.T) {

@@ -40,9 +40,9 @@ function Cases() {
           <li>Posts a short summary where you ran the command.</li>
         </ul>
         <Note>
-          Quack won't add a case if you don't have the Discord permission for the punishment it
-          picked. For example, you need <b>Ban Members</b> if the case would ban someone. See{" "}
-          <Link to="/docs/permissions">Who can do what</Link>.
+          Quack punishes with its own permissions, so you don't need Ban Members for a case that
+          bans. You do need a higher role than the member, and Quack won't add a case it can't carry
+          out. See <Link to="/docs/permissions">Who can do what</Link>.
         </Note>
       </Section>
 

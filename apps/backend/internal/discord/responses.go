@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/internal/quack"
 )
 
 // Public answers with a message everyone in the channel can see.
@@ -119,6 +120,32 @@ func (r publicResponder) EditOriginal(edit Edit) (*discordgo.Message, error) {
 		message.Components = *edit.Components
 	}
 	return r.Responder.Followup(message)
+}
+
+// MFARequiredMessage tells a staff member that the server's two-factor
+// requirement is why Quack refused them, and how to get access back.
+// Modules use it for their own staff controls.
+const MFARequiredMessage = "This server requires two-factor authentication for moderation. Turn on 2FA in your Discord settings, then sign in to the Quack dashboard once so Quack can confirm it."
+
+// isMFADenial reports whether err refused a staff member because the server
+// requires 2FA that Quack has not confirmed for them.
+func isMFADenial(err error) bool {
+	denial, ok := errors.AsType[*quack.AuthorizationError](err)
+	return ok && denial.Reason == quack.DenyReasonMFARequired
+}
+
+// staffDenied is the reply when liveStaff, or a capability check after it,
+// fails: the 2FA guidance when that is why, denied for any other refusal,
+// and failed when Quack could not check at all.
+func staffDenied(err error, denied, failed string) string {
+	switch {
+	case isMFADenial(err):
+		return MFARequiredMessage
+	case err == nil || errors.Is(err, quack.ErrAuthorizationDenied):
+		return denied
+	default:
+		return failed
+	}
 }
 
 // UserError is an error whose message is written for the person who

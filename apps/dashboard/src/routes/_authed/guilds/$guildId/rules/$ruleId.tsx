@@ -177,7 +177,7 @@ function RuleView({ guildId, ruleId }: { guildId: string; ruleId: string }) {
           </Banner>
         ) : !write ? (
           <Banner tone="neutral" icon="lock" title="View only">
-            Editing rules needs the Manage Server permission in Discord.
+            Editing rules needs Manage Server or a rules manager role.
           </Banner>
         ) : (
           <StarterNotice guildId={guildId} ruleId={ruleId} />

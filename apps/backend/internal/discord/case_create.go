@@ -25,7 +25,7 @@ func (c *cases) add(ctx context.Context, i *discordgo.InteractionCreate, add *di
 	}
 	staff, err := c.staff(ctx, i)
 	if err == nil {
-		err = c.services.Guilds.Authorize(ctx, staff, quack.PermissionActionCaseCreate, quack.AuditSourceDiscord)
+		err = staff.Authorize(quack.PermissionActionCaseCreate)
 	}
 	if err != nil {
 		return Immediate(Error(caseCreateErrorMessage(err)))
@@ -150,7 +150,7 @@ func parseCaseTarget(kind, payload string) (caseTarget, bool) {
 func (c *cases) startContextMenu(ctx context.Context, i *discordgo.InteractionCreate, responder Responder, target caseTarget) error {
 	staff, err := c.staff(ctx, i)
 	if err == nil {
-		err = c.services.Guilds.Authorize(ctx, staff, quack.PermissionActionCaseCreate, quack.AuditSourceDiscord)
+		err = staff.Authorize(quack.PermissionActionCaseCreate)
 	}
 	if err != nil {
 		_, err = responder.EditOriginal(ErrorEdit(caseCreateErrorMessage(err)))
@@ -221,7 +221,7 @@ func (c *cases) pickTemplate(i *discordgo.InteractionCreate, kind, invalid strin
 	return Async(DeferUpdate(), func(ctx context.Context, responder Responder) error {
 		staff, err := c.staff(ctx, i)
 		if err == nil {
-			err = c.services.Guilds.Authorize(ctx, staff, quack.PermissionActionCaseCreate, quack.AuditSourceDiscord)
+			err = staff.Authorize(quack.PermissionActionCaseCreate)
 		}
 		if err != nil {
 			_, err = responder.EditOriginal(ErrorEdit(caseCreateErrorMessage(err)))

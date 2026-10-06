@@ -28,9 +28,9 @@ func TestBuildWiresEverySurface(t *testing.T) {
 	if err := st.DB().Raw("SELECT version, name FROM quack_schema_migrations ORDER BY version").Scan(&ledger).Error; err != nil {
 		t.Fatal(err)
 	}
-	if len(ledger) != 3 || ledger[0].Name != "baseline" || ledger[1].Name != "audit_mirror_deliveries" ||
-		ledger[2].Name != "launch_announcement" {
-		t.Fatalf("migration ledger = %+v, want the baseline, audit_mirror_deliveries, and launch_announcement", ledger)
+	if len(ledger) != 5 || ledger[0].Name != "baseline" || ledger[1].Name != "audit_mirror_deliveries" ||
+		ledger[2].Name != "launch_announcement" || ledger[3].Name != "staff_roles" || ledger[4].Name != "discord_user_mfa" {
+		t.Fatalf("migration ledger = %+v, want every migration through discord_user_mfa", ledger)
 	}
 
 	bot, err := discord.New("Bot offline")

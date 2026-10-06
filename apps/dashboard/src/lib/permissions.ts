@@ -15,7 +15,8 @@ export type Permission =
   | "audit.read"
   | "guild_settings.read"
   | "guild_settings.write"
-  | "action_failure.dismiss";
+  | "action_failure.dismiss"
+  | "staff_roles.write";
 
 /**
  * useCan reports what the signed-in user may do in a guild. It only shapes

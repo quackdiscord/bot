@@ -61,7 +61,7 @@ function NewRule() {
             </ButtonLink>
           }
         >
-          Creating and editing rules needs the Manage Server permission in Discord.
+          Creating and editing rules needs Manage Server or a rules manager role.
         </Empty>
       )}
     </Page>

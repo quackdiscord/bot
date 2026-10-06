@@ -86,7 +86,7 @@ func TestSetupChannelSelection(t *testing.T) {
 				t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 				return nil, nil
 			})
-			id, err := SetupChannel(context.Background(), session, "guild", scenario.specified, scenario.configured, "appeals", SetupStaffChannel)
+			id, err := SetupChannel(context.Background(), session, "guild", scenario.specified, scenario.configured, "appeals", SetupStaffChannel, nil)
 			wantErr := scenario.status == 403 || scenario.status == 503
 			if (err != nil) != wantErr || creates != scenario.wantCreates {
 				t.Fatalf("id=%s err=%v creates=%d", id, err, creates)
@@ -123,7 +123,7 @@ func TestCreatedChannelEffectivePermissions(t *testing.T) {
 		},
 	}
 	for _, kind := range []SetupChannelKind{SetupStaffChannel, SetupTicketEntry, SetupHoneypotChannel} {
-		overwrites := setupChannelPermissions(guild, "bot", kind)
+		overwrites := setupChannelPermissions(guild, "bot", kind, nil)
 		channel := &discordgo.Channel{ID: "channel", GuildID: guild.ID, Type: discordgo.ChannelTypeGuildText, PermissionOverwrites: overwrites}
 		guild.Channels = []*discordgo.Channel{channel}
 		state := discordgo.NewState()
@@ -165,6 +165,29 @@ func TestCreatedChannelEffectivePermissions(t *testing.T) {
 	}
 }
 
+// TestCreatedStaffChannelAdmitsModeratorRoles checks that a guild with
+// configured moderator roles gets those roles in a new staff channel, and
+// no longer every role with Moderate Members.
+func TestCreatedStaffChannelAdmitsModeratorRoles(t *testing.T) {
+	guild := &discordgo.Guild{
+		ID: "guild",
+		Roles: []*discordgo.Role{
+			{ID: "guild"},
+			{ID: "timeouts", Permissions: discordgo.PermissionModerateMembers},
+			{ID: "mods"},
+		},
+	}
+	admitted := map[string]bool{}
+	for _, overwrite := range setupChannelPermissions(guild, "bot", SetupStaffChannel, []string{"mods", "gone"}) {
+		if overwrite.Allow&discordgo.PermissionViewChannel != 0 {
+			admitted[overwrite.ID] = true
+		}
+	}
+	if !admitted["mods"] || admitted["timeouts"] || admitted["gone"] || !admitted["bot"] {
+		t.Fatalf("admitted %v, want the bot and the configured moderator role only", admitted)
+	}
+}
+
 // TestSetupChannelIntroFailureKeepsCreatedChannel makes sure a failed
 // introduction cannot turn into a second channel when setup is retried.
 func TestSetupChannelIntroFailureKeepsCreatedChannel(t *testing.T) {
@@ -185,11 +208,11 @@ func TestSetupChannelIntroFailureKeepsCreatedChannel(t *testing.T) {
 		t.Fatalf("unexpected request: %s", r.URL.Path)
 		return nil, nil
 	})
-	id, err := SetupChannel(context.Background(), session, "guild", "", "", "appeals", SetupStaffChannel)
+	id, err := SetupChannel(context.Background(), session, "guild", "", "", "appeals", SetupStaffChannel, nil)
 	if err != nil || id != "created" {
 		t.Fatalf("lost the created channel: %s, %v", id, err)
 	}
-	if _, err := SetupChannel(context.Background(), session, "guild", "", id, "appeals", SetupStaffChannel); err != nil {
+	if _, err := SetupChannel(context.Background(), session, "guild", "", id, "appeals", SetupStaffChannel, nil); err != nil {
 		t.Fatal(err)
 	}
 	if creates != 1 || intros != 1 {

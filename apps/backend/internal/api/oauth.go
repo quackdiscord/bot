@@ -46,12 +46,14 @@ type discordToken struct {
 	Scope        string `json:"scope"`
 }
 
-// discordUser is the part of Discord's /users/@me that a session keeps.
+// discordUser is the part of Discord's /users/@me that sign-in uses.
+// MFAEnabled is recorded per user rather than kept in the session.
 type discordUser struct {
 	ID         string `json:"id"`
 	Username   string `json:"username"`
 	GlobalName string `json:"global_name"`
 	Avatar     string `json:"avatar"`
+	MFAEnabled bool   `json:"mfa_enabled"`
 }
 
 // loginQuery is the query /auth/discord/login reads.
@@ -133,8 +135,9 @@ func (s *Server) discordLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 // discordCallback finishes sign-in: it checks the state against the browser
-// cookie before consuming it, exchanges the code, and creates the session.
-// Discord's error text is never echoed back.
+// cookie before consuming it, exchanges the code, records the user's 2FA
+// status, and creates the session. Discord's error text is never echoed
+// back.
 func (s *Server) discordCallback(w http.ResponseWriter, r *http.Request) {
 	var query callbackQuery
 	modules.DecodeQuery(r, &query)
@@ -177,6 +180,13 @@ func (s *Server) discordCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Guilds that require 2FA read this before letting staff act, from the
+	// dashboard and from Discord alike.
+	if err := s.store.RecordDiscordUserMFA(ctx, user.ID, user.MFAEnabled, time.Now()); err != nil {
+		slog.ErrorContext(ctx, "discord user mfa dependency unavailable")
+		writeError(w, r, http.StatusServiceUnavailable, codeDependency, "authentication service unavailable")
+		return
+	}
 	session := s.newSession(token, user)
 	if err := s.store.SaveSession(ctx, session, s.cfg.Auth.SessionTTL); err != nil {
 		slog.ErrorContext(ctx, "auth session dependency unavailable")

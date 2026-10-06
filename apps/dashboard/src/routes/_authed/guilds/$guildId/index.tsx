@@ -1,5 +1,5 @@
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { ChevronRight, LayoutGrid } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -17,6 +17,7 @@ import type { StatBucket } from "~/api/types";
 import { Outcome } from "~/features/cases/Outcome";
 import { ActivityChart } from "~/features/overview/ActivityChart";
 import { fillDays } from "~/features/overview/days";
+import { showsOverview } from "~/features/shell/guilds";
 import { UserChip } from "~/features/people/User";
 import { actionMeta, ago, plural } from "~/lib/format";
 import { useCan } from "~/lib/permissions";
@@ -38,11 +39,20 @@ function statsWindow(now = new Date()) {
 }
 
 export const Route = createFileRoute("/_authed/guilds/$guildId/")({
-  loader: ({ context, params }) => {
+  loader: async ({ context, params }) => {
+    // The layout loads and reports /me itself; this only needs it to choose.
+    const me = await context.queryClient
+      .ensureQueryData(guildMeQuery(params.guildId))
+      .catch(() => null);
+    if (!me) return;
+    // Rules managers have nothing here, so their server opens on Rules.
+    if (!showsOverview(me)) throw redirect({ to: "/guilds/$guildId/rules", params });
     const { fromIso, toIso } = statsWindow();
     // Start every panel's data together; the page renders as each arrives.
-    void context.queryClient.prefetchQuery(statisticsQuery(params.guildId, fromIso, toIso));
-    void context.queryClient.prefetchQuery(casesQuery(params.guildId, { limit: 6 }));
+    if (me.permissions["audit.read"])
+      void context.queryClient.prefetchQuery(statisticsQuery(params.guildId, fromIso, toIso));
+    if (me.permissions["case.read"])
+      void context.queryClient.prefetchQuery(casesQuery(params.guildId, { limit: 6 }));
   },
   component: Overview,
 });

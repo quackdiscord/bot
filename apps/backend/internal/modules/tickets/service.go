@@ -40,7 +40,6 @@ func NewService(registry *modules.Registry, store *Store, auditor modules.Audito
 // It needs Manage Guild.
 func (s *Service) Settings(ctx context.Context, actor modules.Actor) (Settings, bool, error) {
 	if !actor.CanManage {
-		s.audit(ctx, actor, "ticket.settings.read", "", "denied", ErrPermissionDenied)
 		return Settings{}, false, ErrPermissionDenied
 	}
 	return s.loadSettings(ctx, actor.GuildID)
@@ -51,7 +50,6 @@ func (s *Service) Settings(ctx context.Context, actor modules.Actor) (Settings, 
 func (s *Service) UpdateSettings(ctx context.Context, actor modules.Actor, enabled bool, settings Settings) (Settings, error) {
 	const action = "ticket.settings.update"
 	if !actor.CanManage {
-		s.audit(ctx, actor, action, "", "denied", ErrPermissionDenied)
 		return Settings{}, ErrPermissionDenied
 	}
 	if err := validateSettings(settings, enabled); err != nil {
@@ -155,9 +153,6 @@ func (s *Service) ClosurePending(ctx context.Context, actor modules.Actor, ticke
 // owner's slot stays held until the adapter has deleted the thread.
 func (s *Service) Resolve(ctx context.Context, actor modules.Actor, ticketID, transcript string) (*Ticket, error) {
 	if _, err := s.visibleTicket(ctx, actor, ticketID); err != nil {
-		if errors.Is(err, ErrPermissionDenied) {
-			s.audit(ctx, actor, "ticket.resolve", ticketID, "denied", err)
-		}
 		return nil, err
 	}
 	settings, _, err := s.loadSettings(ctx, actor.GuildID)

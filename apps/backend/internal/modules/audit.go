@@ -12,7 +12,8 @@ import (
 type AuditEvent struct {
 	GuildID, ActorDiscordUserID      string
 	Action, ResourceType, ResourceID string
-	// Result is "success", "failure", or "denied".
+	// Result is "success" or "failure". Modules do not audit refusals of
+	// the person acting.
 	Result, FailureReason, MetadataJSON string
 }
 
@@ -38,7 +39,7 @@ func NewAuditLog(store AuditStore) *AuditLog { return &AuditLog{store: store} }
 func (a *AuditLog) RecordModuleAudit(ctx context.Context, event AuditEvent) error {
 	result := quack.AuditResult(event.Result)
 	switch result {
-	case quack.AuditResultSuccess, quack.AuditResultFailure, quack.AuditResultDenied:
+	case quack.AuditResultSuccess, quack.AuditResultFailure:
 	default:
 		return errors.New("module audit result is invalid")
 	}

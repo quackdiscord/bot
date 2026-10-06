@@ -57,7 +57,7 @@ func (m *Module) Setup(ctx context.Context, req discord.SetupRequest) (discord.M
 		return fail("The selected honeypot template is unavailable. Restore or repair it before setup.")
 	}
 	channelID, err := discord.SetupChannel(ctx, m.session, discordGuildID,
-		req.String("channel"), settings.ChannelDiscordID, "honeypot", discord.SetupHoneypotChannel)
+		req.String("channel"), settings.ChannelDiscordID, "honeypot", discord.SetupHoneypotChannel, nil)
 	if err != nil {
 		return discord.Message{}, err
 	}

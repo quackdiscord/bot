@@ -160,7 +160,7 @@ func TestAppealQueueDecisionChecksLivePermissions(t *testing.T) {
 		return run(t, result)
 	}
 	denied := click("accept")
-	if denied.editCount != 0 || !denied.followup.Ephemeral || !strings.Contains(denied.followup.Content, "Moderate Members") {
+	if denied.editCount != 0 || !denied.followup.Ephemeral || !strings.Contains(denied.followup.Content, "moderator") {
 		t.Fatalf("denial was not private: %+v", denied)
 	}
 	if stored, _ := h.store.GetAppealByID(ctx, appeal.ID); stored.Status != quack.AppealStatusPending {
@@ -225,7 +225,7 @@ func TestAppealQueueDecisionRequiresReason(t *testing.T) {
 	if result := submit("accept", acceptForm, "   "); result.Task != nil || !strings.Contains(result.Response.Data.Content, "Write a reason") {
 		t.Fatalf("blank reason accepted: %+v", result)
 	}
-	if denied := run(t, submit("accept", acceptForm, "The evidence supports voiding this case.")); !strings.Contains(denied.content(), "Moderate Members") {
+	if denied := run(t, submit("accept", acceptForm, "The evidence supports voiding this case.")); !strings.Contains(denied.content(), "moderator") {
 		t.Fatalf("submit did not recheck permissions: %q", denied.content())
 	}
 	h.directory.actorBits = uint64(discordgo.PermissionModerateMembers)
@@ -261,7 +261,7 @@ func TestStatementBrowsingRechecksPermissions(t *testing.T) {
 			t.Fatal("browsing the shared queue post did not open a private page")
 		}
 		responder := run(t, result)
-		if !responder.edit.PrivateError || !strings.Contains(*responder.edit.Content, "Moderate Members") || len(*responder.edit.Components) != 0 {
+		if !responder.edit.PrivateError || !strings.Contains(*responder.edit.Content, "moderator") || len(*responder.edit.Components) != 0 {
 			t.Fatalf("page kept the appeal: %+v", responder.edit)
 		}
 		if strings.Contains(responder.content(), "Please reconsider") || message.Content != "PRIVATE STATEMENT" {
@@ -306,7 +306,7 @@ func TestAppealsCommandFindsUndeliveredSubmissions(t *testing.T) {
 	}
 	h.directory.actorBits = 0
 	revoked := run(t, h.appeals.QueuePage()(ctx, staffComponent("appeal:page:v1:1", &discordgo.Message{Flags: discordgo.MessageFlagsEphemeral})))
-	if strings.Contains(revoked.content(), "Statement") || !strings.Contains(revoked.content(), "Moderate Members") {
+	if strings.Contains(revoked.content(), "Statement") || !strings.Contains(revoked.content(), "moderator") {
 		t.Fatalf("navigation leaked after permission loss: %s", revoked.content())
 	}
 }

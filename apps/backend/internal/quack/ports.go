@@ -18,8 +18,13 @@ type GuildStore interface {
 	GetGuildByDiscordID(ctx context.Context, discordGuildID string) (*Guild, error)
 	GetGuildSettings(ctx context.Context, guildID string) (*GuildSettings, error)
 	GetStaffMember(ctx context.Context, guildID, discordUserID string) (*StaffMember, error)
+	// ListGuildStaffRoles returns the configured staff roles of the guilds
+	// among discordGuildIDs that have settings, keyed by Discord guild ID,
+	// in one query.
+	ListGuildStaffRoles(ctx context.Context, discordGuildIDs []string) (map[string]StaffRoles, error)
 	UpsertGuild(context.Context, UpsertGuildParams) (*Guild, error)
 	UpsertStaffMember(context.Context, UpsertStaffMemberParams) (*StaffMember, error)
+	MFAStatusReader
 }
 
 // SettingsStore is what GuildSettingsService needs from storage.

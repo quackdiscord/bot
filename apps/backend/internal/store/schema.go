@@ -53,6 +53,10 @@ type guildSettingsRecord struct {
 	// announcement; nil means it is still owed one. See
 	// quack.LaunchAnnouncer.
 	LaunchAnnouncedAt *time.Time
+	// ModeratorRoleIDs and RulesManagerRoleIDs are the guild's staff roles
+	// as comma-separated role IDs, at most 25 each; see quack.StaffRoles.
+	ModeratorRoleIDs    string `gorm:"size:1024;not null;default:''"`
+	RulesManagerRoleIDs string `gorm:"size:1024;not null;default:''"`
 }
 
 func (guildSettingsRecord) TableName() string { return "guild_settings" }
@@ -71,6 +75,20 @@ type staffMemberRecord struct {
 }
 
 func (staffMemberRecord) TableName() string { return "staff_members" }
+
+// discordUserMFARecord is what Quack last confirmed about a Discord user's
+// two-factor authentication, read from their own /users/@me at dashboard
+// sign-in. It belongs to the user, not a guild, so every guild's staff
+// checks can read it.
+type discordUserMFARecord struct {
+	DiscordUserID string    `gorm:"size:32;primaryKey"`
+	CreatedAt     time.Time `gorm:"not null"`
+	UpdatedAt     time.Time `gorm:"not null"`
+	MFAEnabled    bool      `gorm:"column:mfa_enabled;not null"`
+	MFACheckedAt  time.Time `gorm:"column:mfa_checked_at;not null"`
+}
+
+func (discordUserMFARecord) TableName() string { return "discord_user_mfa" }
 
 // templateRecord is a case template. Version counts policy edits; cases keep
 // a snapshot of the version they were created under.
@@ -472,6 +490,7 @@ func tables() []any {
 		&guildRecord{},
 		&guildSettingsRecord{},
 		&staffMemberRecord{},
+		&discordUserMFARecord{},
 		&templateRecord{},
 		&contextFieldRecord{},
 		&levelRecord{},

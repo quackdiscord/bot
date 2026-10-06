@@ -76,9 +76,10 @@ func (c channels) EnsureAccess(ctx context.Context, guildID, threadID, ownerID s
 }
 
 // syncThreadMembers removes thread members who are no longer staff: anyone
-// but the owner, the bot, and the guild owner who lacks Administrator and
-// Moderate Members now. It reads only the thread's members, never the whole
-// guild, and invites nobody.
+// but the owner, the bot, and the guild owner who lacks Administrator,
+// Moderate Members, and the guild's moderator roles now (see
+// quack.StaffRoles.IsDiscordStaff). It reads only the thread's members,
+// never the whole guild, and invites nobody.
 func (c channels) syncThreadMembers(ctx context.Context, discordGuildID, threadID, ownerID string) error {
 	botID, err := c.botID(ctx)
 	if err != nil {
@@ -87,6 +88,10 @@ func (c channels) syncThreadMembers(ctx context.Context, discordGuildID, threadI
 	guild, err := c.session.Guild(discordGuildID, rest(ctx)...)
 	if err != nil {
 		return fmt.Errorf("fetch guild: %w", err)
+	}
+	staffRoles, err := c.guilds.StaffRoles(ctx, discordGuildID)
+	if err != nil {
+		return fmt.Errorf("load staff roles: %w", err)
 	}
 	roles := make(map[string]int64, len(guild.Roles))
 	for _, role := range guild.Roles {
@@ -116,7 +121,7 @@ func (c channels) syncThreadMembers(ctx context.Context, discordGuildID, threadI
 				for _, id := range current.Roles {
 					permissions |= roles[id]
 				}
-				if permissions&(discordgo.PermissionAdministrator|discordgo.PermissionModerateMembers) != 0 {
+				if staffRoles.IsDiscordStaff(uint64(permissions), current.Roles) {
 					continue
 				}
 			}

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/quackdiscord/bot/internal/quack"
@@ -29,6 +30,8 @@ func (s *Store) UpdateGuildSettings(ctx context.Context, params quack.UpdateGuil
 		r.NotificationFooter = in.NotificationFooter
 		r.StarterPolicyNoticePending = in.StarterPolicyNoticePending
 		r.StarterPolicyNoticeAcknowledgedAt = in.StarterPolicyNoticeAcknowledgedAt
+		r.ModeratorRoleIDs = joinRoleIDs(in.ModeratorRoleIDs)
+		r.RulesManagerRoleIDs = joinRoleIDs(in.RulesManagerRoleIDs)
 		return true
 	})
 }
@@ -96,5 +99,51 @@ func (r guildSettingsRecord) model() quack.GuildSettings {
 		StarterPolicyTemplateID:           r.StarterPolicyTemplateID,
 		StarterPolicyNoticePending:        r.StarterPolicyNoticePending,
 		StarterPolicyNoticeAcknowledgedAt: r.StarterPolicyNoticeAcknowledgedAt,
+		ModeratorRoleIDs:                  splitRoleIDs(r.ModeratorRoleIDs),
+		RulesManagerRoleIDs:               splitRoleIDs(r.RulesManagerRoleIDs),
 	}
+}
+
+// ListGuildStaffRoles returns the staff roles of the guilds among
+// discordGuildIDs that have settings, keyed by Discord guild ID, in one
+// query.
+func (s *Store) ListGuildStaffRoles(ctx context.Context, discordGuildIDs []string) (map[string]quack.StaffRoles, error) {
+	out := make(map[string]quack.StaffRoles, len(discordGuildIDs))
+	if len(discordGuildIDs) == 0 {
+		return out, nil
+	}
+	var rows []struct {
+		DiscordGuildID      string
+		ModeratorRoleIDs    string
+		RulesManagerRoleIDs string
+	}
+	err := s.db.WithContext(ctx).Table("guild_settings").
+		Select("guilds.discord_guild_id, guild_settings.moderator_role_ids, guild_settings.rules_manager_role_ids").
+		Joins("JOIN guilds ON guilds.id = guild_settings.guild_id").
+		Where("guilds.discord_guild_id IN ?", discordGuildIDs).
+		Scan(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("list guild staff roles: %w", err)
+	}
+	for _, row := range rows {
+		out[row.DiscordGuildID] = quack.StaffRoles{
+			ModeratorRoleIDs:    splitRoleIDs(row.ModeratorRoleIDs),
+			RulesManagerRoleIDs: splitRoleIDs(row.RulesManagerRoleIDs),
+		}
+	}
+	return out, nil
+}
+
+// joinRoleIDs stores a role ID list as one comma-separated column. Role IDs
+// are decimal snowflakes, so they never contain a comma.
+func joinRoleIDs(roleIDs []string) string {
+	return strings.Join(roleIDs, ",")
+}
+
+// splitRoleIDs reads a column written by joinRoleIDs.
+func splitRoleIDs(column string) []string {
+	if column == "" {
+		return []string{}
+	}
+	return strings.Split(column, ",")
 }

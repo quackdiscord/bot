@@ -39,16 +39,19 @@ func templateCommand() *discordgo.ApplicationCommand {
 			minutesOption("Timeout length in minutes (required for a timeout)"),
 		},
 	})
-	permissions := int64(discordgo.PermissionManageGuild)
-	dmAllowed := false
-	return &discordgo.ApplicationCommand{
-		Name:                     templateCommandName,
-		Description:              "Create and manage moderation rules",
-		DefaultMemberPermissions: &permissions,
-		//lint:ignore SA1019 see moderatorCommand.
-		DMPermission: &dmAllowed,
-		Options:      options,
-	}
+	// Like moderatorCommand, no default member permission: rules managers
+	// hold a configured role rather than Manage Server.
+	return moderatorCommand(&discordgo.ApplicationCommand{
+		Name:        templateCommandName,
+		Description: "Create and manage moderation rules",
+		Options:     options,
+	})
+}
+
+// rulesPermissionMessage tells someone who cannot manage templates what they
+// need to do what, such as "edit rules".
+func rulesPermissionMessage(what string) string {
+	return "You need Manage Server or a rules manager role to " + what + "."
 }
 
 // outcomeOption is the choice of what a level does.
@@ -244,7 +247,7 @@ func (t templates) createSubmit(_ context.Context, i *discordgo.InteractionCreat
 	return AsyncPublic(func(ctx context.Context, responder Responder) error {
 		staff, err := liveStaff(ctx, t.services, i)
 		if err != nil || !staff.Can(quack.PermissionActionCaseTemplateWrite) {
-			_, err = responder.EditOriginal(ErrorEdit("You need Manage Server permission to create templates."))
+			_, err = responder.EditOriginal(ErrorEdit(staffDenied(err, rulesPermissionMessage("create rules"), rulesPermissionMessage("create rules"))))
 			return err
 		}
 		created, err := t.services.Templates.Create(ctx, staff, quack.TemplateInput{
@@ -278,14 +281,15 @@ func (t templates) createSubmit(_ context.Context, i *discordgo.InteractionCreat
 
 // autocomplete suggests rules for the subcommand being typed: archived ones
 // only for restore, both kinds for view and edit, and active ones otherwise.
-// It answers with nothing to anyone who cannot manage templates.
+// It answers with nothing, and audits nothing, to anyone who cannot manage
+// templates; see quietStaff.
 func (t templates) autocomplete(ctx context.Context, i *discordgo.InteractionCreate) *discordgo.InteractionResponse {
 	options := i.ApplicationCommandData().Options
 	if len(options) != 1 || options[0].GetOption("template") == nil {
 		return Autocomplete(nil)
 	}
 	subcommand := options[0]
-	staff, err := liveStaff(ctx, t.services, i)
+	staff, err := quietStaff(ctx, t.services, i)
 	if err != nil || !staff.Can(quack.PermissionActionCaseTemplateWrite) {
 		return Autocomplete(nil)
 	}
@@ -343,7 +347,7 @@ func (t templates) level(i *discordgo.InteractionCreate, option *discordgo.Appli
 		}
 		staff, err := liveStaff(ctx, t.services, i)
 		if err != nil || !staff.Can(quack.PermissionActionCaseTemplateWrite) {
-			return fail("You need Manage Server permission to edit templates.")
+			return fail(staffDenied(err, rulesPermissionMessage("edit rules"), rulesPermissionMessage("edit rules")))
 		}
 		template, err := t.activeTemplate(ctx, staff, ref.StringValue())
 		if err != nil || template == nil {

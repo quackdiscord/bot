@@ -65,4 +65,5 @@ export type HoneypotSettingsResponse = S["HoneypotSettingsResponse"];
 
 export type DirectoryUser = S["ApiDirectoryUser"];
 export type DirectoryChannel = S["ApiDirectoryChannel"];
+export type DirectoryRole = S["ApiDirectoryRole"];
 export type ChannelType = S["ApiChannelType"];

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
+import { Lock } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { guildsQuery } from "~/api/queries";
@@ -8,13 +9,9 @@ import { cx } from "~/lib/cx";
 import { Logo } from "~/ui/Logo";
 import { Tooltip } from "~/ui/Tooltip";
 
+import { staffGuilds } from "./guilds";
 import s from "./ServerRail.module.css";
 import { useNavOpen } from "./Shell";
-
-/** staffGuilds keeps the servers where Quack is installed and the user is staff. */
-export function staffGuilds(guilds: UserGuild[]): UserGuild[] {
-  return guilds.filter((g) => g.quack_in_guild && (g.can_moderate || g.can_manage_guild));
-}
 
 /** ServerRail is the server list: home on top, then each server. */
 export function ServerRail() {
@@ -37,11 +34,16 @@ export function ServerRail() {
       {guilds.map((g) => (
         <RailItem
           key={g.discord_guild_id}
-          label={g.quack_guild_name || g.name}
+          label={
+            g.mfa_required
+              ? `${g.quack_guild_name || g.name} · Needs 2FA`
+              : g.quack_guild_name || g.name
+          }
           to="/guilds/$guildId"
           guildId={g.discord_guild_id}
           active={activeId === g.discord_guild_id}
           icon={<GuildIcon guild={g} />}
+          locked={g.mfa_required}
         />
       ))}
     </nav>
@@ -55,6 +57,7 @@ function RailItem({
   active,
   icon,
   home,
+  locked,
 }: {
   label: string;
   to: "/guilds" | "/guilds/$guildId";
@@ -63,9 +66,11 @@ function RailItem({
   icon: ReactNode;
   /** The Quack button keeps the logo's yellow as it changes shape. */
   home?: boolean;
+  /** The server needs 2FA before it opens; it shows dimmed with a lock. */
+  locked?: boolean;
 }) {
   return (
-    <div className={s.item} data-active={active || undefined}>
+    <div className={s.item} data-active={active || undefined} data-locked={locked || undefined}>
       <span className={s.pill} />
       <Tooltip label={label} side="right">
         <Link
@@ -78,6 +83,11 @@ function RailItem({
           {icon}
         </Link>
       </Tooltip>
+      {locked ? (
+        <span className={s.lock} aria-hidden>
+          <Lock size={11} strokeWidth={2.5} />
+        </span>
+      ) : null}
     </div>
   );
 }

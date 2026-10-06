@@ -182,7 +182,7 @@ func (s *Server) guildOpsStatus() http.HandlerFunc {
 	}
 	forStaff := chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.writeGuildOps(w, r, quack.StaffFromContext(r.Context()).Guild.ID)
-	}), s.requireAuth, s.guild(""), allow(isAdmin, notAdmin))
+	}), s.requireAuth, s.guild(""), s.confirmedMFA, allow(isAdmin, notAdmin))
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !s.validOpsKey(r) {

@@ -91,3 +91,16 @@
   justify-content: center;
   gap: 8px;
 }
+
+.locked {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  color: var(--warning);
+}
+
+.row[data-locked] .rowName {
+  color: var(--text-muted);
+}

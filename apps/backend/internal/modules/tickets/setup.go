@@ -35,12 +35,13 @@ func (m *Module) Setup(ctx context.Context, req discord.SetupRequest) (discord.M
 	}
 	session := m.channels.session
 	entryID, err := discord.SetupChannel(ctx, session, discordGuildID,
-		req.String("entry"), settings.EntryChannelDiscordID, "support", discord.SetupTicketEntry)
+		req.String("entry"), settings.EntryChannelDiscordID, "support", discord.SetupTicketEntry, nil)
 	if err != nil {
 		return discord.Message{}, err
 	}
 	queueID, err := discord.SetupChannel(ctx, session, discordGuildID,
-		req.String("queue"), settings.QueueChannelDiscordID, "ticket-log", discord.SetupStaffChannel)
+		req.String("queue"), settings.QueueChannelDiscordID, "ticket-log", discord.SetupStaffChannel,
+		req.Guild.StaffRoles.ModeratorRoleIDs)
 	if err != nil {
 		return discord.Message{}, err
 	}

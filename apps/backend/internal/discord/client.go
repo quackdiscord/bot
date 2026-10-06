@@ -1,11 +1,13 @@
 package discord
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -79,7 +81,14 @@ func (b *Bot) GuildAuthorization(ctx context.Context, guildID, actorID, targetID
 	if err != nil {
 		return nil, err
 	}
-	snapshot := &quack.DiscordGuildAuthorization{Guild: botGuild(guild), Actor: actor, Bot: bot}
+	summary := botGuild(guild)
+	summary.RoleIDs = make([]string, 0, len(guild.Roles))
+	for _, role := range guild.Roles {
+		if role != nil {
+			summary.RoleIDs = append(summary.RoleIDs, role.ID)
+		}
+	}
+	snapshot := &quack.DiscordGuildAuthorization{Guild: summary, Actor: actor, Bot: bot}
 	if strings.TrimSpace(targetID) != "" {
 		target, err := b.member(ctx, guild, targetID)
 		if err != nil {
@@ -311,14 +320,17 @@ func (b *Bot) member(ctx context.Context, guild *discordgo.Guild, userID string)
 	return memberAuthorization(guild, member), nil
 }
 
-// memberAuthorization computes a member's guild-level permissions and top
-// role position. The owner and administrators get every permission, as in
+// memberAuthorization computes a member's guild-level permissions, top
+// role position, and roles. Only roles the guild still has count, so a
+// role deleted while state or REST still lists it on the member grants
+// nothing. The owner and administrators get every permission, as in
 // Discord.
 func memberAuthorization(guild *discordgo.Guild, member *discordgo.Member) quack.DiscordMemberAuthorization {
 	if member == nil || member.User == nil {
 		return quack.DiscordMemberAuthorization{}
 	}
 	var permissions int64
+	var roleIDs []string
 	topPosition := 0
 	held := make(map[string]bool, len(member.Roles))
 	for _, roleID := range member.Roles {
@@ -331,9 +343,10 @@ func memberAuthorization(guild *discordgo.Guild, member *discordgo.Member) quack
 		if role.ID == guild.ID {
 			permissions |= role.Permissions
 		}
-		if held[role.ID] {
+		if held[role.ID] && role.ID != guild.ID {
 			permissions |= role.Permissions
 			topPosition = max(topPosition, role.Position)
+			roleIDs = append(roleIDs, role.ID)
 		}
 	}
 	if member.User.ID == guild.OwnerID || permissions&discordgo.PermissionAdministrator != 0 {
@@ -344,6 +357,7 @@ func memberAuthorization(guild *discordgo.Guild, member *discordgo.Member) quack
 		DisplayName:     displayName(member),
 		PermissionBits:  uint64(permissions),
 		TopRolePosition: topPosition,
+		RoleIDs:         roleIDs,
 		Present:         true,
 		Bot:             member.User.Bot,
 	}
@@ -363,5 +377,42 @@ func displayName(member *discordgo.Member) string {
 
 // botGuild converts a discordgo guild to the quack summary of it.
 func botGuild(guild *discordgo.Guild) quack.DiscordBotGuild {
-	return quack.DiscordBotGuild{ID: guild.ID, Name: guild.Name, Icon: guild.Icon, OwnerID: guild.OwnerID}
+	return quack.DiscordBotGuild{
+		ID:          guild.ID,
+		Name:        guild.Name,
+		Icon:        guild.Icon,
+		OwnerID:     guild.OwnerID,
+		MFARequired: guild.MfaLevel == discordgo.MfaLevelElevated,
+	}
+}
+
+// GuildRoles lists the guild's roles except @everyone, highest first, for
+// staff role pickers and settings validation. Gateway state answers while
+// the session is live; REST otherwise.
+func (b *Bot) GuildRoles(ctx context.Context, guildID string) ([]quack.DiscordRole, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	guild, err := b.authorizationGuild(ctx, guildID)
+	if err != nil {
+		return nil, err
+	}
+	roles := make([]quack.DiscordRole, 0, len(guild.Roles))
+	for _, role := range guild.Roles {
+		if role == nil || role.ID == guild.ID {
+			continue
+		}
+		roles = append(roles, quack.DiscordRole{
+			ID: role.ID, Name: role.Name, Color: role.Color, Position: role.Position, Managed: role.Managed,
+		})
+	}
+	// Position ties, which Discord allows, fall back to snowflake age.
+	slices.SortFunc(roles, func(a, b quack.DiscordRole) int {
+		return cmp.Or(
+			cmp.Compare(b.Position, a.Position),
+			cmp.Compare(len(a.ID), len(b.ID)),
+			strings.Compare(a.ID, b.ID),
+		)
+	})
+	return roles, nil
 }

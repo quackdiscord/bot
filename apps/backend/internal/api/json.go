@@ -21,6 +21,7 @@ const (
 	codeAuthentication errorCode = "authentication_required"
 	codeReauthenticate errorCode = "reauthentication_required"
 	codeAuthorization  errorCode = "authorization_denied"
+	codeMFARequired    errorCode = "mfa_required"
 	codeNotFound       errorCode = "not_found"
 	codeConflict       errorCode = "conflict"
 	codeRateLimited    errorCode = "rate_limited"

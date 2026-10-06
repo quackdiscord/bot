@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/config"
@@ -52,6 +53,62 @@ func TestGuildMe(t *testing.T) {
 	}
 }
 
+// TestGuildMeForMembers answers a member who is not staff with no
+// permissions, without writing a staff record for them.
+func TestGuildMeForMembers(t *testing.T) {
+	store := migratedStore(t)
+	server := storeServer(t, store, staffGuilds(uint64(discordgo.PermissionSendMessages)), nil, config.Default())
+	sessionID := saveSession(t, store, testSession("user-1"))
+	response := send(t, server, http.MethodGet, "/guilds/guild-1/me", "", sessionID)
+	expectStatus(t, response, http.StatusOK)
+	if body := response.Body.String(); !strings.Contains(body, `"case.read":false`) || !strings.Contains(body, `"staff_roles.write":false`) {
+		t.Fatalf("member /me = %s", body)
+	}
+	guild, err := store.GetGuildByDiscordID(context.Background(), "guild-1")
+	if err != nil || guild == nil {
+		t.Fatal(err)
+	}
+	if record, err := store.GetStaffMember(context.Background(), guild.ID, "user-1"); err != nil || record != nil {
+		t.Fatalf("member got a staff record: %+v, %v", record, err)
+	}
+}
+
+// TestGuildRoutesRequireConfirmed2FA checks that staff in a guild requiring
+// 2FA are refused with mfa_required on every guild route, /me included,
+// until sign-in confirms it.
+func TestGuildRoutesRequireConfirmed2FA(t *testing.T) {
+	store := migratedStore(t)
+	guilds := staffGuilds(uint64(discordgo.PermissionAdministrator))
+	guilds.botGuild.MFARequired = true
+	// Module routes serve members their own resources, so the 2FA
+	// requirement only stops staff capabilities there.
+	server := newTestServer(t, config.Default(), Deps{
+		Services: quack.New(quack.Deps{Store: store, Guilds: guilds, Modules: modules.NewRegistry(store.DB())}),
+		Store:    store,
+		Redis:    store.Redis(),
+		Modules: func(mux *ModuleMux) {
+			mux.Handle("GET /mine", modules.Doc{ID: "mine", Summary: "A member's own resource"},
+				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					writeJSON(w, http.StatusOK, map[string]bool{"staff": quack.StaffFromContext(r.Context()).Can(quack.PermissionActionTicketResolve)})
+				}))
+		},
+	})
+	sessionID := saveSession(t, store, testSession("user-1"))
+
+	for _, path := range []string{"/guilds/guild-1/me", "/guilds/guild-1/settings", "/guilds/guild-1/cases",
+		"/guilds/guild-1/appeals", "/guilds/guild-1/ops/status"} {
+		assertEnvelope(t, send(t, server, http.MethodGet, path, "", sessionID), http.StatusForbidden, codeMFARequired)
+	}
+	mine := send(t, server, http.MethodGet, "/guilds/guild-1/modules/mine", "", sessionID)
+	if mine.Code != http.StatusOK || mine.Body.String() != `{"staff":false}` {
+		t.Fatalf("module route for a 2FA-blocked member = %d %s", mine.Code, mine.Body.String())
+	}
+	if err := store.RecordDiscordUserMFA(context.Background(), "user-1", true, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	expectStatus(t, send(t, server, http.MethodGet, "/guilds/guild-1/me", "", sessionID), http.StatusOK)
+}
+
 func TestListUserGuilds(t *testing.T) {
 	store := migratedStore(t)
 	guilds := fakeGuilds{
@@ -91,6 +148,11 @@ func TestListUserGuilds(t *testing.T) {
 	if g := body.Guilds[2]; g.DiscordGuildID != "guild-4" || g.CanManageGuild || !g.CanModerate {
 		t.Errorf("third guild = %+v", g)
 	}
+	for _, field := range []string{`"can_manage_rules":true`, `"mfa_required":false`} {
+		if !strings.Contains(response.Body.String(), field) {
+			t.Errorf("guild list lacks %s: %s", field, response.Body.String())
+		}
+	}
 }
 
 func TestGuildSettingsRoutes(t *testing.T) {
@@ -117,6 +179,11 @@ func TestGuildSettingsRoutes(t *testing.T) {
 	}
 	expectStatus(t, send(t, server, http.MethodPatch, "/guilds/guild-1/settings", patch, sessionID), http.StatusOK)
 	expectStatus(t, send(t, server, http.MethodPatch, "/guilds/guild-1/settings", `{"unknown_setting":true}`, sessionID), http.StatusBadRequest)
+	// Manage Server cannot change moderator roles, only the owner and
+	// Administrators can.
+	assertEnvelope(t, send(t, server, http.MethodPatch, "/guilds/guild-1/settings", `{"moderator_role_ids":["123"]}`, sessionID),
+		http.StatusForbidden, codeAuthorization)
+	expectStatus(t, send(t, server, http.MethodPatch, "/guilds/guild-1/settings", `{"moderator_role_ids":[]}`, sessionID), http.StatusOK)
 
 	response := send(t, server, http.MethodGet, "/guilds/guild-1/settings", "", sessionID)
 	expectStatus(t, response, http.StatusOK)
@@ -128,6 +195,11 @@ func TestGuildSettingsRoutes(t *testing.T) {
 	}
 	if s := body.Settings; s.AuditMirrorChannelDiscordID != "" || !s.TicketsEnabled || !s.HoneypotEnabled || !s.StarterPolicyReviewRequired {
 		t.Fatalf("settings = %+v", s)
+	}
+	for _, field := range []string{`"moderator_role_ids":[]`, `"rules_manager_role_ids":[]`} {
+		if !strings.Contains(response.Body.String(), field) {
+			t.Fatalf("settings lack %s: %s", field, response.Body.String())
+		}
 	}
 	assertModulesSeeToggles(t, store, "guild-1", true, false, true)
 	off := `{"tickets_enabled": false, "honeypot_enabled": false, "general_logging_enabled": true}`
@@ -163,8 +235,9 @@ func TestGuildSettingsRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list audits: %v", err)
 	}
-	if !hasAudit(audits, "authorization.denied", string(quack.PermissionActionGuildSettingsWrite), quack.AuditResultDenied) {
-		t.Errorf("denied write was not audited: %+v", audits)
+	// Refusals about the person acting are answered, not audited.
+	if hasAudit(audits, "authorization.denied", "", quack.AuditResultDenied) || hasAudit(audits, "guild_settings.update", "", quack.AuditResultDenied) {
+		t.Errorf("a refused write was audited: %+v", audits)
 	}
 }
 

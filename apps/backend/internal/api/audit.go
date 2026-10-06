@@ -50,7 +50,6 @@ func (s *Server) listAuditLog(w http.ResponseWriter, r *http.Request) {
 		MemberDiscordUserID: q.MemberDiscordUserID,
 		CreatedAfter:        q.CreatedAfter,
 		CreatedBefore:       q.CreatedBefore,
-		ReadSource:          quack.AuditSourceAPI,
 		BeforeID:            q.BeforeID,
 	})
 	if err != nil {

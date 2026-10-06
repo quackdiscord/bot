@@ -8,6 +8,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/modules"
+	"github.com/quackdiscord/bot/internal/quack"
 )
 
 // channelValidator is the ChannelValidator over live Discord state.
@@ -108,7 +109,7 @@ func messageURL(guildID, channelID, messageID string) string {
 
 // projectMessage builds the trap policy's view of a message from the event
 // plus freshly loaded guild, channel, and member state.
-func projectMessage(guildID string, event *discordgo.MessageCreate, guild *discordgo.Guild, channel *discordgo.Channel, member *discordgo.Member, botID string) (Message, error) {
+func projectMessage(guildID string, event *discordgo.MessageCreate, guild *discordgo.Guild, channel *discordgo.Channel, member *discordgo.Member, staffRoles quack.StaffRoles, botID string) (Message, error) {
 	if strings.TrimSpace(guildID) == "" || event.Message == nil || event.GuildID == "" ||
 		guild == nil || guild.ID != event.GuildID ||
 		channel == nil || channel.GuildID != event.GuildID ||
@@ -127,17 +128,18 @@ func projectMessage(guildID string, event *discordgo.MessageCreate, guild *disco
 		IsBot:               member.User.Bot,
 		IsQuack:             member.User.ID == botID,
 		IsWebhook:           event.WebhookID != "",
-		AuthorCanModerate:   canModerate(guild, member),
+		AuthorCanModerate:   canModerate(guild, member, staffRoles),
 	}, nil
 }
 
-// canModerate reports guild-wide moderation authority (Administrator or
-// Moderate Members, or ownership), the same baseline cases and appeals use.
-// Trap-channel overwrites neither grant nor remove it, so they cannot
-// exempt an ordinary member or expose a moderator.
-func canModerate(guild *discordgo.Guild, member *discordgo.Member) bool {
+// canModerate reports guild-wide moderation authority: ownership,
+// Administrator, Moderate Members, or a configured moderator role (see
+// quack.StaffRoles.IsDiscordStaff). Trap-channel overwrites neither grant
+// nor remove it, so they cannot exempt an ordinary member or expose a
+// moderator.
+func canModerate(guild *discordgo.Guild, member *discordgo.Member, staffRoles quack.StaffRoles) bool {
 	permissions := channelPermissions(guild, &discordgo.Channel{GuildID: guild.ID}, member)
-	return permissions&(discordgo.PermissionAdministrator|discordgo.PermissionModerateMembers) != 0
+	return staffRoles.IsDiscordStaff(uint64(permissions), member.Roles)
 }
 
 // channelPermissions computes a member's permissions in a channel the way

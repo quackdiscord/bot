@@ -36,6 +36,10 @@ type Bot struct {
 	// appeal DMs. The zero value leaves every link out. Set it before
 	// NewRouter.
 	Dashboard quack.DashboardLinks
+	// StaffRoles supplies each guild's configured staff roles, which count
+	// as staff for staff-only channels. Without it only Discord
+	// permissions do. Set it before the gateway opens.
+	StaffRoles StaffRoleSource
 
 	httpClient *http.Client
 	connected  atomic.Bool
@@ -48,6 +52,21 @@ type Bot struct {
 	// live says when gateway state can answer authorization and holds
 	// members fetched over REST; see live.go.
 	live liveState
+}
+
+// StaffRoleSource reads a guild's configured staff roles.
+// quack.GuildService implements it.
+type StaffRoleSource interface {
+	GuildStaffRoles(ctx context.Context, discordGuildID string) (quack.StaffRoles, error)
+}
+
+// staffRoles returns the guild's configured staff roles, or none without a
+// StaffRoles source.
+func (b *Bot) staffRoles(ctx context.Context, guildID string) (quack.StaffRoles, error) {
+	if b.StaffRoles == nil {
+		return quack.StaffRoles{}, nil
+	}
+	return b.StaffRoles.GuildStaffRoles(ctx, guildID)
 }
 
 // New creates a bot for token. Only the Guilds intent is requested; the

@@ -2141,6 +2141,77 @@ paths:
       summary: Search the guild's current members by name
       tags:
       - directory
+  /guilds/{discordGuildID}/directory/roles:
+    get:
+      description: Highest first. @everyone is left out.
+      operationId: listRoles
+      parameters:
+      - in: path
+        name: discordGuildID
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiRoleListResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Not Found
+        "429":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Too Many Requests
+        "502":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Bad Gateway
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Service Unavailable
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Any other error, such as a 500
+      security:
+      - sessionCookie: []
+      - sessionBearer: []
+      summary: The guild's roles, for staff role pickers
+      tags:
+      - directory
   /guilds/{discordGuildID}/directory/users:
     get:
       description: Users come back in the order asked, as guild members when they
@@ -5703,6 +5774,25 @@ components:
       - parent_id
       - position
       type: object
+    ApiDirectoryRole:
+      properties:
+        color:
+          type: integer
+        id:
+          type: string
+        managed:
+          type: boolean
+        name:
+          type: string
+        position:
+          type: integer
+      required:
+      - id
+      - name
+      - color
+      - position
+      - managed
+      type: object
     ApiDirectoryUser:
       properties:
         avatar_url:
@@ -5737,6 +5827,7 @@ components:
       - authentication_required
       - reauthentication_required
       - authorization_denied
+      - mfa_required
       - not_found
       - conflict
       - rate_limited
@@ -5959,6 +6050,15 @@ components:
           type: boolean
         original_execution_id:
           type: string
+      type: object
+    ApiRoleListResponse:
+      properties:
+        roles:
+          items:
+            $ref: '#/components/schemas/ApiDirectoryRole'
+          type: array
+      required:
+      - roles
       type: object
     ApiSessionTimes:
       properties:
@@ -7189,6 +7289,12 @@ components:
           type:
           - "null"
           - string
+        moderator_role_ids:
+          items:
+            type: string
+          type:
+          - "null"
+          - array
         notification_footer:
           type:
           - "null"
@@ -7197,6 +7303,12 @@ components:
           type:
           - "null"
           - string
+        rules_manager_role_ids:
+          items:
+            type: string
+          type:
+          - "null"
+          - array
         tickets_enabled:
           type:
           - "null"
@@ -7222,10 +7334,18 @@ components:
           type: string
         managed_evidence_channel_discord_id:
           type: string
+        moderator_role_ids:
+          items:
+            type: string
+          type: array
         notification_footer:
           type: string
         notification_introduction:
           type: string
+        rules_manager_role_ids:
+          items:
+            type: string
+          type: array
         starter_policy_notice_acknowledged_at:
           format: date-time
           type:
@@ -7237,6 +7357,9 @@ components:
           type: string
         tickets_enabled:
           type: boolean
+      required:
+      - moderator_role_ids
+      - rules_manager_role_ids
       type: object
     QuackMemberCaseDetail:
       properties:
@@ -7924,6 +8047,8 @@ components:
       properties:
         can_manage_guild:
           type: boolean
+        can_manage_rules:
+          type: boolean
         can_moderate:
           type: boolean
         discord_guild_id:
@@ -7933,6 +8058,8 @@ components:
         is_administrator:
           type: boolean
         is_owner:
+          type: boolean
+        mfa_required:
           type: boolean
         name:
           type: string
@@ -7951,6 +8078,8 @@ components:
       - is_administrator
       - can_manage_guild
       - can_moderate
+      - can_manage_rules
+      - mfa_required
       - quack_in_guild
       type: object
     TicketsDetailResponse:

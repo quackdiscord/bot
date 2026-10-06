@@ -32,6 +32,8 @@ var migrations = []migration{
 	// rollback it would post everything mirrored since again.
 	{version: 2, name: "audit_mirror_deliveries", up: createAuditMirrorDeliveries},
 	{version: 3, name: "launch_announcement", up: addLaunchAnnouncement, down: dropLaunchAnnouncement},
+	{version: 4, name: "staff_roles", up: addStaffRoles, down: dropStaffRoles},
+	{version: 5, name: "discord_user_mfa", up: createDiscordUserMFA, down: dropDiscordUserMFA},
 }
 
 // ErrIrreversible means the newest migration has no down step.
@@ -210,6 +212,53 @@ func dropLaunchAnnouncement(db *gorm.DB) error {
 		return nil
 	}
 	return db.Migrator().DropColumn(&guildSettingsRecord{}, "LaunchAnnouncedAt")
+}
+
+// staffRoleColumns are the guild_settings columns addStaffRoles adds.
+var staffRoleColumns = []string{"ModeratorRoleIDs", "RulesManagerRoleIDs"}
+
+// addStaffRoles adds the guild_settings staff role columns. They start
+// empty, so every existing guild keeps Moderate Members as its moderator
+// permission. Fresh databases already have them from the baseline, so this
+// is then a no-op.
+func addStaffRoles(db *gorm.DB) error {
+	for _, column := range staffRoleColumns {
+		if db.Migrator().HasColumn(&guildSettingsRecord{}, column) {
+			continue
+		}
+		if err := db.Migrator().AddColumn(&guildSettingsRecord{}, column); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// dropStaffRoles removes the staff role columns. Guilds that configured
+// roles fall back to Moderate Members, and lose rules managers.
+func dropStaffRoles(db *gorm.DB) error {
+	for _, column := range staffRoleColumns {
+		if !db.Migrator().HasColumn(&guildSettingsRecord{}, column) {
+			continue
+		}
+		if err := db.Migrator().DropColumn(&guildSettingsRecord{}, column); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// createDiscordUserMFA creates the per-user 2FA status table. It starts
+// empty: staff in guilds that require 2FA must sign in to the dashboard
+// once before Quack lets them act. Fresh databases already have it from
+// the baseline, so this is then a no-op.
+func createDiscordUserMFA(db *gorm.DB) error {
+	return withTableOptions(db).AutoMigrate(&discordUserMFARecord{})
+}
+
+// dropDiscordUserMFA drops the 2FA status table. Upgrading again starts it
+// empty, so staff in guilds requiring 2FA sign in once more.
+func dropDiscordUserMFA(db *gorm.DB) error {
+	return db.Migrator().DropTable(&discordUserMFARecord{})
 }
 
 // retireAppealForms removes what custom appeal forms left in a database

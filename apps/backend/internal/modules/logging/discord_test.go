@@ -40,6 +40,10 @@ func (guildStore) GetGuildByDiscordID(_ context.Context, id string) (*quack.Guil
 	return nil, nil
 }
 
+func (guildStore) GetGuildSettings(context.Context, string) (*quack.GuildSettings, error) {
+	return nil, nil
+}
+
 // fakeDiscord answers the REST calls delivery makes for guild "guild",
 // bot "bot", and the private channel "log", and records what is posted.
 type fakeDiscord struct {

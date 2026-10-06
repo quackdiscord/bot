@@ -45,7 +45,11 @@ func (m *Module) onMessageCreate(session *discordgo.Session, event *discordgo.Me
 	if err != nil {
 		return
 	}
-	message, err := projectMessage(guildID, event, guild, channel, member, botID(session))
+	staffRoles, err := m.guilds.StaffRoles(ctx, event.GuildID)
+	if err != nil {
+		return
+	}
+	message, err := projectMessage(guildID, event, guild, channel, member, staffRoles, botID(session))
 	if err != nil {
 		return
 	}

@@ -42,7 +42,6 @@ func NewService(registry *modules.Registry, store *Store, auditor modules.Audito
 // Settings returns the guild's settings and status. It needs Manage Guild.
 func (s *Service) Settings(ctx context.Context, actor modules.Actor) (Settings, Status, error) {
 	if !actor.CanManage {
-		s.auditSettings(ctx, actor, "honeypot.settings.read", "denied", ErrPermissionDenied)
 		return Settings{}, Status{}, ErrPermissionDenied
 	}
 	settings, enabled, err := s.loadSettings(ctx, actor.GuildID)
@@ -61,7 +60,6 @@ func (s *Service) Settings(ctx context.Context, actor modules.Actor) (Settings, 
 func (s *Service) UpdateSettings(ctx context.Context, actor modules.Actor, enabled bool, settings Settings) (Settings, Status, error) {
 	const action = "honeypot.settings.update"
 	if !actor.CanManage {
-		s.auditSettings(ctx, actor, action, "denied", ErrPermissionDenied)
 		return Settings{}, Status{}, ErrPermissionDenied
 	}
 	settings = normalizeSettings(settings)

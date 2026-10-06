@@ -52,6 +52,62 @@ func TestUserMenuCreatesCaseForSelectedMember(t *testing.T) {
 
 // TestContextMenusDeferAndCheckLivePermissions keeps the menus inside
 // Discord's response window and keeps a denial private.
+// TestStaffWithout2FAAreToldHowToFixIt checks that a moderator in a server
+// requiring 2FA that Quack has not confirmed is refused with instructions.
+// The refusal is about the person acting, so it is not audited.
+func TestStaffWithout2FAAreToldHowToFixIt(t *testing.T) {
+	h := newCaseHarness(t, uint64(discordgo.PermissionModerateMembers))
+	h.directory.mfaRequired = true
+	responder := run(t, h.cases.UserCommand(context.Background(), userMenu("target")))
+	if !strings.Contains(*responder.edit.Content, "two-factor authentication") || !strings.Contains(*responder.edit.Content, "dashboard") {
+		t.Fatalf("2FA denial = %q", *responder.edit.Content)
+	}
+	audits, err := h.store.ListAuditLogEntries(context.Background(), h.owner.Guild.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, audit := range audits {
+		if audit.Result == quack.AuditResultDenied {
+			t.Fatalf("2FA refusal was audited: %+v", audit)
+		}
+	}
+}
+
+// TestMembersUsingStaffCommandsAreNotAudited checks that a member who is
+// not staff can type and run a staff command without writing any audit
+// entry or staff record: the refusal is about them, not Quack.
+func TestMembersUsingStaffCommandsAreNotAudited(t *testing.T) {
+	ctx := context.Background()
+	h := newCaseHarness(t, uint64(discordgo.PermissionSendMessages))
+	count := func() int {
+		t.Helper()
+		audits, err := h.store.ListAuditLogEntries(ctx, h.owner.Guild.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(audits)
+	}
+	before := count()
+	for _, query := range []string{"s", "sp", "spa"} {
+		if result := h.cases.Command(ctx, templateAutocomplete(query)); len(result.Response.Data.Choices) != 0 {
+			t.Fatalf("a member was offered rules: %+v", result.Response.Data.Choices)
+		}
+	}
+	if after := count(); after != before {
+		t.Fatalf("autocomplete wrote %d audits, want none", after-before)
+	}
+	responder := run(t, h.cases.UserCommand(ctx, userMenu("target")))
+	if !strings.Contains(*responder.edit.Content, "Only moderators") {
+		t.Fatalf("member denial = %q", *responder.edit.Content)
+	}
+	if after := count(); after != before {
+		t.Fatalf("running the command wrote %d audits, want none", after-before)
+	}
+	if record, err := h.store.GetStaffMember(ctx, h.owner.Guild.ID, "mod-1"); err != nil || record != nil {
+		t.Fatalf("a member got a staff record: %+v, %v", record, err)
+	}
+}
+
 func TestContextMenusDeferAndCheckLivePermissions(t *testing.T) {
 	h := newCaseHarness(t, 0)
 	for name, result := range map[string]discord.Result{
@@ -63,7 +119,7 @@ func TestContextMenusDeferAndCheckLivePermissions(t *testing.T) {
 				t.Fatalf("not privately deferred: %+v", result.Response)
 			}
 			responder := run(t, result)
-			if !strings.Contains(*responder.edit.Content, "permission") || len(h.poster.sent) != 0 {
+			if !strings.Contains(*responder.edit.Content, "Only moderators") || len(h.poster.sent) != 0 {
 				t.Fatalf("missing private permission denial: %+v", responder)
 			}
 		})

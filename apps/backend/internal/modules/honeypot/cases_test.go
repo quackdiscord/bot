@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/internal/modules"
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
@@ -199,6 +200,22 @@ func TestFindHoneypotCaseAdoptsOnlyTheIncidentsCase(t *testing.T) {
 	}
 }
 
+// staffRoleStore is the guild "guild", known to Quack as "internal", with
+// moderatorRoleIDs as its moderator roles.
+type staffRoleStore struct{ moderatorRoleIDs []string }
+
+func (staffRoleStore) GetGuildByID(context.Context, string) (*quack.Guild, error) {
+	return &quack.Guild{ULIDModel: quack.ULIDModel{ID: "internal"}, DiscordGuildID: "guild", IsActive: true}, nil
+}
+
+func (s staffRoleStore) GetGuildByDiscordID(ctx context.Context, _ string) (*quack.Guild, error) {
+	return s.GetGuildByID(ctx, "internal")
+}
+
+func (s staffRoleStore) GetGuildSettings(context.Context, string) (*quack.GuildSettings, error) {
+	return &quack.GuildSettings{ModeratorRoleIDs: s.moderatorRoleIDs}, nil
+}
+
 // Recovery re-checks the author live: staff and Quack are exempt, ordinary
 // bots are not, and a deleted source cannot become a case.
 func TestPrepareRecoveryRefreshesAuthor(t *testing.T) {
@@ -206,12 +223,14 @@ func TestPrepareRecoveryRefreshesAuthor(t *testing.T) {
 		name, id      string
 		bot           bool
 		permissions   int64
+		moderatorRole bool
 		messageStatus int
 		want          error
 	}{
 		{name: "ordinary bot", id: "member", bot: true},
 		{name: "moderator bot", id: "member", bot: true, permissions: discordgo.PermissionModerateMembers, want: ErrExempt},
 		{name: "human administrator", id: "member", permissions: discordgo.PermissionAdministrator, want: ErrExempt},
+		{name: "moderator role", id: "member", moderatorRole: true, want: ErrExempt},
 		{name: "Quack", id: "quack", bot: true, want: ErrExempt},
 		{name: "missing source", id: "member", messageStatus: 404, want: ErrNotTrigger},
 	} {
@@ -238,7 +257,12 @@ func TestPrepareRecoveryRefreshesAuthor(t *testing.T) {
 			})
 			request := ApplyRequest{GuildID: "internal", TemplateID: "template", TargetDiscordUserID: scenario.id,
 				ContextChannelDiscordID: "trap", ContextMessageDiscordID: "message"}
-			prepared, err := caseApplier{session: session}.PrepareHoneypotRecovery(context.Background(), request)
+			roles := staffRoleStore{}
+			if scenario.moderatorRole {
+				roles.moderatorRoleIDs = []string{"role"}
+			}
+			applier := caseApplier{session: session, guilds: modules.NewGuilds(roles)}
+			prepared, err := applier.PrepareHoneypotRecovery(context.Background(), request)
 			if !errors.Is(err, scenario.want) {
 				t.Fatalf("err = %v, want %v", err, scenario.want)
 			}

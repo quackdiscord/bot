@@ -111,3 +111,16 @@ export const channelsQuery = (guildId: string) =>
       ).then((r) => r.channels),
     staleTime: 30_000,
   });
+
+/** rolesQuery lists the server's roles, highest first, without @everyone. */
+export const rolesQuery = (guildId: string) =>
+  queryOptions({
+    queryKey: [...keys.guild(guildId), "roles"],
+    queryFn: () =>
+      unwrap(
+        api.GET("/guilds/{discordGuildID}/directory/roles", {
+          params: { path: { discordGuildID: guildId } },
+        }),
+      ).then((r) => r.roles),
+    staleTime: 30_000,
+  });
