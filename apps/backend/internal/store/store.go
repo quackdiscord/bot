@@ -14,6 +14,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -94,14 +96,47 @@ func OpenMySQL(dsn string) (*gorm.DB, error) {
 	return db, nil
 }
 
-// normalizeMySQLDSN turns on parseTime, which the records' time fields need.
+// normalizeMySQLDSN accepts a go-sql-driver DSN or a mysql:// URL, such as
+// the DATABASE_URL hosting platforms hand out, and turns on parseTime, which
+// the records' time fields need.
 func normalizeMySQLDSN(dsn string) (string, error) {
-	cfg, err := mysqlconfig.ParseDSN(dsn)
+	var cfg *mysqlconfig.Config
+	var err error
+	if strings.HasPrefix(dsn, "mysql://") {
+		cfg, err = parseMySQLURL(dsn)
+	} else {
+		cfg, err = mysqlconfig.ParseDSN(dsn)
+	}
 	if err != nil {
 		return "", fmt.Errorf("parse mysql dsn: %w", err)
 	}
 	cfg.ParseTime = true
 	return cfg.FormatDSN(), nil
+}
+
+// parseMySQLURL reads mysql://user:pass@host[:port]/db?params. The query
+// takes the same parameters as a DSN.
+func parseMySQLURL(raw string) (*mysqlconfig.Config, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return nil, err
+	}
+	if u.Host == "" {
+		return nil, errors.New("mysql url has no host")
+	}
+	cfg, err := mysqlconfig.ParseDSN("/?" + u.RawQuery)
+	if err != nil {
+		return nil, err
+	}
+	cfg.User = u.User.Username()
+	cfg.Passwd, _ = u.User.Password()
+	cfg.Net = "tcp"
+	cfg.Addr = u.Host
+	if u.Port() == "" {
+		cfg.Addr = net.JoinHostPort(u.Hostname(), "3306")
+	}
+	cfg.DBName = strings.TrimPrefix(u.Path, "/")
+	return cfg, nil
 }
 
 // OpenRedis connects to Redis and pings it.

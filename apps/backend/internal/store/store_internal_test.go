@@ -25,6 +25,34 @@ func TestNormalizeMySQLDSN(t *testing.T) {
 	}
 }
 
+func TestNormalizeMySQLURL(t *testing.T) {
+	tests := []struct {
+		url, addr string
+	}{
+		{"mysql://root:p%40ss@mysql:3306/app?timeout=5s", "mysql:3306"},
+		{"mysql://root:p%40ss@mysql/app?timeout=5s", "mysql:3306"},
+	}
+	for _, test := range tests {
+		dsn, err := normalizeMySQLDSN(test.url)
+		if err != nil {
+			t.Fatalf("normalize %q: %v", test.url, err)
+		}
+		cfg, err := mysqlconfig.ParseDSN(dsn)
+		if err != nil {
+			t.Fatalf("parse normalized dsn: %v", err)
+		}
+		if cfg.User != "root" || cfg.Passwd != "p@ss" || cfg.Net != "tcp" || cfg.Addr != test.addr ||
+			cfg.DBName != "app" || cfg.Timeout.String() != "5s" || !cfg.ParseTime {
+			t.Errorf("normalize %q = %+v", test.url, cfg)
+		}
+	}
+	for _, bad := range []string{"mysql:///app", "mysql://root@mysql/app?timeout=soon"} {
+		if _, err := normalizeMySQLDSN(bad); err == nil {
+			t.Errorf("normalize %q succeeded, want an error", bad)
+		}
+	}
+}
+
 func TestPage(t *testing.T) {
 	tests := []struct {
 		limit, offset         int

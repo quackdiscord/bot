@@ -952,7 +952,7 @@ test-only `QUACK_TEST_*` variables are not settings. Keep secrets
 | `limits.case_create` | `20/1m` | Case creation. |
 | `limits.retry` | `10/1m` | Retries and reversals. |
 | `limits.evidence` | `20/1m` | Second limit spent by case creation. |
-| `database.dsn` | none | MySQL DSN, e.g. `user:pass@tcp(host:3306)/quack?charset=utf8mb4&parseTime=True&loc=Local`. Required. |
+| `database.dsn` | none | MySQL DSN, e.g. `user:pass@tcp(host:3306)/quack?charset=utf8mb4&parseTime=True&loc=Local`, or a `mysql://user:pass@host:3306/quack` URL (port defaults to 3306; the query takes DSN parameters). Required. |
 | `redis.url` | none | e.g. `redis://host:6379/0`. Required for `serve`. |
 | `queue.size` | `1000` | Action queue buffer. |
 | `queue.workers` | `3` | Action queue workers. |
