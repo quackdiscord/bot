@@ -1,0 +1,131 @@
+.message {
+  display: flex;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  animation: rise-in var(--slow) var(--ease-out) both;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  gap: 4px;
+  min-width: 0;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.author {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.time {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.jump {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  transition:
+    background-color var(--fast) var(--ease),
+    color var(--fast) var(--ease);
+}
+
+.jump:hover {
+  background: var(--hover);
+  color: var(--text-strong);
+}
+
+.content {
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.muted {
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.attachment {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.image {
+  max-width: min(100%, 420px);
+  max-height: 320px;
+  border-radius: var(--radius-md);
+  object-fit: contain;
+  transition: transform var(--base) var(--ease-out);
+}
+
+.image:hover {
+  transform: scale(1.01);
+}
+
+.file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 420px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  transition: border-color var(--fast) var(--ease);
+}
+
+.file:hover {
+  border-color: var(--border-strong);
+}
+
+.fileText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.fileName {
+  overflow: hidden;
+  color: var(--link);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.warning {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--warning);
+}

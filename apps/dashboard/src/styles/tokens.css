@@ -1,0 +1,80 @@
+/*
+ * Design tokens. Quack's dashboard sits next to Discord, so it uses a dark,
+ * calm palette with the duck's yellow as the one accent color.
+ */
+:root {
+  color-scheme: dark;
+
+  /* Surfaces, darkest to lightest. */
+  --bg-rail: #0d0e10;
+  --bg-sidebar: #131417;
+  --bg: #18191d;
+  --surface: #1f2025;
+  --surface-2: #26272d;
+  --surface-3: #2e3037;
+  --surface-sunken: #121316;
+  --floating: #23242a;
+
+  --hover: rgb(255 255 255 / 0.05);
+  --active: rgb(255 255 255 / 0.08);
+  --selected: rgb(255 255 255 / 0.09);
+  --border: rgb(255 255 255 / 0.07);
+  --border-strong: rgb(255 255 255 / 0.12);
+
+  /* Text. */
+  --text-strong: #f4f4f6;
+  --text: #d9dade;
+  --text-muted: #9a9ca5;
+  --text-faint: #6d7079;
+  --link: #8ab4ff;
+
+  /* Accent: Quack yellow, with dark ink for text on it. */
+  --accent: #fcb230;
+  --accent-hover: #ffc04f;
+  --accent-active: #e9a11f;
+  --accent-ink: #1d1404;
+  --accent-soft: rgb(252 178 48 / 0.12);
+  --accent-line: rgb(252 178 48 / 0.35);
+
+  /* Status. Each soft tone pairs with a readable foreground. */
+  --success: #3ccf7e;
+  --success-strong: #23a55a;
+  --success-soft: rgb(60 207 126 / 0.12);
+  --danger: #ff6b6f;
+  --danger-strong: #e5484d;
+  --danger-soft: rgb(255 107 111 / 0.12);
+  --warning: #f5c451;
+  --warning-soft: rgb(245 196 81 / 0.12);
+  --info: #6cb6ff;
+  --info-soft: rgb(108 182 255 / 0.12);
+  --purple: #b9a2ff;
+  --purple-soft: rgb(185 162 255 / 0.13);
+  --orange: #ffa368;
+  --orange-soft: rgb(255 163 104 / 0.13);
+  --blurple: #5865f2;
+
+  /* Shape. */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius: 10px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-full: 9999px;
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow: 0 6px 20px rgb(0 0 0 / 0.35), 0 0 0 1px var(--border);
+  --shadow-lg: 0 18px 48px rgb(0 0 0 / 0.5), 0 0 0 1px var(--border-strong);
+
+  /* Type. */
+  --font: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Consolas, monospace;
+
+  /* Motion. */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --fast: 120ms;
+  --base: 180ms;
+  --slow: 260ms;
+}

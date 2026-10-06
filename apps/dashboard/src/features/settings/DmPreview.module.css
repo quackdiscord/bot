@@ -1,0 +1,36 @@
+/* Discord's look, inside QuackMessage's Discord theme variables. */
+
+/* A blank line between paragraphs, as "\n\n" renders in Discord. */
+.paragraphs {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.line {
+  white-space: pre-wrap;
+}
+
+.strong {
+  font-weight: 700;
+  color: var(--dc-strong);
+}
+
+.timestamp {
+  padding-inline: 2px;
+  border-radius: 3px;
+  background: rgb(78 80 88 / 0.48);
+}
+
+.quote {
+  padding-left: 12px;
+  border-left: 4px solid var(--dc-quote);
+  border-radius: 4px;
+  white-space: pre-wrap;
+}
+
+.subtext {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--dc-muted);
+}

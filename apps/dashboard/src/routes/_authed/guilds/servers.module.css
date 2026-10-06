@@ -1,0 +1,93 @@
+.main {
+  display: flex;
+  flex-grow: 1;
+  min-width: 0;
+  background: var(--bg);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  animation: rise-in var(--slow) var(--ease-out) both;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  height: 100%;
+  padding: 18px;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  transition: background-color var(--fast) var(--ease);
+}
+
+.tile:hover {
+  background: var(--surface-2);
+}
+
+.text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.name {
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--text-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.role {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+}
+
+.row + .row {
+  border-top: 1px solid var(--border);
+}
+
+.rowName {
+  flex-grow: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 550;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.emptyActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}

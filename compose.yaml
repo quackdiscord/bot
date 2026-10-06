@@ -1,0 +1,87 @@
+name: quack
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: quack
+      MYSQL_USER: quack
+      MYSQL_PASSWORD: quack
+      MYSQL_ROOT_PASSWORD: quack-root
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u$${MYSQL_USER} -p$${MYSQL_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    profiles:
+      - app
+    build:
+      context: ./apps/backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # The app reads its QUACK_* settings from .env; only the storage
+    # addresses change inside the Compose network.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      QUACK_DATABASE_DSN: quack:quack@tcp(mysql:3306)/quack?charset=utf8mb4&parseTime=True&loc=Local
+      QUACK_REDIS_URL: redis://redis:6379/0
+    ports:
+      - "${QUACK_API_PORT:-8080}:${QUACK_API_PORT:-8080}"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${QUACK_API_PORT:-8080}/status >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  dashboard:
+    profiles:
+      - app
+    build:
+      context: .
+      dockerfile: apps/dashboard/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      QUACK_DASHBOARD_API_URL: http://app:${QUACK_API_PORT:-8080}
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/healthz >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  mysql-data:
+  redis-data:

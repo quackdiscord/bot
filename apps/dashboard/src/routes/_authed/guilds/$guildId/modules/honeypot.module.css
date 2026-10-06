@@ -1,0 +1,36 @@
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.muted {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.error {
+  color: var(--danger);
+}
+
+.link {
+  color: var(--link);
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.divider {
+  width: 100%;
+  height: 1px;
+  margin: 0;
+  border: 0;
+  background: var(--border);
+}

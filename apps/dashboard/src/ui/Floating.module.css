@@ -1,0 +1,20 @@
+.floating {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--floating);
+  color: var(--text);
+  box-shadow: var(--shadow-lg);
+  animation: floating-in 140ms var(--ease-out);
+}
+
+@keyframes floating-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}

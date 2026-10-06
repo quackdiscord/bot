@@ -1,0 +1,11 @@
+.row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.label {
+  font-weight: 550;
+  color: var(--text);
+}

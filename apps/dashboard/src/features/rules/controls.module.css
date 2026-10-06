@@ -1,0 +1,108 @@
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    background-color var(--fast) var(--ease),
+    color var(--fast) var(--ease),
+    transform var(--fast) var(--ease);
+}
+
+.icon:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text-strong);
+}
+
+.icon:active:not(:disabled) {
+  transform: scale(0.92);
+}
+
+.icon[data-tone="danger"]:hover:not(:disabled) {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.icon:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.number {
+  width: 96px;
+  font-variant-numeric: tabular-nums;
+}
+
+.duration {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  height: 32px;
+  padding-inline: 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-full);
+  background: var(--surface-sunken);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color var(--fast) var(--ease),
+    border-color var(--fast) var(--ease),
+    color var(--fast) var(--ease),
+    transform var(--fast) var(--ease);
+}
+
+.chip:hover:not(:disabled) {
+  border-color: rgb(255 255 255 / 0.2);
+  color: var(--text-strong);
+}
+
+.chip:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.chip[aria-checked="true"] {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.chip:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.customRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  animation: rise-in var(--base) var(--ease-out);
+}
+
+.unit {
+  width: 130px;
+}
+
+.equals {
+  font-size: 13px;
+  color: var(--text-muted);
+}

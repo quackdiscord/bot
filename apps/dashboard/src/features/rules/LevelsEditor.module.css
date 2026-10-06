@@ -1,0 +1,141 @@
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.card {
+  --tone: var(--warning);
+  --tone-soft: var(--warning-soft);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 18px 18px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  animation: rise-in var(--slow) var(--ease-out);
+  transition: border-color var(--fast) var(--ease);
+}
+
+.card::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  width: 3px;
+  background: var(--tone);
+  opacity: 0.8;
+  transition: background-color var(--base) var(--ease);
+}
+
+.card:hover,
+.card:focus-within {
+  border-color: var(--border-strong);
+}
+
+.card[data-action="timeout_user"] {
+  --tone: var(--purple);
+  --tone-soft: var(--purple-soft);
+}
+
+.card[data-action="kick_user"] {
+  --tone: var(--orange);
+  --tone-soft: var(--orange-soft);
+}
+
+.card[data-action="ban_user"] {
+  --tone: var(--danger);
+  --tone-soft: var(--danger-soft);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: -4px;
+}
+
+.badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: var(--radius-md);
+  background: var(--tone-soft);
+  transition: background-color var(--base) var(--ease);
+}
+
+.kicker {
+  flex-grow: 1;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.card[data-default] .kicker {
+  color: var(--accent);
+}
+
+.topRow {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.grow {
+  flex: 1 1 220px;
+}
+
+.hint {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.topRow + .hint {
+  margin-top: -8px;
+}
+
+.switchRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+
+.switchTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.appear {
+  animation: rise-in var(--base) var(--ease-out);
+}
+
+.select {
+  max-width: 260px;
+}

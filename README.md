@@ -1,52 +1,56 @@
-# 🦆 Quack
+# Quack v5
 
-_Formerly Seeds_
+Quack is a moderation bot for Discord. Admins define templates with escalation
+levels, moderators apply a template to a member, and Quack picks the level
+from the member's history, records the case, and carries out the configured
+timeout, kick, or ban. Members get one notification per case and can appeal
+from the dashboard.
 
-A Discord bot focused on making Discord safer. Providing exceptional tools for moderation and community protection.
+> Admins define the server's moderation rules. Moderators apply those rules.
+> Quack chooses and carries out the configured result.
 
-All Quack's commands use Discord's
-[slash command interface](https://discord.com/developers/docs/interactions/application-commands#slash-commands)
+[`v5.md`](v5.md) is the product definition. When the code and `v5.md`
+disagree, `v5.md` wins.
 
-[![Discord Bots](https://top.gg/api/widget/servers/968198214450831370.svg)](https://top.gg/bot/968198214450831370)
-[![Discord Bots](https://top.gg/api/widget/upvotes/968198214450831370.svg)](https://top.gg/bot/968198214450831370)
-[![GitHub stars](https://img.shields.io/github/stars/seedsdiscord/bot)](https://github.com/seedsdiscord/bot/stargazers)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+## Layout
 
-## Running Locally
+- `apps/backend`: the Go module. One binary, `quack`, runs the Discord bot,
+  the dashboard API, and the background workers, and provides the migration
+  and v4 import commands.
+- `apps/dashboard`: the web dashboard. A Vite+ React app styled with CSS Modules,
+  served by a small Go program that also proxies `/api` to the backend. See
+  its [README](apps/dashboard/README.md).
+- `contracts/http/openapi.yaml`: the HTTP API contract between the backend and
+  the dashboard, generated from the Go route table with `go generate ./...`
+  in `apps/backend`.
+- `docs/`: maintainer documentation. Start at [`docs/README.md`](docs/README.md).
 
-Quack uses Go v1.24 please make sure you have this installed. Please also ensure you have created a bot via [Discord's Developer Portal](https://discord.com/developers/applications).
+## Quick start
 
-1. Clone.
+You need Go, Bun, Docker, and a Discord application for development.
 
+```sh
+cp .env.example .env        # then fill in the QUACK_DISCORD_* values
+docker compose up -d        # MySQL and Redis
+cd apps/backend && go run ./cmd/quack serve
+cd apps/dashboard && bun install && bun run dev
 ```
-mkdir quack && cd quack
-git clone https://github.com/seedsdiscord/bot
-cd bot
-```
 
-2. Set up environment variables.
+Open `http://localhost:3000`. The API listens on `http://localhost:8080`;
+the dashboard proxies `/api` to it. Add
+`http://localhost:3000/api/auth/discord/callback` to your Discord
+application's OAuth2 redirects. Run `go test ./...` from `apps/backend` to
+test. [`docs/development.md`](docs/development.md) has the
+rest.
 
-- Create a `.env.local` in the root of the project.
-- Refer to [`.env.example`](./env.example) to see all the required enviornment variables.
-- Refer to [`config.json`](./config.json) to see more configuration options.
-- Feel free to omit any for testing.
+## Docs
 
-3. Start the bot!
-
-```
-go run .
-```
-
-- This will run the bot.
-
-## Contributing
-
-1. Fork the repository
-2. Create a new branch: `git checkout -b feature/new-feature`
-3. Make your changes and commit them: `git commit -m 'Add new feature'`
-4. Push to the branch: `git push origin feature/new-feature`
-5. Open a pull request
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
+- [Architecture](docs/architecture.md): packages, request flows, the action
+  engine, appeals, the API, and the modules.
+- [Dashboard](docs/dashboard.md): how the web app is served, signs in, and
+  talks to the API.
+- [Configuration](docs/configuration.md): every setting and its `QUACK_*`
+  variable.
+- [Development](docs/development.md) and [testing](docs/testing.md).
+- [Migrations](docs/migrations.md), [operations](docs/operations.md), and the
+  [v4 import](docs/v4-import.md).
