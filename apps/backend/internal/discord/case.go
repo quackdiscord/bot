@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/quack"
@@ -175,6 +176,10 @@ type cases struct {
 	poster channelPoster
 	// dashboard builds the dashboard links on staff views and receipts.
 	dashboard quack.DashboardLinks
+	// followEvery and followFor pace how a private receipt, which the
+	// publication refresher cannot edit, is kept current while its actions
+	// settle (see publishPrivately).
+	followEvery, followFor time.Duration
 }
 
 // channelPoster sends a message to a channel as the bot. *Bot implements it.
@@ -184,7 +189,10 @@ type channelPoster interface {
 
 // newCases returns the case handlers with an empty draft store.
 func newCases(services *quack.Services, poster channelPoster, dashboard quack.DashboardLinks) *cases {
-	return &cases{services: services, drafts: newDraftStore(), poster: poster, dashboard: dashboard}
+	return &cases{
+		services: services, drafts: newDraftStore(), poster: poster, dashboard: dashboard,
+		followEvery: 2 * time.Second, followFor: 30 * time.Second,
+	}
 }
 
 // register installs the case commands, components, and modals on r. The

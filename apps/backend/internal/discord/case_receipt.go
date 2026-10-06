@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -43,6 +44,43 @@ func (c *cases) publishToChannel(ctx context.Context, responder Responder, i *di
 		}
 	}
 	c.recordReceipt(ctx, responder, i, created, message, err)
+}
+
+// publishPrivately turns the private reply that started the flow into the
+// case receipt, for flows run where members can read, such as "Add case" on
+// a member's message. Discord only lets the interaction edit an ephemeral
+// message, so the receipt is not recorded as a publication; instead it is
+// re-rendered through the interaction while its actions settle, for at most
+// c.followFor.
+func (c *cases) publishPrivately(ctx context.Context, responder Responder, i *discordgo.InteractionCreate, created *quack.CaseResponse) {
+	receipt := c.receipt(ctx, created)
+	caseURL := c.dashboard.Staff(i.GuildID, "cases", created.ID)
+	message := caseReceiptMessage(receipt, caseURL)
+	if _, err := editWithRetry(ctx, responder, message); err != nil {
+		slog.WarnContext(ctx, "Could not show case receipt", "case_id", created.ID, "error", err)
+		_, _ = responder.Followup(Signal("error", fmt.Sprintf(
+			"Case #%d was saved, but I couldn’t show the result. Check `/case view`.", created.CaseNumber), true))
+		return
+	}
+	deadline := time.Now().Add(c.followFor)
+	for receipt.Pending() && time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(c.followEvery):
+		}
+		next, err := c.services.Cases.Receipt(ctx, created.GuildID, created.ID)
+		if err != nil {
+			return
+		}
+		receipt = next
+		if rendered := caseReceiptMessage(receipt, caseURL); !reflect.DeepEqual(rendered, message) {
+			if _, err := responder.EditOriginal(EditMessage(rendered)); err != nil {
+				return
+			}
+			message = rendered
+		}
+	}
 }
 
 // recordReceipt registers a posted receipt so the refresh loop keeps it

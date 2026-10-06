@@ -334,3 +334,29 @@ func TestExpiredStructuredEditRequiresReopening(t *testing.T) {
 		t.Fatalf("expired draft: %+v", result)
 	}
 }
+
+// TestMessageMenuKeepsReceiptPrivate checks that "Add case" on a message
+// shows the receipt in the private reply, not the message's channel, which
+// members can likely read.
+func TestMessageMenuKeepsReceiptPrivate(t *testing.T) {
+	// Message links, and so message evidence, need a real server ID.
+	h := newCaseHarnessIn(t, "1005778938108325969", uint64(discordgo.PermissionModerateMembers))
+	menu := messageMenu()
+	menu.GuildID = "1005778938108325969"
+	menu.Data = discordgo.ApplicationCommandInteractionData{
+		Name: discord.MessageCaseCommandName, TargetID: "1005778938108325971",
+		Resolved: &discordgo.ApplicationCommandInteractionDataResolved{Messages: map[string]*discordgo.Message{
+			"1005778938108325971": {ID: "1005778938108325971", ChannelID: "1005778938108325970", Author: &discordgo.User{ID: "target-1"}},
+		}},
+	}
+	responder := run(t, h.cases.MessageCommand(context.Background(), menu))
+	if responder.deleted || responder.editCount != 1 || len(h.poster.sent) != 0 || responder.followup.Content != "" {
+		t.Fatalf("want the private reply replaced by the receipt: %+v, posts=%d", responder, len(h.poster.sent))
+	}
+	if !strings.Contains(*responder.edit.Content, "Case #") {
+		t.Fatalf("wrong receipt: %s", *responder.edit.Content)
+	}
+	if publications := h.publications(t); len(publications) != 0 {
+		t.Fatalf("private receipt recorded for refresh: %+v", publications)
+	}
+}

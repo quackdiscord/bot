@@ -42,7 +42,7 @@ func newSetupHarness(t *testing.T, liveBits uint64, channels staffChannels) *set
 		t.Fatal(err)
 	}
 	registry := modules.NewRegistry(repository.DB())
-	directory := &fakeDirectory{actorBits: liveBits}
+	directory := &fakeDirectory{guildID: "guild-1", actorBits: liveBits}
 	services := quack.New(quack.Deps{Store: repository, Guilds: directory, Channels: channels, Modules: registry})
 	return &setupHarness{store: repository, registry: registry, services: services, guildID: bootstrap.Guild.ID}
 }

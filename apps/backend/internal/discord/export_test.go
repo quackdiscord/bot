@@ -5,6 +5,7 @@ import (
 	"flag"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/quack"
@@ -30,6 +31,7 @@ type Cases struct {
 
 func NewCases(services *quack.Services, poster ChannelPoster, dashboardURL string) Cases {
 	c := newCases(services, poster, quack.NewDashboardLinks(dashboardURL))
+	c.followEvery, c.followFor = time.Millisecond, 0
 	router := newRouter(nil, nil)
 	c.register(router)
 	return Cases{c, router}

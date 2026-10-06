@@ -309,7 +309,9 @@ still sign in to the dashboard.
 ### Discord case responses
 
 A case created from Discord posts a public receipt in the channel where it
-was invoked. Validation and permission errors stay private to the moderator.
+was invoked, except a case added from a member's message ("Add case"), whose
+receipt stays private to the moderator because that channel is likely public.
+Validation and permission errors stay private to the moderator.
 Evidence is never copied into the channel.
 
 ### Appeals
@@ -510,8 +512,9 @@ Discord ──> discord.Router ──> /case add handler (live staff context, au
    five fields span several pages, with the draft in memory); optional context
    is added afterwards with Edit context. The "Add case" message action and
    "Add case for member" user action answer privately with a rule picker (25
-   per page, skipped when there is one rule), then post the receipt with bot
-   credentials.
+   per page, skipped when there is one rule). The user action then posts the
+   receipt with bot credentials; the message action turns the private reply
+   into the receipt instead.
 3. **Preflight** (`quack/case.go`, `quack/authz.go`, `quack/evidence.go`).
    Loads the template, selects the level, re-checks Discord and the guild's
    staff roles and 2FA requirement (actor still a moderator; actor and bot
@@ -729,7 +732,10 @@ clears `last_digest`, and bumps `revision` (`store.requestPublicationRefresh`).
 publications, skips edits whose digest is unchanged, reports `Complete`, or
 `Retire`s publications whose message or case is gone. Settling receipts are
 rechecked in 2s, failed refreshes in 30s. Completion is fenced on `revision`,
-so a change committed during a refresh is never lost.
+so a change committed during a refresh is never lost. Private receipts are
+not publications, since only the interaction can edit an ephemeral message:
+the "Add case" message action re-renders its receipt through the interaction
+every 2s while actions settle, for at most 30s.
 
 ### Discord messages and dashboard links
 

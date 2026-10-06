@@ -70,8 +70,8 @@ func (c *cases) add(ctx context.Context, i *discordgo.InteractionCreate, add *di
 
 // messageCommand handles the "Add case" message action. It answers
 // privately: with one active template it creates the case straight away,
-// with several it asks which rule applies. The result is posted to the
-// channel and the private reply removed.
+// with several it asks which rule applies. The receipt replaces the private
+// reply, since the message's channel is likely public.
 func (c *cases) messageCommand(_ context.Context, i *discordgo.InteractionCreate) Result {
 	if i.GuildID == "" {
 		return Immediate(Error("Select a server message to create a case."))
@@ -95,7 +95,8 @@ func (c *cases) messageCommand(_ context.Context, i *discordgo.InteractionCreate
 }
 
 // userCommand handles the "Add case for member" user action like
-// messageCommand, without message evidence.
+// messageCommand, without message evidence. Its receipt is posted to the
+// channel and the private reply removed.
 func (c *cases) userCommand(_ context.Context, i *discordgo.InteractionCreate) Result {
 	if i.GuildID == "" {
 		return Immediate(Error("Select a server member to create a case."))
@@ -236,9 +237,10 @@ func (c *cases) pickTemplate(i *discordgo.InteractionCreate, kind, invalid strin
 	})
 }
 
-// createFromContextMenu creates a case for target under template and posts
-// the receipt to the channel. Required context the message cannot supply
-// sends the moderator to /case add instead.
+// createFromContextMenu creates a case for target under template. A
+// member's case posts its receipt to the channel; a message's case keeps it
+// private, since that channel is likely public. Required context the
+// message cannot supply sends the moderator to /case add instead.
 func (c *cases) createFromContextMenu(
 	ctx context.Context, i *discordgo.InteractionCreate, responder Responder,
 	staff *quack.GuildStaffContext, template *quack.TemplateResponse, target caseTarget, key string,
@@ -265,7 +267,11 @@ func (c *cases) createFromContextMenu(
 		_, err = responder.EditOriginal(ErrorEdit(caseCreateErrorMessage(err)))
 		return err
 	}
-	c.publishToChannel(ctx, responder, i, created)
+	if target.messageID != "" {
+		c.publishPrivately(ctx, responder, i, created)
+	} else {
+		c.publishToChannel(ctx, responder, i, created)
+	}
 	return nil
 }
 

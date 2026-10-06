@@ -3,6 +3,7 @@ package discord_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync/atomic"
@@ -19,6 +20,8 @@ import (
 // fakeDirectory answers live authorization with fixed permissions and
 // counts how often Discord would have been asked.
 type fakeDirectory struct {
+	// guildID is the one server Quack is in.
+	guildID   string
 	actorBits uint64
 	// mfaRequired makes the guild require 2FA for moderation.
 	mfaRequired bool
@@ -30,13 +33,13 @@ func (f *fakeDirectory) UserGuilds(context.Context, string) ([]quack.DiscordUser
 }
 
 func (f *fakeDirectory) BotGuilds(context.Context) ([]quack.DiscordBotGuild, error) {
-	return []quack.DiscordBotGuild{{ID: "guild-1", Name: "Guild", OwnerID: "owner-1"}}, nil
+	return []quack.DiscordBotGuild{{ID: f.guildID, Name: "Guild", OwnerID: "owner-1"}}, nil
 }
 
 func (f *fakeDirectory) GuildAuthorization(_ context.Context, _, actorID, targetID string) (*quack.DiscordGuildAuthorization, error) {
 	f.calls.Add(1)
 	return &quack.DiscordGuildAuthorization{
-		Guild:  quack.DiscordBotGuild{ID: "guild-1", Name: "Guild", OwnerID: "owner-1", MFARequired: f.mfaRequired},
+		Guild:  quack.DiscordBotGuild{ID: f.guildID, Name: "Guild", OwnerID: "owner-1", MFARequired: f.mfaRequired},
 		Actor:  quack.DiscordMemberAuthorization{DiscordUserID: actorID, Present: true, PermissionBits: f.actorBits, TopRolePosition: 10},
 		Bot:    quack.DiscordMemberAuthorization{DiscordUserID: "quack", Present: true, PermissionBits: ^uint64(0), TopRolePosition: 20, Bot: true},
 		Target: &quack.DiscordMemberAuthorization{DiscordUserID: targetID, Present: targetID != "", TopRolePosition: 1},
@@ -67,14 +70,20 @@ type caseHarness struct {
 
 func newCaseHarness(t *testing.T, liveActorBits uint64) *caseHarness {
 	t.Helper()
+	return newCaseHarnessIn(t, "guild-1", liveActorBits)
+}
+
+// newCaseHarnessIn is newCaseHarness in the Discord server guildID.
+func newCaseHarnessIn(t *testing.T, guildID string, liveActorBits uint64) *caseHarness {
+	t.Helper()
 	repository := testutil.NewSQLiteStore(t)
 	if err := repository.Migrate(); err != nil {
 		t.Fatalf("migrate schema: %v", err)
 	}
-	directory := &fakeDirectory{actorBits: liveActorBits}
-	services := quack.New(quack.Deps{Store: repository, Guilds: directory})
+	directory := &fakeDirectory{guildID: guildID, actorBits: liveActorBits}
+	services := quack.New(quack.Deps{Store: repository, Guilds: directory, Evidence: messageEvidence{}})
 	owner, err := services.Guilds.ResolveDiscordStaffContext(context.Background(), quack.DiscordStaffContextInput{
-		DiscordGuildID: "guild-1", DiscordUserID: "owner-1", DisplayName: "Owner",
+		DiscordGuildID: guildID, DiscordUserID: "owner-1", DisplayName: "Owner",
 	})
 	if err != nil {
 		t.Fatalf("resolve owner: %v", err)
@@ -90,6 +99,28 @@ func newCaseHarness(t *testing.T, liveActorBits uint64) *caseHarness {
 	}).ID
 	directory.calls.Store(0)
 	return h
+}
+
+// messageEvidence serves any linked message as target-1's.
+type messageEvidence struct{}
+
+func (messageEvidence) FetchMessageEvidence(_ context.Context, ref quack.DiscordMessageReference) (*quack.DiscordMessageSnapshot, error) {
+	return &quack.DiscordMessageSnapshot{
+		GuildID: ref.GuildID, ChannelID: ref.ChannelID, MessageID: ref.MessageID,
+		AuthorDiscordUserID: "target-1", URL: ref.URL, Content: "spam", CreatedAt: time.Now().UTC(),
+	}, nil
+}
+
+func (messageEvidence) PreserveEvidenceAttachment(context.Context, string, string, quack.DiscordAttachmentSnapshot) (*quack.PreservedDiscordAttachment, error) {
+	return nil, errors.New("not preserved")
+}
+
+func (messageEvidence) EvidenceAttachmentURL(context.Context, string, string, string) (string, error) {
+	return "", nil
+}
+
+func (messageEvidence) RefreshAttachmentURL(_ context.Context, original string) (string, error) {
+	return original, nil
 }
 
 func (h *caseHarness) template(t *testing.T, input quack.TemplateInput) *quack.TemplateResponse {
