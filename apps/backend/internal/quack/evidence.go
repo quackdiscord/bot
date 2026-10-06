@@ -70,6 +70,10 @@ type EvidenceClient interface {
 	// EnsureEvidenceChannel returns the evidence channel, creating it if
 	// currentChannelID is empty or gone.
 	EnsureEvidenceChannel(ctx context.Context, discordGuildID, currentChannelID string) (string, error)
+	// EvidenceAttachmentURL returns a freshly signed CDN URL for an
+	// attachment Quack copied into an evidence channel. Discord expires
+	// these URLs, so they are fetched when needed rather than stored.
+	EvidenceAttachmentURL(ctx context.Context, channelID, messageID, attachmentID string) (string, error)
 }
 
 // DiscordMessageReference identifies a linked message and who asked to
@@ -127,6 +131,9 @@ type CaseEvidenceResponse struct {
 // CaseEvidenceAttachmentResponse is an attachment on a captured message. The
 // managed evidence channel's identity is never exposed.
 type CaseEvidenceAttachmentResponse struct {
+	// ID names the attachment in the evidence file routes, which redirect
+	// to a viewable copy.
+	ID           string `json:"id"`
 	Filename     string `json:"filename"`
 	ContentType  string `json:"content_type"`
 	OriginalURL  string `json:"original_url"`
@@ -413,6 +420,7 @@ func caseEvidenceResponses(snapshots []CaseEvidenceSnapshot, attachments []CaseE
 			original = ""
 		}
 		byEvidence[item.EvidenceID] = append(byEvidence[item.EvidenceID], CaseEvidenceAttachmentResponse{
+			ID:           item.ID,
 			Filename:     item.Filename,
 			ContentType:  item.ContentType,
 			SizeBytes:    item.SizeBytes,

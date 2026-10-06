@@ -29,6 +29,10 @@ func (f *fakeEvidenceClient) EnsureEvidenceChannel(context.Context, string, stri
 	return "999999999999999999", nil
 }
 
+func (f *fakeEvidenceClient) EvidenceAttachmentURL(_ context.Context, channelID, _, attachmentID string) (string, error) {
+	return "https://cdn.discordapp.com/attachments/" + channelID + "/" + attachmentID + "/fresh", nil
+}
+
 type unavailableEvidenceClient struct{ err error }
 
 func (f unavailableEvidenceClient) FetchMessageEvidence(context.Context, quack.DiscordMessageReference) (*quack.DiscordMessageSnapshot, error) {
@@ -41,6 +45,10 @@ func (unavailableEvidenceClient) PreserveEvidenceAttachment(context.Context, str
 
 func (unavailableEvidenceClient) EnsureEvidenceChannel(context.Context, string, string) (string, error) {
 	return "", nil
+}
+
+func (f unavailableEvidenceClient) EvidenceAttachmentURL(context.Context, string, string, string) (string, error) {
+	return "", f.err
 }
 
 type evidenceClientFixture struct {
@@ -60,6 +68,10 @@ func (f evidenceClientFixture) PreserveEvidenceAttachment(context.Context, strin
 
 func (evidenceClientFixture) EnsureEvidenceChannel(context.Context, string, string) (string, error) {
 	return "evidence-channel", nil
+}
+
+func (evidenceClientFixture) EvidenceAttachmentURL(context.Context, string, string, string) (string, error) {
+	return "", nil
 }
 
 func TestParseDiscordMessageLinkRejectsLookalikesAndCrossGuildCapture(t *testing.T) {

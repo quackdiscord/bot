@@ -181,6 +181,12 @@ func (s *Server) routes() {
 		ID: "getCase", Summary: "One case, by ID or case number",
 		Response: caseDetailEnvelope{}, Errors: caseFailures,
 	})
+	s.staff("GET /guilds/{discordGuildID}/cases/{caseRef}/evidence/files/{attachmentID}",
+		quack.PermissionActionCaseRead, s.getEvidenceFile, Doc{
+			ID: "getEvidenceFile", Summary: "Open an evidence file",
+			Description: "Redirects to a freshly signed link to Quack's copy of the file, or to the original upload when there is no copy.",
+			Status:      http.StatusFound, Errors: caseFailures,
+		})
 	s.staff("POST /guilds/{discordGuildID}/cases/{caseRef}/void", quack.PermissionActionCaseVoid, s.voidCase, Doc{
 		ID: "voidCase", Summary: "Mark a case invalid",
 		Description: "replacement_case_id is rejected; open the replacement afterwards with replaces_case_id.",
@@ -286,6 +292,11 @@ func (s *Server) routes() {
 	s.member("GET /members/me/cases/{caseID}", s.getMemberCase, Doc{
 		ID: "getMemberCase", Summary: "The member-facing view of one of the member's cases",
 		Response: memberCaseEnvelope{}, Errors: caseFailures,
+	})
+	s.member("GET /members/me/cases/{caseID}/evidence/files/{attachmentID}", s.getMemberEvidenceFile, Doc{
+		ID: "getMemberEvidenceFile", Summary: "Open an evidence file from one of the member's cases",
+		Description: "Redirects to a freshly signed link to Quack's copy of the file.",
+		Status:      http.StatusFound, Errors: caseFailures,
 	})
 	s.memberWrite("POST /members/me/cases/{caseID}/appeal", "appeal-submit", s.submitAppeal, Doc{
 		ID: "submitAppeal", Summary: "File the member's one appeal for a case",

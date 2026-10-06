@@ -511,7 +511,11 @@ which skips staff checks but keeps every target and bot check.
   (`quack/starter.go`), then ensures the evidence channel exists: a missing
   one is created hidden from everyone but Quack and staff roles; an existing
   one is left as admins set it. Saved copies are linked by their message in
-  that channel, which outlives Discord's signed file URLs. Leaving a guild
+  that channel, which outlives Discord's signed file URLs. The dashboard
+  shows a file through `GET .../cases/{caseRef}/evidence/files/{id}` (or
+  `/members/me/cases/{caseID}/evidence/files/{id}`), which reads the copy's
+  message and redirects to the freshly signed URL. Staff fall back to the
+  original upload when there is no readable copy. Leaving a guild
   only marks it inactive. Lifecycle events are handled one at a time, since
   Discord sends a `GuildCreate` for every guild on connect, and evidence
   channel setup waits out Discord rate limits instead of failing.

@@ -1714,6 +1714,78 @@ paths:
       summary: One case, by ID or case number
       tags:
       - cases
+  /guilds/{discordGuildID}/cases/{caseRef}/evidence/files/{attachmentID}:
+    get:
+      description: Redirects to a freshly signed link to Quack's copy of the file,
+        or to the original upload when there is no copy.
+      operationId: getEvidenceFile
+      parameters:
+      - in: path
+        name: discordGuildID
+        required: true
+        schema:
+          type: string
+      - in: path
+        name: caseRef
+        required: true
+        schema:
+          type: string
+      - in: path
+        name: attachmentID
+        required: true
+        schema:
+          type: string
+      responses:
+        "302":
+          description: Found
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Not Found
+        "429":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Too Many Requests
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Service Unavailable
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Any other error, such as a 500
+      security:
+      - sessionCookie: []
+      - sessionBearer: []
+      summary: Open an evidence file
+      tags:
+      - cases
   /guilds/{discordGuildID}/cases/{caseRef}/reversals:
     post:
       description: The body must set confirm.
@@ -5205,6 +5277,72 @@ paths:
       summary: File the member's one appeal for a case
       tags:
       - members
+  /members/me/cases/{caseID}/evidence/files/{attachmentID}:
+    get:
+      description: Redirects to a freshly signed link to Quack's copy of the file.
+      operationId: getMemberEvidenceFile
+      parameters:
+      - in: path
+        name: caseID
+        required: true
+        schema:
+          type: string
+      - in: path
+        name: attachmentID
+        required: true
+        schema:
+          type: string
+      responses:
+        "302":
+          description: Found
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Not Found
+        "429":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Too Many Requests
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Service Unavailable
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Any other error, such as a 500
+      security:
+      - sessionCookie: []
+      - sessionBearer: []
+      summary: Open an evidence file from one of the member's cases
+      tags:
+      - members
   /members/me/guilds/{guildID}/cases:
     get:
       operationId: listMemberCases
@@ -6701,6 +6839,8 @@ components:
           type: string
         filename:
           type: string
+        id:
+          type: string
         original_url:
           type: string
         preserved_url:
@@ -6711,6 +6851,7 @@ components:
         warning:
           type: string
       required:
+      - id
       - filename
       - content_type
       - original_url

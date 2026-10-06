@@ -107,6 +107,17 @@ func (s *Server) getCase(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, caseDetailEnvelope{Case: result})
 }
 
+// getEvidenceFile redirects to a viewable copy of an evidence file.
+func (s *Server) getEvidenceFile(w http.ResponseWriter, r *http.Request) {
+	link, err := s.services.Cases.EvidenceFileURL(r.Context(), quack.StaffFromContext(r.Context()),
+		r.PathValue("caseRef"), r.PathValue("attachmentID"))
+	if err != nil {
+		caseErrors.write(w, r, err)
+		return
+	}
+	http.Redirect(w, r, link, http.StatusFound)
+}
+
 // voidCase marks a case invalid. The case and its history are kept.
 func (s *Server) voidCase(w http.ResponseWriter, r *http.Request) {
 	var input voidCaseRequest
@@ -160,6 +171,18 @@ func (s *Server) getMemberCase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, memberCaseEnvelope{Case: result})
+}
+
+// getMemberEvidenceFile redirects the case's member to a viewable copy of
+// an evidence file.
+func (s *Server) getMemberEvidenceFile(w http.ResponseWriter, r *http.Request) {
+	link, err := s.services.Cases.MemberEvidenceFileURL(r.Context(), r.PathValue("caseID"),
+		sessionFrom(r.Context()).DiscordUserID, r.PathValue("attachmentID"))
+	if err != nil {
+		caseErrors.write(w, r, err)
+		return
+	}
+	http.Redirect(w, r, link, http.StatusFound)
 }
 
 // caseListInput reads the case list filters.

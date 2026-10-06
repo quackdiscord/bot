@@ -193,6 +193,22 @@ func (b *Bot) PreserveEvidenceAttachment(
 	}, nil
 }
 
+// EvidenceAttachmentURL returns a freshly signed CDN URL for an attachment
+// in an evidence channel message. Reading the message makes Discord sign
+// its attachment URLs again.
+func (b *Bot) EvidenceAttachmentURL(ctx context.Context, channelID, messageID, attachmentID string) (string, error) {
+	message, err := b.Session.ChannelMessage(channelID, messageID, rest(ctx)...)
+	if err != nil {
+		return "", classify("evidence_copy_read", err, false)
+	}
+	for _, attachment := range message.Attachments {
+		if attachment != nil && attachment.ID == attachmentID && attachmentURL(attachment.URL) {
+			return attachment.URL, nil
+		}
+	}
+	return "", errors.New("evidence copy is no longer attached")
+}
+
 // spoilerName marks an evidence copy as a spoiler, so Discord blurs images
 // and video in the evidence channel until a moderator chooses to look.
 func spoilerName(filename string) string {

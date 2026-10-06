@@ -47,6 +47,10 @@ func (c *messageEvidenceClient) EnsureEvidenceChannel(context.Context, string, s
 	return "999999999999999999", nil
 }
 
+func (c *messageEvidenceClient) EvidenceAttachmentURL(context.Context, string, string, string) (string, error) {
+	return "", nil
+}
+
 func messageLink(messageID string) string {
 	return fmt.Sprintf("https://discord.com/channels/%s/222222222222222222/%s", updateGuildDiscordID, messageID)
 }

@@ -17,9 +17,15 @@ type Attachment = NonNullable<CaseEvidence["attachments"]>[number];
  */
 export function EvidenceMessage({
   evidence,
+  files,
   guildId,
 }: {
   evidence: CaseEvidence;
+  /**
+   * The case's evidence file route, such as `/api/members/me/cases/{id}/evidence/files`.
+   * It redirects to a freshly signed copy, since stored Discord links expire.
+   */
+  files: string;
   /** Staff views resolve the author; member views pass nothing. */
   guildId?: string;
 }) {
@@ -52,7 +58,11 @@ export function EvidenceMessage({
         {evidence.attachments?.length ? (
           <div className={s.attachments}>
             {evidence.attachments.map((a, i) => (
-              <AttachmentView key={`${a.filename}-${i}`} attachment={a} />
+              <AttachmentView
+                key={`${a.filename}-${i}`}
+                attachment={a}
+                url={`${files}/${encodeURIComponent(a.id)}`}
+              />
             ))}
           </div>
         ) : null}
@@ -66,12 +76,11 @@ export function EvidenceMessage({
   );
 }
 
-function AttachmentView({ attachment: a }: { attachment: Attachment }) {
-  const url = a.preserved_url || a.original_url;
+function AttachmentView({ attachment: a, url }: { attachment: Attachment; url: string }) {
   const image = a.content_type.startsWith("image/");
   return (
     <div className={s.attachment}>
-      {image && url ? (
+      {image ? (
         <a href={url} target="_blank" rel="noreferrer">
           <img src={url} alt={a.filename} loading="lazy" className={s.image} />
         </a>

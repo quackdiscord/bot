@@ -156,7 +156,12 @@ function CasePage() {
                 </p>
               ) : null}
               {(c.evidence ?? []).map((e) => (
-                <EvidenceMessage key={e.id} evidence={e} guildId={guildId} />
+                <EvidenceMessage
+                  key={e.id}
+                  evidence={e}
+                  guildId={guildId}
+                  files={`/api/guilds/${guildId}/cases/${c.id}/evidence/files`}
+                />
               ))}
             </section>
           ) : null}

@@ -290,7 +290,7 @@ func TestCaseContextEvidenceVoidReplacementAndMemberProjection(t *testing.T) {
 	input.ContextFields = []quack.TemplateContextFieldInput{{Key: "summary", Label: "Summary", FieldType: quack.ContextFieldShortText, Position: 1, Required: true}, {Key: "message", Label: "Message", FieldType: quack.ContextFieldMessageLink, Position: 2, Required: true}, {Key: "details", Label: "Details", FieldType: quack.ContextFieldLongText, Position: 3}}
 	template := createAppTemplate(t, ctx, store, admin, input)
 	link := "https://discord.com/channels/111111111111111111/222222222222222222/333333333333333333"
-	evidenceClient := &fakeEvidenceClient{message: quack.DiscordMessageSnapshot{GuildID: guildDiscordID, ChannelID: "222222222222222222", MessageID: "333333333333333333", AuthorDiscordUserID: "target-1", URL: link, Content: "original text", CreatedAt: time.Now().UTC(), Attachments: []quack.DiscordAttachmentSnapshot{{ID: "a1", Filename: "proof.png", ContentType: "image/png", SizeBytes: 100, URL: "https://cdn.discordapp.com/proof"}}}, preserved: quack.PreservedDiscordAttachment{URL: "https://cdn.discordapp.com/copy", MessageID: "copy-message", AttachmentID: "copy-attachment"}}
+	evidenceClient := &fakeEvidenceClient{message: quack.DiscordMessageSnapshot{GuildID: guildDiscordID, ChannelID: "222222222222222222", MessageID: "333333333333333333", AuthorDiscordUserID: "target-1", URL: link, Content: "original text", CreatedAt: time.Now().UTC(), Attachments: []quack.DiscordAttachmentSnapshot{{ID: "a1", Filename: "proof.png", ContentType: "image/png", SizeBytes: 100, URL: "https://cdn.discordapp.com/proof"}}}, preserved: quack.PreservedDiscordAttachment{URL: "https://discord.com/channels/111111111111111111/999999999999999999/copy-message", MessageID: "copy-message", AttachmentID: "copy-attachment"}}
 	service := quack.NewCaseService(store, nil, quack.NewEvidenceService(store, evidenceClient), nil)
 	summary, _ := json.Marshal("visible summary")
 	message, _ := json.Marshal(link)
@@ -304,6 +304,19 @@ func TestCaseContextEvidenceVoidReplacementAndMemberProjection(t *testing.T) {
 	}
 	if len(detail.ContextValues) != 3 || detail.ContextValues[2].Value != nil || len(detail.Evidence) != 1 || len(detail.Evidence[0].Attachments) != 1 || detail.Evidence[0].Attachments[0].CopyOutcome != "preserved" {
 		t.Fatalf("case snapshot incomplete: %+v", detail)
+	}
+	file := detail.Evidence[0].Attachments[0].ID
+	if got, err := service.EvidenceFileURL(ctx, moderator, created.ID, file); err != nil || got != "https://cdn.discordapp.com/attachments/999999999999999999/copy-attachment/fresh" {
+		t.Fatalf("evidence file = %q, %v; want a fresh link to the copy", got, err)
+	}
+	if got, err := service.MemberEvidenceFileURL(ctx, created.ID, "target-1", file); err != nil || got != "https://cdn.discordapp.com/attachments/999999999999999999/copy-attachment/fresh" {
+		t.Fatalf("member evidence file = %q, %v", got, err)
+	}
+	if _, err := service.MemberEvidenceFileURL(ctx, created.ID, "other-user", file); err != quack.ErrCaseNotFound {
+		t.Fatalf("another member's evidence file: %v", err)
+	}
+	if _, err := service.EvidenceFileURL(ctx, moderator, created.ID, "missing"); err != quack.ErrCaseNotFound {
+		t.Fatalf("unknown evidence file: %v", err)
 	}
 	voided, err := service.Void(ctx, moderator, created.ID, "wrong policy")
 	if err != nil || voided.Validity != quack.CaseValidityVoided {

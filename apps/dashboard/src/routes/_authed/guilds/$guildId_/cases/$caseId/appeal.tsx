@@ -184,7 +184,11 @@ function MemberCasePage() {
           <section className={s.block}>
             <Heading>Evidence</Heading>
             {c.evidence.map((e) => (
-              <EvidenceMessage key={e.id} evidence={e} />
+              <EvidenceMessage
+                key={e.id}
+                evidence={e}
+                files={`/api/members/me/cases/${c.id}/evidence/files`}
+              />
             ))}
           </section>
         ) : null}
