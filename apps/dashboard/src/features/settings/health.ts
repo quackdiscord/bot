@@ -54,10 +54,10 @@ export function healthChecklist(health: GuildOps["guild_health"]): HealthCheck[]
     checks.push({
       key: "channel:evidence",
       label: "Evidence channel",
-      state: channels.evidence ? "ok" : "problem",
+      state: channels.evidence ? "ok" : "unset",
       detail: channels.evidence
-        ? "Quack keeps evidence copies here."
-        : "Quack has no evidence channel. It makes one the next time a case has evidence to keep.",
+        ? "Quack keeps copies of evidence files here."
+        : "Off. Pick a channel below to keep copies of evidence files.",
     });
   }
   if ("audit_mirror" in channels) {

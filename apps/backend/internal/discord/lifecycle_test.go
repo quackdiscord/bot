@@ -16,7 +16,7 @@ func TestLifecycleCreateUpdateDeleteChannelLeaveAndRejoin(t *testing.T) {
 	if err := repository.Migrate(); err != nil {
 		t.Fatalf("migrate store: %v", err)
 	}
-	l := discord.NewLifecycle(quack.NewGuildService(repository, nil), quack.NewEvidenceService(repository, nil))
+	l := discord.NewLifecycle(quack.NewGuildService(repository, nil))
 
 	l.GuildCreate(&discordgo.GuildCreate{Guild: &discordgo.Guild{
 		ID: "discord-guild", Name: "Initial", Icon: "icon-one", OwnerID: "owner-1",

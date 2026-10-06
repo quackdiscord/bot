@@ -131,11 +131,12 @@ func setupCommand() *discordgo.ApplicationCommand {
 				enabled(),
 			),
 			subcommand("audit", "Set up moderation history", channel("channel", existing)),
+			subcommand("evidence", "Keep copies of evidence files in a staff channel", channel("channel", existing)),
 		},
 	}
 }
 
-// setup handles /setup. It owns the appeal and audit destinations, which
+// setup handles /setup. It owns the appeal, audit, and evidence destinations, which
 // are core settings, and the module switches; everything else about a
 // module is its SetupHandler's business.
 type setup struct {
@@ -162,6 +163,8 @@ func (s *setup) command(_ context.Context, i *discordgo.InteractionCreate) Resul
 		return s.run(i, "set up appeals", []string{"settings"}, s.appeals(command))
 	case name == "audit":
 		return s.run(i, "change the audit channel", []string{"settings"}, s.audit(command))
+	case name == "evidence":
+		return s.run(i, "change the evidence channel", []string{"settings"}, s.evidence(command))
 	case setupModules[name] != "" && command.GetOption("enabled") != nil:
 		if len(command.Options) != 1 {
 			return Immediate(Error("Use enabled on its own. To change channels or the warning, run setup separately without enabled."))
@@ -289,6 +292,36 @@ func (s *setup) audit(command *discordgo.ApplicationCommandInteractionDataOption
 		}
 		return Signal("settings", fmt.Sprintf(
 			"Moderation history will go to <#%s>: cases, action outcomes, appeals, tickets and settings changes.",
+			channelID), false), nil
+	}
+}
+
+// evidence sets the staff-only channel Quack copies evidence files into,
+// creating one when none is given or configured. Until this runs, Quack
+// keeps only each file's details and original link.
+func (s *setup) evidence(command *discordgo.ApplicationCommandInteractionDataOption) setupTask {
+	specified := optionString(command.GetOption("channel"))
+	return func(ctx context.Context, staff *quack.GuildStaffContext, _ string) (Message, error) {
+		settings, err := s.services.Settings.Get(ctx, staff)
+		if err != nil {
+			return Message{}, &UserError{Message: "Could not load evidence settings. Try again."}
+		}
+		channelID, err := SetupChannel(ctx, s.session, staff.Guild.DiscordGuildID,
+			specified, settings.ManagedEvidenceChannelDiscordID, "evidence", SetupStaffChannel)
+		if err != nil {
+			return Message{}, err
+		}
+		_, err = s.services.Settings.Update(ctx, staff, quack.GuildSettingsInput{ManagedEvidenceChannelDiscordID: &channelID})
+		switch {
+		case errors.Is(err, quack.ErrGuildSettingsPermissionDenied):
+			return Message{}, &UserError{Message: "You need Manage Server permission to change the evidence channel."}
+		case errors.Is(err, quack.ErrGuildSettingsValidation):
+			return Message{}, &UserError{Message: "Choose a staff-only text channel in this server where Quack can view, send, read history and attach files."}
+		case err != nil:
+			return Message{}, &UserError{Message: "Could not save the evidence channel. Try again."}
+		}
+		return Signal("settings", fmt.Sprintf(
+			"Quack will keep copies of evidence files in <#%s>, so they last after the original message is deleted.",
 			channelID), false), nil
 	}
 }

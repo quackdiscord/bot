@@ -49,8 +49,9 @@ function Cases() {
       <Section id="evidence" title="Evidence">
         <p>
           Attach a screenshot or paste a message link when you add the case, or add it later with{" "}
-          <Cmd>/case evidence</Cmd>. Quack saves a copy of the message and its files, so the
-          evidence is still there if the original gets deleted.
+          <Cmd>/case evidence</Cmd>. Quack saves a copy of the message. With{" "}
+          <Cmd>/setup evidence</Cmd>, it also keeps copies of the files, so they're still there if
+          the original gets deleted.
         </p>
         <Note tone="warn">
           Quack can't save a message that's already gone. Add the case before deleting the message.

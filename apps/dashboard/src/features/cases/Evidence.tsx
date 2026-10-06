@@ -93,10 +93,10 @@ function AttachmentView({ attachment: a, url }: { attachment: Attachment; url: s
           </span>
         </a>
       )}
-      {a.warning || !a.preserved_url ? (
+      {a.warning ? (
         <p className={s.warning}>
           <QuackIcon name="warn" size={14} />
-          {a.warning || "Quack couldn't keep a copy of this file. The link may stop working."}
+          {a.warning}
         </p>
       ) : null}
     </div>

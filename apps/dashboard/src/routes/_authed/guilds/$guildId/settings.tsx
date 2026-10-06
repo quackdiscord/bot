@@ -1,13 +1,12 @@
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ExternalLink, Settings as SettingsIcon } from "lucide-react";
+import { Settings as SettingsIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
 import { ApiError, api, unwrap } from "~/api/client";
 import { guildMeQuery, guildOpsQuery, keys, settingsQuery } from "~/api/queries";
 import type { Settings } from "~/api/types";
-import { ChannelName, ChannelPicker } from "~/features/channels/ChannelPicker";
-import { discordChannelUrl } from "~/features/channels/channels";
+import { ChannelPicker } from "~/features/channels/ChannelPicker";
 import { enableProblem } from "~/features/modules/enable";
 import { Callout, Command } from "~/features/modules/ModuleParts";
 import {
@@ -25,7 +24,6 @@ import {
   settingsPatch,
 } from "~/features/settings/form";
 import { healthChecklist } from "~/features/settings/health";
-import { cx } from "~/lib/cx";
 import { useCan } from "~/lib/permissions";
 import { Badge } from "~/ui/Badge";
 import { Button, ButtonLink } from "~/ui/Button";
@@ -253,25 +251,21 @@ function SettingsPage() {
 
       <Section
         title="Evidence channel"
-        description="Quack keeps copies of evidence attachments here, so they last after the original message is gone. Quack creates and looks after this channel itself."
+        description="Quack can keep copies of evidence files in a staff-only channel, so they last after the original message is deleted. Without one, Quack keeps each file's details and a link to the original."
       >
-        <div className={s.readonly}>
-          <ChannelName
-            guildId={guildId}
-            channelId={settings.managed_evidence_channel_discord_id}
-            empty="Not created yet. Quack makes it the first time a case has evidence to keep."
-          />
-          {settings.managed_evidence_channel_discord_id ? (
-            <a
-              href={discordChannelUrl(guildId, settings.managed_evidence_channel_discord_id)}
-              target="_blank"
-              rel="noreferrer"
-              className={cx(s.link, s.external)}
-            >
-              Open in Discord <ExternalLink size={14} />
-            </a>
-          ) : null}
-        </div>
+        <Field label="Copy channel" hint="Only staff should be able to read this channel.">
+          {(id) => (
+            <ChannelPicker
+              id={id}
+              guildId={guildId}
+              value={form.evidenceChannel}
+              onChange={(evidenceChannel) => set({ evidenceChannel })}
+              clearable
+              noneLabel="Don't keep copies"
+              disabled={!canWrite}
+            />
+          )}
+        </Field>
       </Section>
 
       {canWrite ? (

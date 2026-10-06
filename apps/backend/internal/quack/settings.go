@@ -63,8 +63,8 @@ type GuildSettingsInput struct {
 	AppealRejoinURL             *string `json:"appeal_rejoin_url"`
 	AppealReviewReasonRequired  *bool   `json:"appeal_review_reason_required"`
 	AuditMirrorChannelDiscordID *string `json:"audit_mirror_channel_discord_id"`
-	// ManagedEvidenceChannelDiscordID is rejected when set: Quack owns that
-	// channel.
+	// ManagedEvidenceChannelDiscordID is the staff-only channel Quack copies
+	// evidence files into; empty turns copying off.
 	ManagedEvidenceChannelDiscordID *string `json:"managed_evidence_channel_discord_id"`
 	NotificationIntroduction        *string `json:"notification_introduction"`
 	NotificationFooter              *string `json:"notification_footer"`
@@ -174,6 +174,7 @@ func (s *GuildSettingsService) Update(ctx context.Context, guildContext *GuildSt
 	}{
 		{input.AuditMirrorChannelDiscordID != nil, settings.AuditMirrorChannelDiscordID, "audit channel must be private and belong to this guild"},
 		{input.AppealQueueChannelDiscordID != nil, settings.AppealQueueChannelDiscordID, "appeal queue channel must be private and belong to this guild"},
+		{input.ManagedEvidenceChannelDiscordID != nil, settings.ManagedEvidenceChannelDiscordID, "evidence channel must be private and belong to this guild"},
 	}
 	for _, channel := range staffChannels {
 		if !channel.changed || channel.channelID == "" {
@@ -301,7 +302,11 @@ func applyGuildSettingsInput(settings *GuildSettings, input GuildSettingsInput) 
 		settings.AuditMirrorChannelDiscordID = value
 	}
 	if input.ManagedEvidenceChannelDiscordID != nil {
-		return settingsValidationError("managed evidence channel is maintained by Quack")
+		value, err := normalizeChannelID(*input.ManagedEvidenceChannelDiscordID)
+		if err != nil {
+			return err
+		}
+		settings.ManagedEvidenceChannelDiscordID = value
 	}
 	if input.NotificationIntroduction != nil {
 		value := strings.TrimSpace(*input.NotificationIntroduction)

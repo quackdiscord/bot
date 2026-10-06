@@ -111,16 +111,6 @@ type ActionStore interface {
 	RetryCaseAction(context.Context, RetryCaseActionParams) (*CaseActionExecution, error)
 }
 
-// EvidenceStore is what EvidenceService needs from storage.
-type EvidenceStore interface {
-	GetGuildByDiscordID(ctx context.Context, discordGuildID string) (*Guild, error)
-	GetGuildSettings(ctx context.Context, guildID string) (*GuildSettings, error)
-	// SetManagedEvidenceChannel records next as the evidence channel only
-	// while the setting is still expected, and returns the channel now
-	// recorded, which is someone else's when a concurrent change won.
-	SetManagedEvidenceChannel(ctx context.Context, guildID, expected, next string, audit *AuditLogEntry) (string, error)
-}
-
 // AppealStore is what AppealService needs from storage.
 type AppealStore interface {
 	AppendAppealInformation(context.Context, AppendAppealInformationParams) (*Appeal, error)
@@ -204,7 +194,6 @@ type Store interface {
 	TemplateStore
 	CaseStore
 	ActionStore
-	EvidenceStore
 	AppealStore
 	AuditStore
 	AuditMirrorStore

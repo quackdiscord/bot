@@ -15,6 +15,7 @@ const saved: SettingsForm = {
   rejoinUrl: "https://discord.gg/quack",
   reasonRequired: false,
   auditMirrorChannel: "",
+  evidenceChannel: "",
   introduction: "Hi from the mods.",
   footer: "",
 };
@@ -27,6 +28,7 @@ describe("formFromSettings", () => {
       rejoinUrl: "",
       reasonRequired: true,
       auditMirrorChannel: "",
+      evidenceChannel: "",
       introduction: "",
       footer: "",
     });
@@ -48,11 +50,13 @@ describe("settingsPatch", () => {
         ...saved,
         reasonRequired: true,
         auditMirrorChannel: "222222222222222222",
+        evidenceChannel: "333333333333333333",
         footer: " Be kind. ",
       }),
     ).toEqual({
       appeal_review_reason_required: true,
       audit_mirror_channel_discord_id: "222222222222222222",
+      managed_evidence_channel_discord_id: "333333333333333333",
       notification_footer: "Be kind.",
     });
   });

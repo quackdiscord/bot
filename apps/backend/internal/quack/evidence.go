@@ -67,13 +67,13 @@ type CaseEvidenceAttachment struct {
 type EvidenceClient interface {
 	FetchMessageEvidence(context.Context, DiscordMessageReference) (*DiscordMessageSnapshot, error)
 	PreserveEvidenceAttachment(ctx context.Context, guildID, channelID string, attachment DiscordAttachmentSnapshot) (*PreservedDiscordAttachment, error)
-	// EnsureEvidenceChannel returns the evidence channel, creating it if
-	// currentChannelID is empty or gone.
-	EnsureEvidenceChannel(ctx context.Context, discordGuildID, currentChannelID string) (string, error)
 	// EvidenceAttachmentURL returns a freshly signed CDN URL for an
 	// attachment Quack copied into an evidence channel. Discord expires
 	// these URLs, so they are fetched when needed rather than stored.
 	EvidenceAttachmentURL(ctx context.Context, channelID, messageID, attachmentID string) (string, error)
+	// RefreshAttachmentURL re-signs an attachment URL Quack did not copy,
+	// which works only while the original attachment still exists.
+	RefreshAttachmentURL(ctx context.Context, original string) (string, error)
 }
 
 // DiscordMessageReference identifies a linked message and who asked to
@@ -146,53 +146,13 @@ type CaseEvidenceAttachmentResponse struct {
 // EvidenceService captures linked Discord messages as case evidence and
 // maintains each guild's evidence channel.
 type EvidenceService struct {
-	store  EvidenceStore
 	client EvidenceClient
 }
 
 // NewEvidenceService returns an EvidenceService. Without client, every
 // capture fails with ErrEvidenceValidation.
-func NewEvidenceService(store EvidenceStore, client EvidenceClient) *EvidenceService {
-	return &EvidenceService{store: store, client: client}
-}
-
-// EnsureGuildEvidenceChannel makes sure the guild has an evidence channel
-// and records it in settings if it changed. If settings changed it
-// concurrently, that change wins and its channel is returned.
-func (s *EvidenceService) EnsureGuildEvidenceChannel(ctx context.Context, guild Guild, settings GuildSettings) (string, error) {
-	if s.client == nil {
-		return "", errors.New("evidence client is not configured")
-	}
-	channelID, err := s.client.EnsureEvidenceChannel(ctx, guild.DiscordGuildID, settings.ManagedEvidenceChannelDiscordID)
-	if err != nil {
-		return "", err
-	}
-	if channelID == settings.ManagedEvidenceChannelDiscordID {
-		return channelID, nil
-	}
-	return s.store.SetManagedEvidenceChannel(ctx, guild.ID, settings.ManagedEvidenceChannelDiscordID, channelID, &AuditLogEntry{
-		GuildID:      guild.ID,
-		Source:       AuditSourceSystem,
-		Action:       "evidence_channel.ensure",
-		ResourceType: "guild_settings",
-		ResourceID:   settings.ID,
-		Result:       AuditResultSuccess,
-		MetadataJSON: "{}",
-	})
-}
-
-// RepairDiscordGuildEvidenceChannel re-checks a guild's evidence channel
-// after Discord reports channel changes.
-func (s *EvidenceService) RepairDiscordGuildEvidenceChannel(ctx context.Context, discordGuildID string) (string, error) {
-	guild, err := s.store.GetGuildByDiscordID(ctx, discordGuildID)
-	if err != nil || guild == nil {
-		return "", err
-	}
-	settings, err := s.store.GetGuildSettings(ctx, guild.ID)
-	if err != nil || settings == nil {
-		return "", err
-	}
-	return s.EnsureGuildEvidenceChannel(ctx, *guild, *settings)
+func NewEvidenceService(client EvidenceClient) *EvidenceService {
+	return &EvidenceService{client: client}
 }
 
 // ParseDiscordMessageLink parses an https Discord message link. Only
@@ -379,7 +339,8 @@ func (s *EvidenceService) preserve(ctx context.Context, guildID, evidenceChannel
 	}
 	switch {
 	case evidenceChannelID == "":
-		record.Warning = "managed evidence channel is unavailable"
+		// The guild has not set up an evidence channel, so nothing is
+		// copied. That is a choice, not a problem worth a warning.
 	case attachment.SizeBytes < 0 || attachment.SizeBytes > MaxPreservedAttachmentBytes:
 		record.Warning = "attachment exceeds the managed copy size limit"
 	case !supportedEvidenceContentType(attachment.ContentType):

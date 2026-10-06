@@ -12,6 +12,7 @@ export type SettingsForm = {
   rejoinUrl: string;
   reasonRequired: boolean;
   auditMirrorChannel: string;
+  evidenceChannel: string;
   introduction: string;
   footer: string;
 };
@@ -23,6 +24,7 @@ export function formFromSettings(s: Settings): SettingsForm {
     rejoinUrl: s.appeal_rejoin_url ?? "",
     reasonRequired: s.appeal_review_reason_required ?? false,
     auditMirrorChannel: s.audit_mirror_channel_discord_id ?? "",
+    evidenceChannel: s.managed_evidence_channel_discord_id ?? "",
     introduction: s.notification_introduction ?? "",
     footer: s.notification_footer ?? "",
   };
@@ -44,6 +46,8 @@ export function settingsPatch(saved: SettingsForm, draft: SettingsForm): Setting
     patch.appeal_review_reason_required = draft.reasonRequired;
   if (text(saved.auditMirrorChannel, draft.auditMirrorChannel))
     patch.audit_mirror_channel_discord_id = draft.auditMirrorChannel.trim();
+  if (text(saved.evidenceChannel, draft.evidenceChannel))
+    patch.managed_evidence_channel_discord_id = draft.evidenceChannel.trim();
   if (text(saved.introduction, draft.introduction))
     patch.notification_introduction = draft.introduction.trim();
   if (text(saved.footer, draft.footer)) patch.notification_footer = draft.footer.trim();

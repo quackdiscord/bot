@@ -54,6 +54,7 @@ function Commands() {
           rows={[
             ["/setup appeals", "Pick where appeals go, and an invite for unbanned members."],
             ["/setup audit", "Post Quack's moderation activity in a channel."],
+            ["/setup evidence", "Keep copies of evidence files in a staff channel."],
             ["/setup tickets", "Let members open private support threads."],
             ["/setup logging", "Log deleted messages and other server changes."],
             ["/setup honeypot", "Set a trap channel for spam bots."],

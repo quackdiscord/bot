@@ -33,6 +33,14 @@ function Extras() {
         </p>
       </Section>
 
+      <Section id="evidence" title="Evidence copies">
+        <p>
+          <Cmd>/setup evidence</Cmd> picks a staff-only channel where Quack keeps copies of evidence
+          files, so they stay viewable after the original message is deleted. Without it, Quack
+          keeps each file's details and a link to the original.
+        </p>
+      </Section>
+
       <Section id="logging" title="Server logs">
         <p>
           <Cmd>/setup logging</Cmd> keeps an eye on your server and posts things like edited and

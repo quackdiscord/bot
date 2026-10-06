@@ -291,7 +291,7 @@ func TestCaseContextEvidenceVoidReplacementAndMemberProjection(t *testing.T) {
 	template := createAppTemplate(t, ctx, store, admin, input)
 	link := "https://discord.com/channels/111111111111111111/222222222222222222/333333333333333333"
 	evidenceClient := &fakeEvidenceClient{message: quack.DiscordMessageSnapshot{GuildID: guildDiscordID, ChannelID: "222222222222222222", MessageID: "333333333333333333", AuthorDiscordUserID: "target-1", URL: link, Content: "original text", CreatedAt: time.Now().UTC(), Attachments: []quack.DiscordAttachmentSnapshot{{ID: "a1", Filename: "proof.png", ContentType: "image/png", SizeBytes: 100, URL: "https://cdn.discordapp.com/proof"}}}, preserved: quack.PreservedDiscordAttachment{URL: "https://discord.com/channels/111111111111111111/999999999999999999/copy-message", MessageID: "copy-message", AttachmentID: "copy-attachment"}}
-	service := quack.NewCaseService(store, nil, quack.NewEvidenceService(store, evidenceClient), nil)
+	service := quack.NewCaseService(store, nil, quack.NewEvidenceService(evidenceClient), nil)
 	summary, _ := json.Marshal("visible summary")
 	message, _ := json.Marshal(link)
 	created, err := service.Create(ctx, moderator, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: "target-1", ContextValues: []quack.CaseContextValueInput{{Key: "summary", Value: summary}, {Key: "message", Value: message}, {Key: "details", Value: json.RawMessage("null")}}})

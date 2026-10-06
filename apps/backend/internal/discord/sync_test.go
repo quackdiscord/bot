@@ -23,7 +23,7 @@ func TestCommandDefinitionsAreUnchanged(t *testing.T) {
 		appealsCommandName:     "c4c28da3d479feb6128a58df54a86f3ec144841a812275f3ba017e6c5bbb09ca",
 		helpCommandName:        "45656e62a33c545f254b43453d75d86f8113fed9d75cb2189186fcab7e3469e8",
 		uiPreviewCommandName:   "f796b81f7fecdc7372a908d5cf7ed78392e310cb78ac5d65559e6a8227e5e82a",
-		setupCommandName:       "fbaf8b51b42c0f65648f9a632cb802becfbf43de64744220eb1dd159da2d7c1a",
+		setupCommandName:       "62815bb5436129a64b726e8209613c919f757dfbe6c3c57b2888a3d394267ba1",
 	}
 	for _, command := range syncedCommands(true) {
 		hash, body, err := fingerprint(command)

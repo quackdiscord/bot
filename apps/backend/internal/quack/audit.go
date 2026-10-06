@@ -174,7 +174,6 @@ var importantAuditActions = []AuditAction{
 	"guild_settings.channel_reference.cleared",
 	"guild_settings.channel_references.repaired",
 	"case_template.bootstrap",
-	"evidence_channel.ensure",
 	"ticket.settings.update",
 	"ticket.open",
 	"ticket.resolve",

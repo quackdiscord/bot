@@ -46,7 +46,7 @@ describe("healthChecklist", () => {
     });
     expect(checks.map((c) => [c.key, c.state])).toEqual([
       ["bot", "ok"],
-      ["channel:evidence", "problem"],
+      ["channel:evidence", "unset"],
       ["reason:something_new", "problem"],
     ]);
   });

@@ -8,7 +8,7 @@ import (
 
 // EvidenceFileURL returns a URL a staff member's browser can load for one
 // of a case's evidence attachments: a freshly signed link to Quack's copy,
-// or the original upload when there is no copy or it cannot be read.
+// or to the original upload when there is no copy or it cannot be read.
 func (s *CaseService) EvidenceFileURL(ctx context.Context, guildContext *GuildStaffContext, caseRef, attachmentID string) (string, error) {
 	item, err := s.readCase(ctx, guildContext, caseRef)
 	if err != nil {
@@ -53,6 +53,13 @@ func (s *CaseService) evidenceFileURL(ctx context.Context, caseID, attachmentID 
 		}
 		if item.OriginalURL == "" || (member && item.PreservedURL != "") {
 			return "", ErrCaseNotFound
+		}
+		// The stored original link has expired by now unless the case is
+		// new; a refresh works for as long as the original still exists.
+		if s.evidence != nil && s.evidence.client != nil {
+			if fresh, err := s.evidence.client.RefreshAttachmentURL(ctx, item.OriginalURL); err == nil && fresh != "" {
+				return fresh, nil
+			}
 		}
 		return item.OriginalURL, nil
 	}

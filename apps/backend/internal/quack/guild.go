@@ -355,12 +355,9 @@ func (s *GuildService) OperationalGuildHealth(ctx context.Context, discordGuildI
 	if err != nil || settings == nil {
 		return status, err
 	}
+	// Both channels are optional, so an unset one is not degraded.
 	status.ManagedChannels["evidence"] = strings.TrimSpace(settings.ManagedEvidenceChannelDiscordID) != ""
 	status.ManagedChannels["audit_mirror"] = strings.TrimSpace(settings.AuditMirrorChannelDiscordID) != ""
-	if !status.ManagedChannels["evidence"] {
-		status.Degraded = true
-		status.Reasons = append(status.Reasons, "managed_evidence_channel_unavailable")
-	}
 	return status, nil
 }
 

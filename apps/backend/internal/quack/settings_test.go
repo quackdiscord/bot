@@ -55,11 +55,17 @@ func TestGuildSettingsServiceAuthorizationAuditAndNotice(t *testing.T) {
 		t.Fatalf("switched a module on without modules: %v", err)
 	}
 
-	evidenceChannel := "100000000000000002"
-	if _, err := service.Update(ctx, manager, quack.GuildSettingsInput{ManagedEvidenceChannelDiscordID: &evidenceChannel}); !errors.Is(err, quack.ErrGuildSettingsValidation) {
-		t.Fatalf("manual evidence destination accepted: %v", err)
+	evidenceChannel, noEvidence := "100000000000000002", ""
+	if updated, err := service.Update(ctx, manager, quack.GuildSettingsInput{ManagedEvidenceChannelDiscordID: &evidenceChannel}); err != nil || updated.ManagedEvidenceChannelDiscordID != evidenceChannel {
+		t.Fatalf("set evidence channel = %+v, %v", updated, err)
+	}
+	if updated, err := service.Update(ctx, manager, quack.GuildSettingsInput{ManagedEvidenceChannelDiscordID: &noEvidence}); err != nil || updated.ManagedEvidenceChannelDiscordID != "" {
+		t.Fatalf("clear evidence channel = %+v, %v", updated, err)
 	}
 	unvalidated := quack.NewGuildSettingsService(repositories, nil, registry)
+	if _, err := unvalidated.Update(ctx, manager, quack.GuildSettingsInput{ManagedEvidenceChannelDiscordID: &evidenceChannel}); !errors.Is(err, quack.ErrGuildSettingsValidation) {
+		t.Fatalf("unvalidated evidence destination accepted: %v", err)
+	}
 	if _, err := unvalidated.Update(ctx, manager, quack.GuildSettingsInput{AuditMirrorChannelDiscordID: &auditChannel}); !errors.Is(err, quack.ErrGuildSettingsValidation) {
 		t.Fatalf("unvalidated audit destination accepted: %v", err)
 	}

@@ -43,8 +43,8 @@ func (c *messageEvidenceClient) PreserveEvidenceAttachment(_ context.Context, _,
 	return &quack.PreservedDiscordAttachment{URL: "https://cdn.discordapp.com/copy/" + attachment.ID, MessageID: "copy", AttachmentID: "copy-" + attachment.ID}, nil
 }
 
-func (c *messageEvidenceClient) EnsureEvidenceChannel(context.Context, string, string) (string, error) {
-	return "999999999999999999", nil
+func (c *messageEvidenceClient) RefreshAttachmentURL(_ context.Context, original string) (string, error) {
+	return original + "?fresh", nil
 }
 
 func (c *messageEvidenceClient) EvidenceAttachmentURL(context.Context, string, string, string) (string, error) {
@@ -68,7 +68,7 @@ func updateFixture(t *testing.T) (*storage.Store, *quack.CaseService, *quack.Gui
 	}
 	template := createAppTemplate(t, ctx, store, admin, validTemplateInput("updates"))
 	client := &messageEvidenceClient{}
-	service := quack.NewCaseService(store, nil, quack.NewEvidenceService(store, client), nil)
+	service := quack.NewCaseService(store, nil, quack.NewEvidenceService(client), nil)
 	created, err := service.Create(ctx, moderator, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: "target-1"})
 	if err != nil {
 		t.Fatal(err)

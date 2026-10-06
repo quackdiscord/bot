@@ -89,7 +89,7 @@ type Services struct {
 // New builds the services from deps.
 func New(deps Deps) *Services {
 	guilds := NewGuildService(deps.Store, deps.Guilds)
-	evidence := NewEvidenceService(deps.Store, deps.Evidence)
+	evidence := NewEvidenceService(deps.Evidence)
 
 	// Without Discord there is nothing to preflight against or capture from.
 	var caseAuthorizer *GuildService

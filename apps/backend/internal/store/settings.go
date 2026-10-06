@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -52,27 +51,6 @@ func (s *Store) ClearGuildChannelReferences(ctx context.Context, guildID, channe
 		}
 		return changed
 	})
-}
-
-// SetManagedEvidenceChannel records next as the guild's evidence channel
-// only while the setting is still expected, and returns the channel now
-// recorded. A concurrent change wins and is returned instead, so ensuring
-// the channel never overwrites another settings update.
-func (s *Store) SetManagedEvidenceChannel(ctx context.Context, guildID, expected, next string, audit *quack.AuditLogEntry) (string, error) {
-	if next == "" {
-		return "", errors.New("evidence channel is required")
-	}
-	settings, err := s.updateSettings(ctx, guildID, audit, func(r *guildSettingsRecord) bool {
-		if r.ManagedEvidenceChannelDiscordID != expected || r.ManagedEvidenceChannelDiscordID == next {
-			return false
-		}
-		r.ManagedEvidenceChannelDiscordID = next
-		return true
-	})
-	if err != nil {
-		return "", err
-	}
-	return settings.ManagedEvidenceChannelDiscordID, nil
 }
 
 // updateSettings locks a guild's settings row, applies change, and saves and

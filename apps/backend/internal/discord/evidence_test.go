@@ -137,45 +137,34 @@ func TestSpoilerName(t *testing.T) {
 // TestEvidenceChannelLeavesExistingAndOpensNewToStaff keeps an existing
 // channel as administrators set it up, and creates a missing one readable
 // by staff roles only.
-func TestEvidenceChannelLeavesExistingAndOpensNewToStaff(t *testing.T) {
-	var created discordgo.GuildChannelCreateData
+// TestRefreshAttachmentURLAsksDiscordToResign checks that an expired
+// original link is sent to Discord's refresh endpoint and that only a
+// Discord CDN link is accepted back.
+func TestRefreshAttachmentURLAsksDiscordToResign(t *testing.T) {
+	const original = "https://cdn.discordapp.com/attachments/1/2/proof.png?ex=old"
+	reply := "https://cdn.discordapp.com/attachments/1/2/proof.png?ex=new"
 	bot := testBot(t, func(request *http.Request) (*http.Response, error) {
-		switch path := request.URL.Path; {
-		case strings.HasSuffix(path, "/channels/existing"):
-			if request.Method != http.MethodGet {
-				t.Fatal("existing evidence channel was modified")
-			}
-			return jsonResponse(request, &discordgo.Channel{ID: "existing", GuildID: "guild"}), nil
-		case strings.HasSuffix(path, "/channels/gone"):
-			return textResponse(request, http.StatusNotFound, `{"code":10003}`), nil
-		case strings.HasSuffix(path, "/guilds/guild/roles"):
-			return jsonResponse(request, []*discordgo.Role{
-				{ID: "guild"}, {ID: "mods", Permissions: discordgo.PermissionModerateMembers}, {ID: "managers", Permissions: discordgo.PermissionManageGuild},
-			}), nil
-		case strings.HasSuffix(path, "/guilds/guild/channels"):
-			body, _ := io.ReadAll(request.Body)
-			_ = json.Unmarshal(body, &created)
-			return jsonResponse(request, &discordgo.Channel{ID: "new", GuildID: "guild"}), nil
-		case strings.HasSuffix(path, "/channels/new/messages"):
-			return jsonResponse(request, &discordgo.Message{ID: "intro"}), nil
+		if request.Method != http.MethodPost || !strings.HasSuffix(request.URL.Path, "/attachments/refresh-urls") {
+			t.Fatalf("unexpected request %s %s", request.Method, request.URL.Path)
 		}
-		t.Fatalf("unexpected request %s %s", request.Method, request.URL.Path)
-		return nil, nil
+		var body struct {
+			AttachmentURLs []string `json:"attachment_urls"`
+		}
+		raw, _ := io.ReadAll(request.Body)
+		if err := json.Unmarshal(raw, &body); err != nil || len(body.AttachmentURLs) != 1 || body.AttachmentURLs[0] != original {
+			t.Fatalf("refresh body = %s", raw)
+		}
+		return jsonResponse(request, map[string]any{"refreshed_urls": []map[string]string{{"original": original, "refreshed": reply}}}), nil
 	})
 	ctx := context.Background()
-	if id, err := bot.EnsureEvidenceChannel(ctx, "guild", "existing"); err != nil || id != "existing" {
-		t.Fatalf("existing channel = %q, %v", id, err)
+	if got, err := bot.RefreshAttachmentURL(ctx, original); err != nil || got != reply {
+		t.Fatalf("refreshed = %q, %v", got, err)
 	}
-	if id, err := bot.EnsureEvidenceChannel(ctx, "guild", "gone"); err != nil || id != "new" {
-		t.Fatalf("new channel = %q, %v", id, err)
+	reply = "https://evil.example/proof.png"
+	if _, err := bot.RefreshAttachmentURL(ctx, original); err == nil {
+		t.Fatal("accepted a refreshed link outside Discord's CDN")
 	}
-	var readers []string
-	for _, overwrite := range created.PermissionOverwrites {
-		if overwrite.Allow&discordgo.PermissionViewChannel != 0 {
-			readers = append(readers, overwrite.ID)
-		}
-	}
-	if strings.Join(readers, ",") != "bot,mods" {
-		t.Fatalf("new channel readers = %v, want the bot and staff roles", readers)
+	if _, err := bot.RefreshAttachmentURL(ctx, "https://example.com/file.png"); err == nil {
+		t.Fatal("refreshed a link that is not a Discord attachment")
 	}
 }

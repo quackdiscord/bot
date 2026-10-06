@@ -54,7 +54,6 @@ var (
 	_ quack.TemplateStore           = (*Store)(nil)
 	_ quack.CaseStore               = (*Store)(nil)
 	_ quack.ActionStore             = (*Store)(nil)
-	_ quack.EvidenceStore           = (*Store)(nil)
 	_ quack.AppealStore             = (*Store)(nil)
 	_ quack.AppealNotificationStore = (*Store)(nil)
 	_ quack.AuditStore              = (*Store)(nil)

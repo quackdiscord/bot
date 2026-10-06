@@ -61,6 +61,9 @@ function GettingStarted() {
             <Cmd>/setup audit</Cmd> posts Quack's moderation activity in a staff channel.
           </li>
           <li>
+            <Cmd>/setup evidence</Cmd> keeps copies of evidence files in a staff channel.
+          </li>
+          <li>
             <Cmd>/setup tickets</Cmd> lets members open private support threads.
           </li>
           <li>

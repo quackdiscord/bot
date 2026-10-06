@@ -213,9 +213,13 @@ belongs to the case and survives later edits or deletion. `/case evidence`
 adds a file or message link to an existing case; given only the case, it
 shows the evidence the case already has.
 
-Quack manages a staff-only evidence channel per guild and copies supported
-attachments into it. When Discord limits prevent a copy, the metadata and
-original URL are kept, staff are warned, and the case still proceeds. A link
+Copying files is opt-in: an admin picks a staff-only evidence channel with
+`/setup evidence` or in dashboard settings (Quack creates one only when
+`/setup evidence` is run without a channel), and Quack copies supported
+attachments into it. Without one, Quack keeps each file's metadata and
+original URL without a warning. When Discord limits prevent a copy, the
+metadata and original URL are kept, staff are warned, and the case still
+proceeds. A link
 that is already deleted or unreadable is accepted only when the moderator
 gives other visible context. No external object storage is used, and content
 deleted before capture cannot be recovered.
@@ -508,17 +512,18 @@ which skips staff checks but keeps every target and bot check.
   decision.
 - On `GuildCreate` (`discord/lifecycle.go`), `GuildService.BootstrapDiscordGuild`
   creates or reactivates the guild, its settings, and the starter template
-  (`quack/starter.go`), then ensures the evidence channel exists: a missing
-  one is created hidden from everyone but Quack and staff roles; an existing
-  one is left as admins set it. Saved copies are linked by their message in
-  that channel, which outlives Discord's signed file URLs. The dashboard
-  shows a file through `GET .../cases/{caseRef}/evidence/files/{id}` (or
+  (`quack/starter.go`). It creates no channels. Leaving a guild only marks
+  it inactive, and a deleted channel clears any setting that pointed at it
+  (the evidence channel is not recreated). Lifecycle events are handled one
+  at a time, since Discord sends a `GuildCreate` for every guild on connect.
+- Saved evidence copies are linked by their message in the evidence
+  channel, which outlives Discord's signed file URLs. The dashboard shows a
+  file through `GET .../cases/{caseRef}/evidence/files/{id}` (or
   `/members/me/cases/{caseID}/evidence/files/{id}`), which reads the copy's
-  message and redirects to the freshly signed URL. Staff fall back to the
-  original upload when there is no readable copy. Leaving a guild
-  only marks it inactive. Lifecycle events are handled one at a time, since
-  Discord sends a `GuildCreate` for every guild on connect, and evidence
-  channel setup waits out Discord rate limits instead of failing.
+  message and redirects to the freshly signed URL. Without a readable copy
+  it asks Discord to re-sign the original URL (`/attachments/refresh-urls`),
+  which works while the original still exists; members never get the
+  original when a copy exists.
 
 ### Action engine
 
@@ -701,7 +706,7 @@ therefore a stable public URL map:
 | `.../appeals`, `.../appeals/{appealID}` | staff | `/help topic:appeals`, queue post, `/appeals`, appeal audit entries |
 | `.../failures` | staff | `/case failures` while failures remain |
 | `.../rules`, `.../rules/{templateID}` | staff | `/help topic:rules`, `/template` results, rule audit entries |
-| `.../settings` | staff | `/setup appeals`, `/setup audit`, settings audit entries |
+| `.../settings` | staff | `/setup appeals`, `/setup audit`, `/setup evidence`, settings audit entries |
 | `.../modules/{tickets,logging,honeypot}` | staff | the module's `/setup` and audit entries |
 | `/guilds/{guildID}/cases/{caseID}/appeal` | the case's member | case DM, appeal submitted, decision and information-request DMs (internal IDs) |
 
@@ -795,8 +800,9 @@ The modules plug into the core the same way:
   /setup first"); otherwise its `EnablementCheck` re-runs the `/setup` checks
   against live Discord without writing.
 - **Setup.** `/setup` (`discord/setup.go`) needs Manage Server, checked live,
-  and answers publicly. `appeals` and `audit` are core settings (queue
-  channel, rejoin invite, required reason; mirror channel). `tickets`,
+  and answers publicly. `appeals`, `audit`, and `evidence` are core
+  settings (queue channel, rejoin invite, required reason; mirror channel;
+  evidence copy channel). `tickets`,
   `honeypot`, and `logging` go to each module's `Router.HandleSetup`
   handler; with only `enabled` they toggle through the settings service and
   keep saved setup. Without a channel option, `discord.SetupChannel` reuses
@@ -1191,9 +1197,9 @@ permissions and keep fencing intact.
   staff review.
 - **Failed actions.** Staff use `/guilds/{discordGuildID}/failures` or
   `/case failures` to retry, dismiss, or void.
-- **Degraded guild.** Check `guild_health.reasons`. Usually a lost permission
-  or a deleted evidence channel, which is recreated when Discord reports the
-  deletion and re-checked on the next `GuildCreate`.
+- **Degraded guild.** Check `guild_health.reasons`. Usually a lost
+  permission. A missing evidence or audit channel is not degraded; both are
+  optional.
 - **Leaked secret.** Rotate the bot token, client secret, ops token, or
   metrics token and redeploy; revoke sessions with `POST /auth/logout-all`.
 - **Bad migration.** See [Migrations](#migrations).
@@ -1201,7 +1207,7 @@ permissions and keep fencing intact.
 ### Before the first real release
 
 Rehearse in a non-production guild and application: install (starter
-template and notice, evidence channel creation and repair, leave and
+template and notice, `/setup evidence` and deleting its channel, leave and
 rejoin); permissions (owner, Administrator, Manage Guild, Moderate Members, a
 former staff member, hierarchy, bot, self, and owner target checks); cases
 (warning, timeout, kick, and ban from Discord and the dashboard, the receipt,

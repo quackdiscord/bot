@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -14,11 +13,6 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/quack"
-)
-
-const (
-	evidenceChannelName  = "quack-evidence"
-	evidenceChannelTopic = "Saved case evidence. Keep these messages to preserve attached files."
 )
 
 // FetchMessageEvidence reads a linked message for a case. Unless the capture
@@ -209,6 +203,32 @@ func (b *Bot) EvidenceAttachmentURL(ctx context.Context, channelID, messageID, a
 	return "", errors.New("evidence copy is no longer attached")
 }
 
+// RefreshAttachmentURL asks Discord to re-sign an expired attachment URL,
+// for evidence Quack did not copy. It fails once the attachment is gone.
+func (b *Bot) RefreshAttachmentURL(ctx context.Context, original string) (string, error) {
+	if !attachmentURL(original) {
+		return "", errors.New("not a Discord attachment URL")
+	}
+	endpoint := discordgo.EndpointAPI + "attachments/refresh-urls"
+	body, err := b.Session.RequestWithBucketID(http.MethodPost, endpoint,
+		map[string][]string{"attachment_urls": {original}}, endpoint, rest(ctx)...)
+	if err != nil {
+		return "", classify("evidence_refresh", err, false)
+	}
+	var response struct {
+		RefreshedURLs []struct {
+			Refreshed string `json:"refreshed"`
+		} `json:"refreshed_urls"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return "", err
+	}
+	if len(response.RefreshedURLs) != 1 || !attachmentURL(response.RefreshedURLs[0].Refreshed) {
+		return "", errors.New("discord did not refresh the attachment URL")
+	}
+	return response.RefreshedURLs[0].Refreshed, nil
+}
+
 // spoilerName marks an evidence copy as a spoiler, so Discord blurs images
 // and video in the evidence channel until a moderator chooses to look.
 func spoilerName(filename string) string {
@@ -231,78 +251,4 @@ func attachmentURL(raw string) bool {
 		return false
 	}
 	return strings.HasPrefix(parsed.Path, "/attachments/") || strings.HasPrefix(parsed.Path, "/ephemeral-attachments/")
-}
-
-// EnsureEvidenceChannel returns the guild's evidence channel, creating one
-// when currentChannelID is empty or gone. An existing channel is left as
-// administrators configured it. A new channel is hidden from everyone but
-// Quack and staff roles, who may open the saved copies but not post there.
-// It runs from guild lifecycle events, not from moderation, so it waits out
-// Discord rate limits instead of failing.
-func (b *Bot) EnsureEvidenceChannel(ctx context.Context, guildID, currentChannelID string) (string, error) {
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-	if currentChannelID != "" {
-		channel, err := b.Session.Channel(currentChannelID, syncRest(ctx)...)
-		if err != nil && statusCode(err) != http.StatusNotFound {
-			return "", classify("evidence_channel_lookup", err, false)
-		}
-		if err == nil && channel.GuildID == guildID {
-			return channel.ID, nil
-		}
-	}
-	botID, err := b.botID(ctx)
-	if err != nil {
-		return "", err
-	}
-	roles, err := b.Session.GuildRoles(guildID, syncRest(ctx)...)
-	if err != nil {
-		return "", classify("evidence_channel_roles", err, false)
-	}
-	created, err := b.Session.GuildChannelCreateComplex(guildID, discordgo.GuildChannelCreateData{
-		Name:                 evidenceChannelName,
-		Type:                 discordgo.ChannelTypeGuildText,
-		Topic:                evidenceChannelTopic,
-		PermissionOverwrites: evidenceChannelPermissions(guildID, botID, roles),
-	}, syncRest(ctx)...)
-	if err != nil {
-		return "", classify("evidence_channel_create", err, false)
-	}
-	if created == nil || created.ID == "" {
-		return "", errors.New("discord did not confirm the evidence channel")
-	}
-	// The channel exists either way; a missing introduction must not make
-	// the next attempt create a second one.
-	intro := Content("# Case evidence\nQuack saves copies of case attachments here. Keep these messages so the files stay available when the original messages are gone.", false)
-	params := intro.ForApplication(b.applicationID(ctx)).sendParams()
-	if _, err := b.Session.ChannelMessageSendComplex(created.ID, params, syncRest(ctx)...); err != nil {
-		slog.WarnContext(ctx, "Could not send evidence channel introduction", "channel_id", created.ID, "error", err)
-	}
-	return created.ID, nil
-}
-
-// evidenceChannelPermissions hides a new evidence channel from @everyone,
-// lets Quack post files, and lets staff roles (staffPermissions) read it,
-// so they can open saved copies. Granting any other role would fail
-// ValidateStaffChannel and stop evidence copies.
-func evidenceChannelPermissions(guildID, botID string, roles []*discordgo.Role) []*discordgo.PermissionOverwrite {
-	overwrites := []*discordgo.PermissionOverwrite{
-		{ID: guildID, Type: discordgo.PermissionOverwriteTypeRole, Deny: discordgo.PermissionViewChannel},
-		{
-			ID: botID, Type: discordgo.PermissionOverwriteTypeMember,
-			Allow: discordgo.PermissionViewChannel | discordgo.PermissionSendMessages |
-				discordgo.PermissionAttachFiles | discordgo.PermissionReadMessageHistory,
-		},
-	}
-	for _, role := range roles {
-		if role == nil || role.ID == guildID || role.Permissions&staffPermissions == 0 {
-			continue
-		}
-		overwrites = append(overwrites, &discordgo.PermissionOverwrite{
-			ID: role.ID, Type: discordgo.PermissionOverwriteTypeRole,
-			Allow: discordgo.PermissionViewChannel | discordgo.PermissionReadMessageHistory,
-		})
-	}
-	return overwrites
 }

@@ -94,8 +94,8 @@ func NewSetupWithDashboard(services *quack.Services, modules map[string]SetupHan
 // Lifecycle exposes the guild lifecycle gateway handlers.
 type Lifecycle struct{ *lifecycle }
 
-func NewLifecycle(guilds *quack.GuildService, evidence *quack.EvidenceService) Lifecycle {
-	return Lifecycle{&lifecycle{guilds: guilds, evidence: evidence}}
+func NewLifecycle(guilds *quack.GuildService) Lifecycle {
+	return Lifecycle{&lifecycle{guilds: guilds}}
 }
 
 func (l Lifecycle) GuildCreate(e *discordgo.GuildCreate)     { l.guildCreate(nil, e) }

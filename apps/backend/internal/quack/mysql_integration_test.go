@@ -193,7 +193,7 @@ func TestMySQLUnavailableEvidenceSnapshotUsesPersistableTimestamp(t *testing.T) 
 	link := "https://discord.com/channels/111111111111111111/222222222222222222/333333333333333333"
 	summary, _ := json.Marshal("visible fallback")
 	message, _ := json.Marshal(link)
-	service := quack.NewCaseService(repositories, nil, quack.NewEvidenceService(repositories, unavailableEvidenceClient{err: &quack.EvidenceUnavailableError{Outcome: "deleted", Message: "message deleted"}}), nil)
+	service := quack.NewCaseService(repositories, nil, quack.NewEvidenceService(unavailableEvidenceClient{err: &quack.EvidenceUnavailableError{Outcome: "deleted", Message: "message deleted"}}), nil)
 	created, err := service.Create(ctx, guildContext, quack.CaseInput{
 		TemplateID: template.ID, TargetDiscordUserID: "target",
 		ContextValues: []quack.CaseContextValueInput{{Key: "summary", Value: summary}, {Key: "message", Value: message}},
