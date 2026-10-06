@@ -510,7 +510,9 @@ which skips staff checks but keeps every target and bot check.
   one is created hidden from everyone but Quack and staff roles; an existing
   one is left as admins set it. Saved copies are linked by their message in
   that channel, which outlives Discord's signed file URLs. Leaving a guild
-  only marks it inactive.
+  only marks it inactive. Lifecycle events are handled one at a time, since
+  Discord sends a `GuildCreate` for every guild on connect, and evidence
+  channel setup waits out Discord rate limits instead of failing.
 
 ### Action engine
 

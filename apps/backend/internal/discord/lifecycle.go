@@ -3,6 +3,8 @@ package discord
 import (
 	"context"
 	"log/slog"
+	"sync"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/quack"
@@ -19,11 +21,31 @@ func HandleGuildLifecycle(bot *Bot, services *quack.Services) {
 	bot.Session.AddHandler(l.channelDelete)
 }
 
+// lifecycleTimeout bounds the handling of one event, including waits for
+// Discord rate limits, so one stuck guild cannot hold up the rest.
+const lifecycleTimeout = time.Minute
+
 // lifecycle turns guild and channel gateway events into idempotent guild
 // service calls.
+//
+// Handlers run one at a time. On connect Discord sends a GuildCreate for
+// every guild at once, and bootstrapping them in parallel deadlocks in MySQL
+// and bursts evidence channel creation into Discord's rate limits.
 type lifecycle struct {
 	guilds   *quack.GuildService
 	evidence *quack.EvidenceService
+	mu       sync.Mutex
+}
+
+// begin serializes one event and returns its context. Call the returned
+// function when the event is handled.
+func (l *lifecycle) begin() (context.Context, func()) {
+	l.mu.Lock()
+	ctx, cancel := context.WithTimeout(context.Background(), lifecycleTimeout)
+	return ctx, func() {
+		cancel()
+		l.mu.Unlock()
+	}
 }
 
 // guildCreate installs a new guild or reactivates a known one, repairing
@@ -32,7 +54,8 @@ func (l *lifecycle) guildCreate(_ *discordgo.Session, event *discordgo.GuildCrea
 	if event.Guild == nil || event.Unavailable {
 		return
 	}
-	ctx := context.Background()
+	ctx, done := l.begin()
+	defer done()
 	// A nil list means "unknown" and keeps every reference; an empty one
 	// means the guild has no channels.
 	var ids []string
@@ -60,7 +83,8 @@ func (l *lifecycle) guildUpdate(_ *discordgo.Session, event *discordgo.GuildUpda
 	if event.Guild == nil || event.Unavailable {
 		return
 	}
-	ctx := context.Background()
+	ctx, done := l.begin()
+	defer done()
 	result, err := l.guilds.BootstrapDiscordGuild(ctx, lifecycleInput(event.Guild, nil))
 	if err != nil {
 		slog.Error("Failed to refresh Discord guild", "error", err, "guild_id", event.ID)
@@ -77,7 +101,9 @@ func (l *lifecycle) guildDelete(_ *discordgo.Session, event *discordgo.GuildDele
 	if event.Guild == nil || event.Unavailable {
 		return
 	}
-	if _, err := l.guilds.DeactivateDiscordGuild(context.Background(), event.ID); err != nil {
+	ctx, done := l.begin()
+	defer done()
+	if _, err := l.guilds.DeactivateDiscordGuild(ctx, event.ID); err != nil {
 		slog.Error("Failed to deactivate departed Discord guild", "error", err, "guild_id", event.ID)
 	}
 }
@@ -88,7 +114,8 @@ func (l *lifecycle) channelDelete(_ *discordgo.Session, event *discordgo.Channel
 	if event.Channel == nil || event.GuildID == "" {
 		return
 	}
-	ctx := context.Background()
+	ctx, done := l.begin()
+	defer done()
 	if _, err := l.guilds.ClearDeletedChannel(ctx, event.GuildID, event.ID); err != nil {
 		slog.Error("Failed to clear deleted Discord channel reference", "error", err, "guild_id", event.GuildID, "channel_id", event.ID)
 	}

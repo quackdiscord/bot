@@ -221,12 +221,14 @@ func attachmentURL(raw string) bool {
 // when currentChannelID is empty or gone. An existing channel is left as
 // administrators configured it. A new channel is hidden from everyone but
 // Quack and staff roles, who may open the saved copies but not post there.
+// It runs from guild lifecycle events, not from moderation, so it waits out
+// Discord rate limits instead of failing.
 func (b *Bot) EnsureEvidenceChannel(ctx context.Context, guildID, currentChannelID string) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
 	if currentChannelID != "" {
-		channel, err := b.Session.Channel(currentChannelID, rest(ctx)...)
+		channel, err := b.Session.Channel(currentChannelID, syncRest(ctx)...)
 		if err != nil && statusCode(err) != http.StatusNotFound {
 			return "", classify("evidence_channel_lookup", err, false)
 		}
@@ -238,7 +240,7 @@ func (b *Bot) EnsureEvidenceChannel(ctx context.Context, guildID, currentChannel
 	if err != nil {
 		return "", err
 	}
-	roles, err := b.Session.GuildRoles(guildID, rest(ctx)...)
+	roles, err := b.Session.GuildRoles(guildID, syncRest(ctx)...)
 	if err != nil {
 		return "", classify("evidence_channel_roles", err, false)
 	}
@@ -247,7 +249,7 @@ func (b *Bot) EnsureEvidenceChannel(ctx context.Context, guildID, currentChannel
 		Type:                 discordgo.ChannelTypeGuildText,
 		Topic:                evidenceChannelTopic,
 		PermissionOverwrites: evidenceChannelPermissions(guildID, botID, roles),
-	}, rest(ctx)...)
+	}, syncRest(ctx)...)
 	if err != nil {
 		return "", classify("evidence_channel_create", err, false)
 	}
@@ -257,7 +259,8 @@ func (b *Bot) EnsureEvidenceChannel(ctx context.Context, guildID, currentChannel
 	// The channel exists either way; a missing introduction must not make
 	// the next attempt create a second one.
 	intro := Content("# Case evidence\nQuack saves copies of case attachments here. Keep these messages so the files stay available when the original messages are gone.", false)
-	if _, err := b.Send(ctx, created.ID, intro); err != nil {
+	params := intro.ForApplication(b.applicationID(ctx)).sendParams()
+	if _, err := b.Session.ChannelMessageSendComplex(created.ID, params, syncRest(ctx)...); err != nil {
 		slog.WarnContext(ctx, "Could not send evidence channel introduction", "channel_id", created.ID, "error", err)
 	}
 	return created.ID, nil
