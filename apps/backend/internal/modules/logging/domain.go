@@ -101,8 +101,8 @@ type Event struct {
 	Attachments                                                     []AttachmentMetadata
 	EmbedTypes                                                      []string
 	// Metadata carries event details: a channel's operation and name, a
-	// guild's name, a ban's target_id and reason, or a bulk deletion's
-	// message_count and cached_count.
+	// guild's name, a ban's target_id and reason, a leaving member's
+	// username, or a bulk deletion's message_count and cached_count.
 	Metadata map[string]string
 	// MessageIDs are the deleted messages of a MessageBulkDelete.
 	MessageIDs []string

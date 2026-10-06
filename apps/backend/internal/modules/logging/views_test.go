@@ -22,6 +22,19 @@ func TestBanLogNamesModeratorAndTargetWithoutInternalMetadata(t *testing.T) {
 	}
 }
 
+// TestLeaveLogNamesMemberByUsername avoids a mention Discord likely can't
+// resolve once the member is gone, unless the username is unknown.
+func TestLeaveLogNamesMemberByUsername(t *testing.T) {
+	message := logMessage(entry{Type: MemberLeave, ActorID: "member", Metadata: map[string]string{"username": "quack_fan"}})
+	if !strings.Contains(message.Content, "**quack\\_fan** left the server.") || strings.Contains(message.Content, "<@member>") {
+		t.Fatalf("leave not named by username: %s", message.Content)
+	}
+	message = logMessage(entry{Type: MemberLeave, ActorID: "member"})
+	if !strings.Contains(message.Content, "<@member> left the server.") {
+		t.Fatalf("leave without username lost the member: %s", message.Content)
+	}
+}
+
 func TestLogUsesReadableChannelAndBulkDeleteDetails(t *testing.T) {
 	channel := logMessage(entry{Type: ChannelChange, ChannelID: "deleted",
 		Metadata: map[string]string{"operation": "deleted", "name": "old-channel"}})

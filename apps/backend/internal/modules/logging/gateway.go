@@ -80,13 +80,18 @@ func (m *Module) onMemberRemove(_ *discordgo.Session, event *discordgo.GuildMemb
 	m.memberEvent(event.Member, MemberLeave)
 }
 
-// memberEvent queues a join or leave.
+// memberEvent queues a join or leave. A leave keeps the member's username,
+// since a mention of someone no longer in the server often can't resolve.
 func (m *Module) memberEvent(member *discordgo.Member, eventType EventType) {
 	if member == nil {
 		return
 	}
 	if guildID, ok := m.guildID(member.GuildID); ok {
-		m.pool.Submit(Event{GuildID: guildID, Type: eventType, ActorDiscordUserID: userID(member.User)})
+		event := Event{GuildID: guildID, Type: eventType, ActorDiscordUserID: userID(member.User)}
+		if eventType == MemberLeave && member.User != nil && member.User.Username != "" {
+			event.Metadata = map[string]string{"username": member.User.Username}
+		}
+		m.pool.Submit(event)
 	}
 }
 

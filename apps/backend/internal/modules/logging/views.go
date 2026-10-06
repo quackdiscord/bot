@@ -86,6 +86,10 @@ func lead(e entry) string {
 	case MemberJoin:
 		text = actor + " joined the server."
 	case MemberLeave:
+		// Their mention would likely render as an unknown user now.
+		if name := e.Metadata["username"]; name != "" {
+			actor = "**" + discord.PlainText(name) + "**"
+		}
 		text = actor + " left the server."
 	case DiscordBan:
 		text = target + " was banned by " + actor + "."
