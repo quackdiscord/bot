@@ -143,6 +143,31 @@ func TestLiveEvidencePreservesSupportedAndRetainsUnsupportedOrOversizedMetadata(
 	}
 }
 
+// TestEvidenceMustComeFromTargetOrQuack checks that staff can cite the
+// target's own messages and Quack's posts, such as general logs, but not
+// another member's messages.
+func TestEvidenceMustComeFromTargetOrQuack(t *testing.T) {
+	const guildID, targetID = "111111111111111111", "444444444444444444"
+	link := "https://discord.com/channels/" + guildID + "/222222222222222222/333333333333333333"
+	capture := func(author string, fromQuack bool) error {
+		client := evidenceClientFixture{message: quack.DiscordMessageSnapshot{
+			GuildID: guildID, ChannelID: "222222222222222222", MessageID: "333333333333333333",
+			AuthorDiscordUserID: author, FromQuack: fromQuack, URL: link, CreatedAt: time.Now().UTC(),
+		}}
+		_, err := quack.NewEvidenceService(client).Capture(context.Background(), guildID, "actor", targetID, "", []string{link}, false)
+		return err
+	}
+	if err := capture(targetID, false); err != nil {
+		t.Fatalf("target's message: %v", err)
+	}
+	if err := capture("quack-bot", true); err != nil {
+		t.Fatalf("Quack's log post: %v", err)
+	}
+	if err := capture("someone-else", false); !errors.Is(err, quack.ErrEvidenceValidation) {
+		t.Fatalf("another member's message: %v", err)
+	}
+}
+
 func FuzzParseDiscordMessageLink(f *testing.F) {
 	f.Add("https://discord.com/channels/111111111111111111/222222222222222222/333333333333333333")
 	f.Add("not-a-url")

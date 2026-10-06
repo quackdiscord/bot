@@ -207,7 +207,8 @@ visible to the affected member; there are no private case notes.
 
 Evidence enters through a message context action on a live message or a
 pasted message link (Discord or dashboard), and both use one capture flow.
-Quack snapshots the text, author, guild/channel/message IDs, timestamps,
+A linked message must be written by the case's target or by Quack itself, so
+staff can cite Quack's own posts such as general logs. Quack snapshots the text, author, guild/channel/message IDs, timestamps,
 embed metadata, and attachment names, types, sizes, and URLs. The snapshot
 belongs to the case and survives later edits or deletion. `/case evidence`
 adds a file or message link to an existing case; given only the case, it

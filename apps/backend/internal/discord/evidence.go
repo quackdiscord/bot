@@ -52,6 +52,8 @@ func (b *Bot) FetchMessageEvidence(ctx context.Context, ref quack.DiscordMessage
 		_ = json.Unmarshal(body, &value)
 		embeds = append(embeds, value)
 	}
+	// An unknown bot identity only means Quack's own posts cannot be cited.
+	botID, _ := b.botID(ctx)
 	attachments := make([]quack.DiscordAttachmentSnapshot, 0, len(message.Attachments))
 	for _, item := range message.Attachments {
 		attachments = append(attachments, quack.DiscordAttachmentSnapshot{
@@ -64,6 +66,7 @@ func (b *Bot) FetchMessageEvidence(ctx context.Context, ref quack.DiscordMessage
 		AuthorDiscordUserID: message.Author.ID, URL: ref.URL, Content: message.Content,
 		CreatedAt: message.Timestamp, EditedAt: message.EditedTimestamp,
 		Embeds: embeds, Attachments: attachments,
+		FromQuack: botID != "" && message.Author.ID == botID,
 	}, nil
 }
 

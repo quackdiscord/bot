@@ -100,6 +100,9 @@ type DiscordMessageSnapshot struct {
 	EditedAt                                                         *time.Time
 	Embeds                                                           []map[string]any
 	Attachments                                                      []DiscordAttachmentSnapshot
+	// FromQuack is set when Quack itself wrote the message, such as a log
+	// post, which staff may cite as evidence against any member.
+	FromQuack bool
 }
 
 // PreservedDiscordAttachment is an attachment's copy in the evidence
@@ -176,7 +179,7 @@ func ParseDiscordMessageLink(raw string) (DiscordMessageReference, error) {
 
 // Capture snapshots each linked message and copies supported attachments
 // into evidenceChannelID. Messages must be in guildID and, when
-// targetDiscordUserID is set, written by the target. An empty
+// targetDiscordUserID is set, written by the target or by Quack. An empty
 // actorDiscordUserID marks a system capture, which skips the actor's
 // channel access check. With allowUnavailable, a deleted or inaccessible
 // message is recorded as unavailable instead of failing the capture.
@@ -227,8 +230,8 @@ func (s *EvidenceService) Capture(ctx context.Context, guildID, actorDiscordUser
 		if message == nil || message.GuildID != guildID || message.MessageID != ref.MessageID || message.ChannelID != ref.ChannelID {
 			return nil, fmt.Errorf("%w: Discord returned mismatched message identity", ErrEvidenceValidation)
 		}
-		if strings.TrimSpace(targetDiscordUserID) != "" && message.AuthorDiscordUserID != targetDiscordUserID {
-			return nil, fmt.Errorf("%w: captured message author does not match case target", ErrEvidenceValidation)
+		if strings.TrimSpace(targetDiscordUserID) != "" && message.AuthorDiscordUserID != targetDiscordUserID && !message.FromQuack {
+			return nil, fmt.Errorf("%w: linked message must be from the case target or Quack", ErrEvidenceValidation)
 		}
 
 		var warnings []string

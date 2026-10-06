@@ -49,7 +49,8 @@ function Cases() {
       <Section id="evidence" title="Evidence">
         <p>
           Attach a screenshot or paste a message link when you add the case, or add it later with{" "}
-          <Cmd>/case evidence</Cmd>. Quack saves a copy of the message. With{" "}
+          <Cmd>/case evidence</Cmd>. A linked message has to be from the member or from Quack, so
+          you can cite Quack's own logs. Quack saves a copy of the message. With{" "}
           <Cmd>/setup evidence</Cmd>, it also keeps copies of the files, so they're still there if
           the original gets deleted.
         </p>
