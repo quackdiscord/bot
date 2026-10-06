@@ -138,7 +138,10 @@ func (s *GuildSettingsService) Get(ctx context.Context, guildContext *GuildStaff
 // Update applies a partial settings update. A new audit or appeal queue
 // channel must pass StaffChannelValidator, judged with the staff roles the
 // update leaves. Changing the moderator roles also needs
-// PermissionActionStaffRolesWrite.
+// PermissionActionStaffRolesWrite. Only the fields input sets are written.
+// An update judged by the staff roles, because it sends a role list or a
+// staff channel, fails with ErrGuildSettingsConflict if they changed after
+// it read them.
 func (s *GuildSettingsService) Update(ctx context.Context, guildContext *GuildStaffContext, input GuildSettingsInput) (*GuildSettingsResponse, error) {
 	ctx = ensureTraceContext(ctx)
 	const action = string(AuditActionSettingsUpdate)
@@ -201,10 +204,14 @@ func (s *GuildSettingsService) Update(ctx context.Context, guildContext *GuildSt
 		{input.AppealQueueChannelDiscordID != nil, settings.AppealQueueChannelDiscordID, "appeal queue channel must be private and belong to this guild"},
 		{input.ManagedEvidenceChannelDiscordID != nil, settings.ManagedEvidenceChannelDiscordID, "evidence channel must be private and belong to this guild"},
 	}
+	// judgedByRoles says whether the update was decided with the stored
+	// staff roles, which then must not change before it is written.
+	judgedByRoles := input.ModeratorRoleIDs != nil || input.RulesManagerRoleIDs != nil
 	for _, channel := range staffChannels {
 		if !channel.changed || channel.channelID == "" {
 			continue
 		}
+		judgedByRoles = true
 		if s.channels == nil {
 			return nil, settingsValidationError("channel validation unavailable")
 		}
@@ -212,10 +219,15 @@ func (s *GuildSettingsService) Update(ctx context.Context, guildContext *GuildSt
 			return nil, settingsValidationError(channel.problem)
 		}
 	}
-	updated, err := s.store.UpdateGuildSettings(ctx, UpdateGuildSettingsParams{
-		Settings: *settings,
-		Audit:    settingsAudit(ctx, guildContext, action),
-	})
+	params := UpdateGuildSettingsParams{
+		GuildID: guildContext.Guild.ID,
+		Patch:   guildSettingsPatch(*settings, input),
+		Audit:   settingsAudit(ctx, guildContext, action),
+	}
+	if judgedByRoles {
+		params.ExpectedStaffRoles = &stored
+	}
+	updated, err := s.store.UpdateGuildSettings(ctx, params)
 	if err != nil {
 		_ = s.audit(ctx, guildContext, action, AuditResultFailure, err.Error())
 		return nil, err
@@ -351,7 +363,8 @@ func (s *GuildSettingsService) RejectUpdatePayload(ctx context.Context, guildCon
 }
 
 // AcknowledgeStarterPolicyNotice dismisses the one-time "review your starter
-// template" notice. The starter template itself is untouched.
+// template" notice. The starter template itself is untouched, and a notice
+// already dismissed keeps its first acknowledgement time.
 func (s *GuildSettingsService) AcknowledgeStarterPolicyNotice(ctx context.Context, guildContext *GuildStaffContext) (*GuildSettingsResponse, error) {
 	ctx = ensureTraceContext(ctx)
 	const action = string(AuditActionStarterNoticeAcknowledge)
@@ -361,25 +374,15 @@ func (s *GuildSettingsService) AcknowledgeStarterPolicyNotice(ctx context.Contex
 	if !guildContext.Can(PermissionActionGuildSettingsWrite) {
 		return nil, ErrGuildSettingsPermissionDenied
 	}
-	settings, err := s.store.GetGuildSettings(ctx, guildContext.Guild.ID)
-	if err != nil {
-		return nil, err
-	}
-	if settings == nil {
-		return nil, ErrGuildSettingsNotFound
-	}
-	if settings.StarterPolicyNoticePending {
-		now := time.Now().UTC()
-		settings.StarterPolicyNoticePending = false
-		settings.StarterPolicyNoticeAcknowledgedAt = &now
-	}
 	states, err := s.moduleStates(ctx, guildContext.Guild.ID)
 	if err != nil {
 		return nil, err
 	}
+	now := time.Now().UTC()
 	updated, err := s.store.UpdateGuildSettings(ctx, UpdateGuildSettingsParams{
-		Settings: *settings,
-		Audit:    settingsAudit(ctx, guildContext, action),
+		GuildID: guildContext.Guild.ID,
+		Patch:   GuildSettingsPatch{StarterPolicyNoticeAcknowledgedAt: &now},
+		Audit:   settingsAudit(ctx, guildContext, action),
 	})
 	if err != nil {
 		_ = s.audit(ctx, guildContext, action, AuditResultFailure, err.Error())
@@ -452,6 +455,40 @@ func applyGuildSettingsInput(settings *GuildSettings, input GuildSettingsInput, 
 		settings.RulesManagerRoleIDs = value
 	}
 	return nil
+}
+
+// guildSettingsPatch returns the write for the fields input sets, with their
+// values taken from settings, where they were validated and normalized.
+func guildSettingsPatch(settings GuildSettings, input GuildSettingsInput) GuildSettingsPatch {
+	var patch GuildSettingsPatch
+	if input.AppealQueueChannelDiscordID != nil {
+		patch.AppealQueueChannelDiscordID = &settings.AppealQueueChannelDiscordID
+	}
+	if input.AppealRejoinURL != nil {
+		patch.AppealRejoinURL = &settings.AppealRejoinURL
+	}
+	if input.AppealReviewReasonRequired != nil {
+		patch.AppealReviewReasonRequired = &settings.AppealReviewReasonRequired
+	}
+	if input.AuditMirrorChannelDiscordID != nil {
+		patch.AuditMirrorChannelDiscordID = &settings.AuditMirrorChannelDiscordID
+	}
+	if input.ManagedEvidenceChannelDiscordID != nil {
+		patch.ManagedEvidenceChannelDiscordID = &settings.ManagedEvidenceChannelDiscordID
+	}
+	if input.NotificationIntroduction != nil {
+		patch.NotificationIntroduction = &settings.NotificationIntroduction
+	}
+	if input.NotificationFooter != nil {
+		patch.NotificationFooter = &settings.NotificationFooter
+	}
+	if input.ModeratorRoleIDs != nil {
+		patch.ModeratorRoleIDs = &settings.ModeratorRoleIDs
+	}
+	if input.RulesManagerRoleIDs != nil {
+		patch.RulesManagerRoleIDs = &settings.RulesManagerRoleIDs
+	}
+	return patch
 }
 
 // normalizeStaffRoleIDs checks a staff role list's shape: decimal

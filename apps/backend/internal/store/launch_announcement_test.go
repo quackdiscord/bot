@@ -66,9 +66,8 @@ func TestSettingsUpdateKeepsLaunchAnnouncementClaim(t *testing.T) {
 	if _, err := s.ClaimLaunchAnnouncement(ctx, result.Guild.ID, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	settings := result.Settings
-	settings.NotificationFooter = "Be kind"
-	if _, err := s.UpdateGuildSettings(ctx, quack.UpdateGuildSettingsParams{Settings: settings}); err != nil {
+	footer := "Be kind"
+	if _, err := s.UpdateGuildSettings(ctx, quack.UpdateGuildSettingsParams{GuildID: result.Guild.ID, Patch: quack.GuildSettingsPatch{NotificationFooter: &footer}}); err != nil {
 		t.Fatal(err)
 	}
 	if targets, _ := s.ListLaunchAnnouncementTargets(ctx, 10); len(targets) != 0 {

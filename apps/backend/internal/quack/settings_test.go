@@ -12,6 +12,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/modules"
 	"github.com/quackdiscord/bot/internal/quack"
+	"github.com/quackdiscord/bot/internal/store"
 )
 
 func TestGuildSettingsServiceAuthorizationAuditAndNotice(t *testing.T) {
@@ -250,5 +251,94 @@ func TestGuildSettingsStaffRoles(t *testing.T) {
 	want := map[quack.AuditResult]int{quack.AuditResultSuccess: 6, quack.AuditResultFailure: 7}
 	if !maps.Equal(results, want) {
 		t.Fatalf("settings audits = %v, want %v", results, want)
+	}
+}
+
+// interleavingStore runs between once, right after the next settings read,
+// to commit a concurrent change between an update's read and its write.
+type interleavingStore struct {
+	quack.SettingsStore
+	between func()
+}
+
+func (s *interleavingStore) GetGuildSettings(ctx context.Context, guildID string) (*quack.GuildSettings, error) {
+	settings, err := s.SettingsStore.GetGuildSettings(ctx, guildID)
+	if between := s.between; between != nil {
+		s.between = nil
+		between()
+	}
+	return settings, err
+}
+
+// TestGuildSettingsUpdateKeepsConcurrentStaffRoleChanges replays a Manage
+// Server user's update racing an owner who changes the moderator roles
+// after the update read the settings. The update must never put back the
+// roles it read.
+func TestGuildSettingsUpdateKeepsConcurrentStaffRoleChanges(t *testing.T) {
+	testConcurrentStaffRoleChanges(t, newMigratedStore(t))
+}
+
+// testConcurrentStaffRoleChanges runs the race of
+// TestGuildSettingsUpdateKeepsConcurrentStaffRoleChanges on repositories.
+func testConcurrentStaffRoleChanges(t *testing.T, repositories *store.Store) {
+	ctx := context.Background()
+	bootstrap, err := repositories.BootstrapGuild(ctx, quack.BootstrapGuildParams{Starter: quack.StarterTemplate(),
+		DiscordGuildID: "400", Name: "Race Guild", OwnerDiscordUserID: "owner-1",
+	})
+	if err != nil {
+		t.Fatalf("bootstrap guild: %v", err)
+	}
+	owner := templateGuildContext(t, repositories, "400", "owner-1", 0)
+	manager := templateGuildContext(t, repositories, "400", "manager-1", uint64(discordgo.PermissionManageGuild))
+	channels := staffChannelsAndRoles{}
+	admin := quack.NewGuildSettingsService(repositories, channels, nil)
+	racing := &interleavingStore{SettingsStore: repositories}
+	managers := quack.NewGuildSettingsService(racing, channels, nil)
+	setModerators := func(roleIDs ...string) func() {
+		return func() {
+			if _, err := admin.Update(ctx, owner, quack.GuildSettingsInput{ModeratorRoleIDs: &roleIDs}); err != nil {
+				t.Fatalf("owner sets moderator roles %v: %v", roleIDs, err)
+			}
+		}
+	}
+	stored := func() *quack.GuildSettings {
+		t.Helper()
+		settings, err := repositories.GetGuildSettings(ctx, bootstrap.Guild.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return settings
+	}
+	setModerators("200")()
+
+	// The owner revokes 200 after the manager's footer update read it.
+	racing.between = setModerators("201")
+	footer := "Footer"
+	got, err := managers.Update(ctx, manager, quack.GuildSettingsInput{NotificationFooter: &footer})
+	if err != nil || got.NotificationFooter != footer || !slices.Equal(got.ModeratorRoleIDs, []string{"201"}) {
+		t.Fatalf("racing footer update = %+v, %v; want the footer saved and the owner's roles kept", got, err)
+	}
+	if settings := stored(); !slices.Equal(settings.ModeratorRoleIDs, []string{"201"}) || settings.NotificationFooter != footer {
+		t.Fatalf("stored after footer update = %+v", settings)
+	}
+
+	// Resending the roles it read, now stale, is refused as a whole.
+	racing.between = setModerators("200")
+	read, newFooter := []string{"201"}, "Other footer"
+	if _, err := managers.Update(ctx, manager, quack.GuildSettingsInput{ModeratorRoleIDs: &read, NotificationFooter: &newFooter}); !errors.Is(err, quack.ErrGuildSettingsConflict) {
+		t.Fatalf("resending stale moderator roles = %v, want ErrGuildSettingsConflict", err)
+	}
+	if settings := stored(); !slices.Equal(settings.ModeratorRoleIDs, []string{"200"}) || settings.NotificationFooter != footer {
+		t.Fatalf("stored after stale resend = %+v; want nothing written", settings)
+	}
+
+	// A staff channel judged by roles that changed meanwhile is refused too.
+	racing.between = setModerators("201")
+	channel := "100000000000000010"
+	if _, err := managers.Update(ctx, manager, quack.GuildSettingsInput{AuditMirrorChannelDiscordID: &channel}); !errors.Is(err, quack.ErrGuildSettingsConflict) {
+		t.Fatalf("audit channel judged by stale roles = %v, want ErrGuildSettingsConflict", err)
+	}
+	if settings := stored(); settings.AuditMirrorChannelDiscordID != "" {
+		t.Fatalf("stored after stale channel = %+v; want nothing written", settings)
 	}
 }

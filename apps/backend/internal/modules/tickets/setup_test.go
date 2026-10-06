@@ -15,8 +15,9 @@ import (
 )
 
 // setupDiscord fakes a guild where Quack holds every permission tickets
-// need, the queue is staff-only, and the entry channel is public. It
-// records posted panels.
+// need, the queue is staff-only, and the entry channel is public. modqueue
+// is a queue only the moderator role "mod-role", which has no Discord
+// permissions of its own, can see. It records posted panels.
 type setupDiscord struct {
 	t      *testing.T
 	panels []string
@@ -28,7 +29,7 @@ func (d *setupDiscord) serve(r *http.Request) (*http.Response, error) {
 	path := r.URL.Path
 	switch {
 	case r.Method == http.MethodGet && strings.HasSuffix(path, "/guilds/guild"):
-		return reply(fmt.Sprintf(`{"id":"guild","owner_id":"owner","roles":[{"id":"guild","permissions":"%d"}]}`, everyone)), nil
+		return reply(fmt.Sprintf(`{"id":"guild","owner_id":"owner","roles":[{"id":"guild","permissions":"%d"},{"id":"mod-role","permissions":"0"}]}`, everyone)), nil
 	case r.Method == http.MethodGet && strings.HasSuffix(path, "/members/bot"):
 		return reply(`{"user":{"id":"bot"},"roles":[]}`), nil
 	case r.Method == http.MethodGet && strings.HasSuffix(path, "/channels/entry"):
@@ -36,6 +37,11 @@ func (d *setupDiscord) serve(r *http.Request) (*http.Response, error) {
 	case r.Method == http.MethodGet && strings.HasSuffix(path, "/channels/queue"):
 		return reply(fmt.Sprintf(`{"id":"queue","guild_id":"guild","type":0,"permission_overwrites":[{"id":"guild","type":0,"deny":"%d","allow":"0"},{"id":"bot","type":1,"allow":"%d","deny":"0"}]}`,
 			discordgo.PermissionViewChannel, everyone)), nil
+	case r.Method == http.MethodGet && strings.HasSuffix(path, "/channels/modqueue"):
+		return reply(fmt.Sprintf(`{"id":"modqueue","guild_id":"guild","type":0,"permission_overwrites":[{"id":"guild","type":0,"deny":"%d","allow":"0"},{"id":"bot","type":1,"allow":"%d","deny":"0"},{"id":"mod-role","type":0,"allow":"%d","deny":"0"}]}`,
+			discordgo.PermissionViewChannel, everyone, discordgo.PermissionViewChannel)), nil
+	case r.Method == http.MethodPost && strings.HasSuffix(path, "/channels/modqueue/messages"):
+		return reply(`{"id":"posted"}`), nil
 	case r.Method == http.MethodGet && strings.HasSuffix(path, "/channels/public"):
 		return reply(`{"id":"public","guild_id":"guild","type":0}`), nil
 	case r.Method == http.MethodPost && strings.HasSuffix(path, "/channels/entry/messages"):
@@ -58,7 +64,7 @@ func setupModule(t *testing.T) (*Module, *setupDiscord, *modules.Registry) {
 	session := testSession(t, fake.serve)
 	db := testDB(t)
 	registry := modules.NewRegistry(db)
-	m := New(db, registry, nil, modules.NewGuilds(guildStore{discordID: "guild"}), session, deniedStaff{})
+	m := New(db, registry, nil, modules.NewGuilds(guildStore{discordID: "guild", moderatorRoleIDs: []string{"mod-role"}}), session, deniedStaff{})
 	return m, fake, registry
 }
 
@@ -71,6 +77,7 @@ func setupRequest(entry, queue string) discord.SetupRequest {
 			Guild:              &quack.Guild{ULIDModel: quack.ULIDModel{ID: "internal"}, DiscordGuildID: "guild"},
 			ActorDiscordUserID: "admin",
 			Permissions:        map[quack.PermissionAction]bool{quack.PermissionActionGuildSettingsWrite: true},
+			StaffRoles:         quack.StaffRoles{ModeratorRoleIDs: []string{"mod-role"}},
 		},
 		UserID:  "admin",
 		Options: []*discordgo.ApplicationCommandInteractionDataOption{option("entry", entry), option("queue", queue)},
@@ -139,6 +146,25 @@ func TestEnablementCheckRefusesBrokenSettings(t *testing.T) {
 	}
 	if err := m.checkEnablement(context.Background(), guild, `{"entry_channel_discord_id":"entry","queue_channel_discord_id":"queue"}`); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestModeratorRoleQueueIsStaffOnly checks that setup, enablement, and
+// queue delivery all count the guild's moderator roles as staff, so a queue
+// only a moderator role can see is accepted, like the one setup creates.
+func TestModeratorRoleQueueIsStaffOnly(t *testing.T) {
+	m, _, registry := setupModule(t)
+	ctx := context.Background()
+	if _, err := m.Setup(ctx, setupRequest("entry", "modqueue")); err != nil {
+		t.Fatalf("setup refused a moderator-role queue: %v", err)
+	}
+	guild := &quack.Guild{ULIDModel: quack.ULIDModel{ID: "internal"}, DiscordGuildID: "guild"}
+	if err := registry.CheckModuleEnablement(ctx, guild, quack.ModuleStates{Tickets: true}); err != nil {
+		t.Fatalf("enablement refused a moderator-role queue: %v", err)
+	}
+	ticket := &Ticket{ID: "ticket", GuildID: "internal", OwnerDiscordUserID: "owner"}
+	if receipt, err := m.channels.PublishQueue(ctx, ticket, Settings{QueueChannelDiscordID: "modqueue"}, nil); err != nil || receipt.MessageID != "posted" {
+		t.Fatalf("queue delivery to a moderator-role queue = %+v, %v", receipt, err)
 	}
 }
 

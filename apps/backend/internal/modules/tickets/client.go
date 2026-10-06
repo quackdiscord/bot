@@ -9,6 +9,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discord"
 	"github.com/quackdiscord/bot/internal/modules"
+	"github.com/quackdiscord/bot/internal/quack"
 )
 
 // Discord page sizes for the listings the client walks.
@@ -25,8 +26,21 @@ type channels struct {
 	guilds  *modules.Guilds
 }
 
-// bot wraps the session for the discord package's helpers.
-func (c channels) bot() *discord.Bot { return &discord.Bot{Session: c.session} }
+// bot wraps the session for the discord package's helpers. Its staff-only
+// channel checks count the guild's saved moderator roles as staff, as
+// everywhere else in Quack.
+func (c channels) bot() *discord.Bot {
+	return &discord.Bot{Session: c.session, StaffRoles: staffRoleSource{c.guilds}}
+}
+
+// staffRoleSource is the discord.StaffRoleSource over the module's guild
+// lookups.
+type staffRoleSource struct{ guilds *modules.Guilds }
+
+// GuildStaffRoles returns the guild's saved staff roles.
+func (s staffRoleSource) GuildStaffRoles(ctx context.Context, discordGuildID string) (quack.StaffRoles, error) {
+	return s.guilds.StaffRoles(ctx, discordGuildID)
+}
 
 // CreateThread starts a private, non-invitable thread under the entry
 // channel. It starts with only the bot; EnsureAccess invites the owner.

@@ -224,12 +224,9 @@ func configureStaffRoles(t *testing.T, repositories *store.Store, discordGuildID
 	if err != nil {
 		t.Fatalf("bootstrap %s: %v", discordGuildID, err)
 	}
-	settings, err := repositories.GetGuildSettings(ctx, result.Guild.ID)
-	if err != nil || settings == nil {
-		t.Fatalf("settings for %s: %+v, %v", discordGuildID, settings, err)
-	}
-	settings.ModeratorRoleIDs, settings.RulesManagerRoleIDs = roles.ModeratorRoleIDs, roles.RulesManagerRoleIDs
-	if _, err := repositories.UpdateGuildSettings(ctx, quack.UpdateGuildSettingsParams{Settings: *settings}); err != nil {
+	if _, err := repositories.UpdateGuildSettings(ctx, quack.UpdateGuildSettingsParams{GuildID: result.Guild.ID, Patch: quack.GuildSettingsPatch{
+		ModeratorRoleIDs: &roles.ModeratorRoleIDs, RulesManagerRoleIDs: &roles.RulesManagerRoleIDs,
+	}}); err != nil {
 		t.Fatalf("configure staff roles for %s: %v", discordGuildID, err)
 	}
 	return result.Guild.ID

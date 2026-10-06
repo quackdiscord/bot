@@ -282,6 +282,8 @@ func TestListErrorsUseServiceTables(t *testing.T) {
 			http.StatusForbidden, codeAuthorization, "template access denied"},
 		{"template failure", templateErrors.withFallback("failed to list templates"), errors.New("database down"),
 			http.StatusInternalServerError, codeInternal, "failed to list templates"},
+		{"settings conflict", settingsErrors, quack.ErrGuildSettingsConflict,
+			http.StatusConflict, codeConflict, quack.ErrGuildSettingsConflict.Error()},
 		{"guild list failure", guildListErrors, errors.New("discord down"),
 			http.StatusBadGateway, codeDependency, "failed to list discord guilds"},
 	} {

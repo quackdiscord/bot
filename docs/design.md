@@ -888,6 +888,12 @@ fine). Roles not already saved must be current roles of the guild other
 than @everyone; saved roles since deleted in Discord are dropped on save
 rather than refused. Duplicates are dropped and at most 25 remain. Staff
 channels set in the same PATCH are judged against the roles being saved.
+A settings PATCH writes only the fields it sends, so it never undoes a
+concurrent change to the others. A PATCH that sends a role list or a staff
+channel is decided against the roles it read; the store re-checks them under
+the row lock and, if they changed meanwhile, saves nothing and answers 409
+(`quack.ErrGuildSettingsConflict`), so a stale editor can never put back
+moderator roles an administrator just revoked. The dashboard asks to reload.
 Changes and failed changes are audited as `guild_settings.update` like any
 other setting; a refused moderator role change is not.
 
@@ -920,6 +926,10 @@ The modules plug into the core the same way:
   Administrator, Moderate Members, and the moderator roles (`Bot.StaffRoles`,
   wired to `GuildService.GuildStaffRoles`); the settings service uses
   `ValidateStaffChannelForRoles` to judge by the roles a PATCH is saving.
+  Modules that build their own `Bot` around the session give it the same
+  saved roles: tickets checks its queue on enablement and before every queue
+  post with them (through `modules.Guilds.StaffRoles`), and `/setup tickets`
+  with the roles its request already resolved.
 - **HTTP.** `MountHTTP` adds routes under
   `/guilds/{discordGuildID}/modules/` through `api.ModuleMux`, with the
   endpoint policy, session, live guild context, a per-actor limit, and

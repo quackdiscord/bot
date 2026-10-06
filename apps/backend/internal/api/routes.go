@@ -27,9 +27,12 @@ var (
 	caseFailures     = []int{http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound}
 	templateFailures = []int{http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound, http.StatusConflict}
 	settingsFailures = []int{http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound}
-	appealFailures   = []int{http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound, http.StatusConflict}
-	auditFailures    = []int{http.StatusBadRequest, http.StatusForbidden}
-	unavailable      = []int{http.StatusServiceUnavailable}
+	// settingsUpdateFailures adds the conflict when staff roles change
+	// while an update is being decided.
+	settingsUpdateFailures = []int{http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound, http.StatusConflict}
+	appealFailures         = []int{http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound, http.StatusConflict}
+	auditFailures          = []int{http.StatusBadRequest, http.StatusForbidden}
+	unavailable            = []int{http.StatusServiceUnavailable}
 )
 
 // routes is the API's table of contents. Each helper below names the
@@ -122,7 +125,7 @@ func (s *Server) routes() {
 	})
 	s.staff("PATCH /guilds/{discordGuildID}/settings", quack.PermissionActionGuildSettingsWrite, s.updateSettings, Doc{
 		ID: "updateSettings", Summary: "Change some of the guild's settings",
-		Body: quack.GuildSettingsInput{}, Response: settingsEnvelope{}, Errors: settingsFailures,
+		Body: quack.GuildSettingsInput{}, Response: settingsEnvelope{}, Errors: settingsUpdateFailures,
 	})
 	s.staff("POST /guilds/{discordGuildID}/settings/starter-policy-notice/acknowledge",
 		quack.PermissionActionGuildSettingsWrite, s.acknowledgeStarterPolicyNotice, Doc{

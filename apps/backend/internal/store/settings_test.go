@@ -21,15 +21,13 @@ func TestGuildSettingsUpdateAndChannelRepair(t *testing.T) {
 		t.Fatal(err)
 	}
 	guildID := bootstrap.Guild.ID
-	settings := bootstrap.Settings
-	settings.AuditMirrorChannelDiscordID = "shared-channel"
-	settings.ManagedEvidenceChannelDiscordID = "shared-channel"
-	settings.AppealQueueChannelDiscordID = "shared-channel"
-	settings.AppealRejoinURL = "https://discord.gg/quack"
-	settings.AppealReviewReasonRequired = true
-	settings.StarterPolicyTemplateID = "ignored"
+	shared, rejoin, required := "shared-channel", "https://discord.gg/quack", true
 	updated, err := s.UpdateGuildSettings(ctx, quack.UpdateGuildSettingsParams{
-		Settings: settings,
+		GuildID: guildID,
+		Patch: quack.GuildSettingsPatch{
+			AuditMirrorChannelDiscordID: &shared, ManagedEvidenceChannelDiscordID: &shared, AppealQueueChannelDiscordID: &shared,
+			AppealRejoinURL: &rejoin, AppealReviewReasonRequired: &required,
+		},
 		Audit: &quack.AuditLogEntry{
 			GuildID:      guildID,
 			Source:       quack.AuditSourceAPI,
@@ -64,7 +62,7 @@ func TestGuildSettingsUpdateAndChannelRepair(t *testing.T) {
 		t.Fatalf("repair audits = %+v, %v; want only the clear that changed something", audits, err)
 	}
 
-	missing := quack.UpdateGuildSettingsParams{Settings: quack.GuildSettings{GuildID: "unknown"}}
+	missing := quack.UpdateGuildSettingsParams{GuildID: "unknown"}
 	if _, err := s.UpdateGuildSettings(ctx, missing); !errors.Is(err, quack.ErrGuildSettingsNotFound) {
 		t.Fatalf("update for unknown guild = %v, want ErrGuildSettingsNotFound", err)
 	}
@@ -94,9 +92,10 @@ func TestStaffRolesRoundTripAndListInOneQuery(t *testing.T) {
 	if settings.ModeratorRoleIDs == nil || len(settings.ModeratorRoleIDs) != 0 {
 		t.Fatalf("unset moderator roles = %#v, want an empty list", settings.ModeratorRoleIDs)
 	}
-	settings.ModeratorRoleIDs = []string{"11", "12"}
-	settings.RulesManagerRoleIDs = []string{"13"}
-	if _, err := s.UpdateGuildSettings(ctx, quack.UpdateGuildSettingsParams{Settings: *settings}); err != nil {
+	moderators, rulesManagers := []string{"11", "12"}, []string{"13"}
+	if _, err := s.UpdateGuildSettings(ctx, quack.UpdateGuildSettingsParams{
+		GuildID: guild.ID, Patch: quack.GuildSettingsPatch{ModeratorRoleIDs: &moderators, RulesManagerRoleIDs: &rulesManagers},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	stored, err := s.GetGuildSettings(ctx, guild.ID)
@@ -114,6 +113,63 @@ func TestStaffRolesRoundTripAndListInOneQuery(t *testing.T) {
 	}
 	if empty, err := s.ListGuildStaffRoles(ctx, nil); err != nil || len(empty) != 0 {
 		t.Fatalf("listing no guilds = %+v, %v", empty, err)
+	}
+}
+
+// TestGuildSettingsUpdateWritesOnlyThePatch checks that an update leaves
+// fields it does not set as they are in the row, refuses to write when the
+// staff roles it expects have changed, and acknowledges the starter notice
+// only once.
+func TestGuildSettingsUpdateWritesOnlyThePatch(t *testing.T) {
+	ctx := context.Background()
+	s := testutil.NewSQLiteStore(t)
+	bootstrap, err := s.BootstrapGuild(ctx, quack.BootstrapGuildParams{
+		Starter: quack.StarterTemplate(), DiscordGuildID: "guild", Name: "Guild", OwnerDiscordUserID: "owner",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	guildID := bootstrap.Guild.ID
+	moderators, introduction := []string{"11"}, "Hello"
+	if _, err := s.UpdateGuildSettings(ctx, quack.UpdateGuildSettingsParams{GuildID: guildID, Patch: quack.GuildSettingsPatch{
+		ModeratorRoleIDs: &moderators, NotificationIntroduction: &introduction,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	footer := "Bye"
+	updated, err := s.UpdateGuildSettings(ctx, quack.UpdateGuildSettingsParams{GuildID: guildID, Patch: quack.GuildSettingsPatch{NotificationFooter: &footer}})
+	if err != nil || updated.NotificationFooter != "Bye" || updated.NotificationIntroduction != "Hello" || !slices.Equal(updated.ModeratorRoleIDs, []string{"11"}) {
+		t.Fatalf("footer update = %+v, %v; want the other fields kept", updated, err)
+	}
+
+	audit := &quack.AuditLogEntry{GuildID: guildID, Source: quack.AuditSourceAPI, Action: "guild_settings.conflict_probe",
+		ResourceType: "guild_settings", Result: quack.AuditResultSuccess}
+	stale, replacement := quack.StaffRoles{ModeratorRoleIDs: []string{"10"}}, []string{"12"}
+	_, err = s.UpdateGuildSettings(ctx, quack.UpdateGuildSettingsParams{GuildID: guildID, ExpectedStaffRoles: &stale,
+		Patch: quack.GuildSettingsPatch{ModeratorRoleIDs: &replacement, NotificationFooter: &introduction}, Audit: audit})
+	if !errors.Is(err, quack.ErrGuildSettingsConflict) {
+		t.Fatalf("update against stale staff roles = %v, want ErrGuildSettingsConflict", err)
+	}
+	current := quack.StaffRoles{ModeratorRoleIDs: []string{"11"}, RulesManagerRoleIDs: []string{}}
+	if _, err := s.UpdateGuildSettings(ctx, quack.UpdateGuildSettingsParams{GuildID: guildID, ExpectedStaffRoles: &current,
+		Patch: quack.GuildSettingsPatch{ModeratorRoleIDs: &replacement}, Audit: audit}); err != nil {
+		t.Fatalf("update against current staff roles: %v", err)
+	}
+	stored, err := s.GetGuildSettings(ctx, guildID)
+	if err != nil || !slices.Equal(stored.ModeratorRoleIDs, []string{"12"}) || stored.NotificationFooter != "Bye" {
+		t.Fatalf("stored = %+v, %v; want only the unconflicted update", stored, err)
+	}
+	audits, err := s.ListAuditLogEntriesFiltered(ctx, quack.ListAuditLogEntriesParams{GuildID: guildID, Action: audit.Action})
+	if err != nil || audits.Total != 1 {
+		t.Fatalf("audits = %+v, %v; want none for the conflict", audits, err)
+	}
+
+	first, later := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	for _, at := range []time.Time{first, later} {
+		updated, err = s.UpdateGuildSettings(ctx, quack.UpdateGuildSettingsParams{GuildID: guildID, Patch: quack.GuildSettingsPatch{StarterPolicyNoticeAcknowledgedAt: &at}})
+		if err != nil || updated.StarterPolicyNoticePending || updated.StarterPolicyNoticeAcknowledgedAt == nil || !updated.StarterPolicyNoticeAcknowledgedAt.Equal(first) {
+			t.Fatalf("acknowledge at %v = %+v, %v; want the first acknowledgement kept", at, updated, err)
+		}
 	}
 }
 

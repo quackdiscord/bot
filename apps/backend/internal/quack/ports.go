@@ -412,10 +412,36 @@ type BootstrapGuildResult struct {
 	StarterTemplateCreated bool
 }
 
-// UpdateGuildSettingsParams replaces a guild's settings.
+// UpdateGuildSettingsParams changes some of a guild's settings, with the
+// audit entry written in the same transaction. Only the fields Patch sets
+// are written, so concurrent updates to other fields are never undone.
 type UpdateGuildSettingsParams struct {
-	Settings GuildSettings
-	Audit    *AuditLogEntry
+	GuildID string
+	Patch   GuildSettingsPatch
+	// ExpectedStaffRoles, when set, is the staff roles the update was judged
+	// by. If the stored staff roles differ when the row is locked, the store
+	// writes nothing and returns ErrGuildSettingsConflict, so a decision made
+	// against roles that have since changed is never saved.
+	ExpectedStaffRoles *StaffRoles
+	Audit              *AuditLogEntry
+}
+
+// GuildSettingsPatch is a partial settings write. Nil fields leave the stored
+// value alone; values are stored as given, already validated.
+type GuildSettingsPatch struct {
+	AppealQueueChannelDiscordID     *string
+	AppealRejoinURL                 *string
+	AppealReviewReasonRequired      *bool
+	AuditMirrorChannelDiscordID     *string
+	ManagedEvidenceChannelDiscordID *string
+	NotificationIntroduction        *string
+	NotificationFooter              *string
+	ModeratorRoleIDs                *[]string
+	RulesManagerRoleIDs             *[]string
+	// StarterPolicyNoticeAcknowledgedAt, when set, acknowledges a pending
+	// starter template notice at that time. An acknowledged notice keeps its
+	// first acknowledgement.
+	StarterPolicyNoticeAcknowledgedAt *time.Time
 }
 
 // UpsertStaffMemberParams refreshes a staff member's cached attribution.

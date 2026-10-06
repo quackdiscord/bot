@@ -113,7 +113,12 @@ function SettingsPage() {
     },
     onError: (e) =>
       setSaveError(
-        e instanceof ApiError ? enableProblem(e.message).message : "Couldn't save settings.",
+        // 409: the staff roles changed after this page loaded them.
+        e instanceof ApiError && e.status === 409
+          ? "Settings changed while you were editing. Reload and try again."
+          : e instanceof ApiError
+            ? enableProblem(e.message).message
+            : "Couldn't save settings.",
       ),
   });
 

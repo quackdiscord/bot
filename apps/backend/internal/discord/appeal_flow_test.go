@@ -195,12 +195,10 @@ func TestAppealQueueDecisionRequiresReason(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	settings, err := h.store.GetGuildSettings(ctx, h.owner.Guild.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	settings.AppealReviewReasonRequired = true
-	if _, err := h.store.UpdateGuildSettings(ctx, quack.UpdateGuildSettingsParams{Settings: *settings}); err != nil {
+	required := true
+	if _, err := h.store.UpdateGuildSettings(ctx, quack.UpdateGuildSettingsParams{
+		GuildID: h.owner.Guild.ID, Patch: quack.GuildSettingsPatch{AppealReviewReasonRequired: &required},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	appeal := h.appeal(t, "Please reconsider.")

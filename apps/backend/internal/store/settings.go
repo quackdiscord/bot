@@ -16,24 +16,44 @@ func (s *Store) GetGuildSettings(ctx context.Context, guildID string) (*quack.Gu
 	return findOne(query, "get guild settings", guildSettingsRecord.model)
 }
 
-// UpdateGuildSettings replaces a guild's editable settings. The starter
-// template binding is not editable and is left alone.
+// UpdateGuildSettings writes the fields params.Patch sets onto the locked
+// settings row, and checks params.ExpectedStaffRoles against the row first.
+// The starter template binding is not editable and is left alone. It always
+// saves and audits, even when nothing changes.
 func (s *Store) UpdateGuildSettings(ctx context.Context, params quack.UpdateGuildSettingsParams) (*quack.GuildSettings, error) {
-	in := params.Settings
-	return s.updateSettings(ctx, in.GuildID, params.Audit, func(r *guildSettingsRecord) bool {
-		r.AppealQueueChannelDiscordID = in.AppealQueueChannelDiscordID
-		r.AppealRejoinURL = in.AppealRejoinURL
-		r.AppealReviewReasonRequired = in.AppealReviewReasonRequired
-		r.AuditMirrorChannelDiscordID = in.AuditMirrorChannelDiscordID
-		r.ManagedEvidenceChannelDiscordID = in.ManagedEvidenceChannelDiscordID
-		r.NotificationIntroduction = in.NotificationIntroduction
-		r.NotificationFooter = in.NotificationFooter
-		r.StarterPolicyNoticePending = in.StarterPolicyNoticePending
-		r.StarterPolicyNoticeAcknowledgedAt = in.StarterPolicyNoticeAcknowledgedAt
-		r.ModeratorRoleIDs = joinRoleIDs(in.ModeratorRoleIDs)
-		r.RulesManagerRoleIDs = joinRoleIDs(in.RulesManagerRoleIDs)
-		return true
+	patch := params.Patch
+	return s.updateSettings(ctx, params.GuildID, params.Audit, func(r *guildSettingsRecord) (bool, error) {
+		if want := params.ExpectedStaffRoles; want != nil &&
+			(r.ModeratorRoleIDs != joinRoleIDs(want.ModeratorRoleIDs) || r.RulesManagerRoleIDs != joinRoleIDs(want.RulesManagerRoleIDs)) {
+			return false, quack.ErrGuildSettingsConflict
+		}
+		setIfPresent(&r.AppealQueueChannelDiscordID, patch.AppealQueueChannelDiscordID)
+		setIfPresent(&r.AppealRejoinURL, patch.AppealRejoinURL)
+		setIfPresent(&r.AppealReviewReasonRequired, patch.AppealReviewReasonRequired)
+		setIfPresent(&r.AuditMirrorChannelDiscordID, patch.AuditMirrorChannelDiscordID)
+		setIfPresent(&r.ManagedEvidenceChannelDiscordID, patch.ManagedEvidenceChannelDiscordID)
+		setIfPresent(&r.NotificationIntroduction, patch.NotificationIntroduction)
+		setIfPresent(&r.NotificationFooter, patch.NotificationFooter)
+		if patch.ModeratorRoleIDs != nil {
+			r.ModeratorRoleIDs = joinRoleIDs(*patch.ModeratorRoleIDs)
+		}
+		if patch.RulesManagerRoleIDs != nil {
+			r.RulesManagerRoleIDs = joinRoleIDs(*patch.RulesManagerRoleIDs)
+		}
+		if at := patch.StarterPolicyNoticeAcknowledgedAt; at != nil && r.StarterPolicyNoticePending {
+			acknowledged := *at
+			r.StarterPolicyNoticePending = false
+			r.StarterPolicyNoticeAcknowledgedAt = &acknowledged
+		}
+		return true, nil
 	})
+}
+
+// setIfPresent sets *field to *value when value is not nil.
+func setIfPresent[T any](field *T, value *T) {
+	if value != nil {
+		*field = *value
+	}
 }
 
 // ClearGuildChannelReferences unsets every setting that points at a deleted
@@ -44,7 +64,7 @@ func (s *Store) ClearGuildChannelReferences(ctx context.Context, guildID, channe
 		entry.GuildID = guildID
 		audit = &entry
 	}
-	return s.updateSettings(ctx, guildID, audit, func(r *guildSettingsRecord) bool {
+	return s.updateSettings(ctx, guildID, audit, func(r *guildSettingsRecord) (bool, error) {
 		changed := false
 		for _, channel := range []*string{&r.AppealQueueChannelDiscordID, &r.AuditMirrorChannelDiscordID, &r.ManagedEvidenceChannelDiscordID} {
 			if *channel == channelID {
@@ -52,13 +72,14 @@ func (s *Store) ClearGuildChannelReferences(ctx context.Context, guildID, channe
 				changed = true
 			}
 		}
-		return changed
+		return changed, nil
 	})
 }
 
 // updateSettings locks a guild's settings row, applies change, and saves and
-// audits the row when change reports it changed something.
-func (s *Store) updateSettings(ctx context.Context, guildID string, audit *quack.AuditLogEntry, change func(*guildSettingsRecord) bool) (*quack.GuildSettings, error) {
+// audits the row when change reports it changed something. An error from
+// change rolls back and is returned as is.
+func (s *Store) updateSettings(ctx context.Context, guildID string, audit *quack.AuditLogEntry, change func(*guildSettingsRecord) (bool, error)) (*quack.GuildSettings, error) {
 	var record guildSettingsRecord
 	now := time.Now().UTC()
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -69,8 +90,9 @@ func (s *Store) updateSettings(ctx context.Context, guildID string, audit *quack
 		if !found {
 			return fmt.Errorf("get guild settings: %w", quack.ErrGuildSettingsNotFound)
 		}
-		if !change(&record) {
-			return nil
+		changed, err := change(&record)
+		if err != nil || !changed {
+			return err
 		}
 		record.UpdatedAt = now
 		if err := tx.Save(&record).Error; err != nil {
