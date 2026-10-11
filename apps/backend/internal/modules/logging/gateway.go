@@ -51,13 +51,22 @@ func (m *Module) onMessageUpdate(s *discordgo.Session, event *discordgo.MessageU
 }
 
 // onMessageDelete logs a deletion; delivery fills in the cached content.
+// A deletion with nothing cached and no author from Discord waits to be
+// summarized with others in its channel.
 func (m *Module) onMessageDelete(_ *discordgo.Session, event *discordgo.MessageDelete) {
 	if event.Message == nil || event.GuildID == "" {
 		return
 	}
-	if guildID, ok := m.guildID(event.GuildID); ok {
-		m.pool.Submit(messageEvent(guildID, MessageDelete, event.Message))
+	guildID, ok := m.guildID(event.GuildID)
+	if !ok {
+		return
 	}
+	deletion := messageEvent(guildID, MessageDelete, event.Message)
+	if deletion.ActorDiscordUserID == "" && !m.service.Cached(guildID, deletion.MessageDiscordID) {
+		m.deletes.Add(guildID, deletion.ChannelDiscordID, deletion.MessageDiscordID)
+		return
+	}
+	m.pool.Submit(deletion)
 }
 
 // onMessageDeleteBulk logs a bulk deletion.

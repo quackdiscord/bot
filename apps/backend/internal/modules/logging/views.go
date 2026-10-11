@@ -20,7 +20,9 @@ type entry struct {
 	EmbedTypes                     []string
 	// Messages are a bulk deletion's cached messages, shown one by one.
 	Messages []entryMessage
-	Metadata map[string]string
+	// MessageIDs are the messages of an uncached deletion summary.
+	MessageIDs []string
+	Metadata   map[string]string
 }
 
 // entryMessage is one cached message of a bulk deletion.
@@ -57,6 +59,14 @@ func logMessage(e entry) discord.Message {
 	if count := e.Metadata["cached_count"]; e.Type == MessageBulkDelete && count != "" {
 		parts = append(parts, "Messages with saved content: "+discord.PlainText(count)+".")
 	}
+	if len(e.MessageIDs) > 0 {
+		ids := make([]string, len(e.MessageIDs))
+		for i, id := range e.MessageIDs {
+			ids[i] = discord.PlainText(id)
+		}
+		parts = append(parts, "Quack had no saved copy of these messages, so their authors and text are unknown.",
+			"Messages: "+strings.Join(ids, ", "))
+	}
 	meta := ""
 	if e.MessageID != "" {
 		meta = "Message " + discord.PlainText(e.MessageID)
@@ -78,6 +88,9 @@ func lead(e entry) string {
 		text = "A message from " + actor + " was edited."
 	case MessageDelete:
 		text = "A message from " + actor + " was deleted."
+		if count := e.Metadata["message_count"]; count != "" {
+			text = discord.PlainText(count) + " messages were deleted."
+		}
 	case MessageBulkDelete:
 		text = "Messages were deleted."
 		if count := e.Metadata["message_count"]; count != "" {

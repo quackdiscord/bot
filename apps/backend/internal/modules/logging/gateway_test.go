@@ -2,6 +2,7 @@ package logging
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -66,7 +67,7 @@ func TestGatewayKeepsBotAuthorsAndDeletionContext(t *testing.T) {
 	if _, err := service.UpdateSettings(ctx, actor, true, Defaults().RouteAllTo("logs")); err != nil {
 		t.Fatal(err)
 	}
-	m := &Module{service: service, guilds: modules.NewGuilds(guildStore{}), pool: NewPool(service)}
+	m := newTestModule(service)
 	m.pool.Start(ctx)
 	session := &discordgo.Session{State: discordgo.NewState()}
 	session.State.User = &discordgo.User{ID: "quack"}
@@ -90,7 +91,7 @@ func TestGatewayKeepsBotAuthorsAndDeletionContext(t *testing.T) {
 		ID: "message", GuildID: "guild", ChannelID: "source", Content: "after", EditedTimestamp: &edited, Attachments: files,
 	}})
 	m.onMessageDelete(session, &discordgo.MessageDelete{Message: &discordgo.Message{ID: "message", GuildID: "guild", ChannelID: "source"}})
-	if err := m.pool.Stop(ctx); err != nil {
+	if err := m.Stop(ctx); err != nil {
 		t.Fatal(err)
 	}
 
@@ -111,5 +112,90 @@ func TestGatewayKeepsBotAuthorsAndDeletionContext(t *testing.T) {
 		if !strings.Contains(deletion, want) {
 			t.Fatalf("delete log lacks %q: %s", want, deletion)
 		}
+	}
+}
+
+// newTestModule returns a module over service whose deletion batches wait
+// until Stop.
+func newTestModule(service *Service) *Module {
+	m := &Module{service: service, guilds: modules.NewGuilds(guildStore{}), pool: NewPool(service)}
+	m.deletes = newDeleteBatcher(time.Hour, m.submitUncachedDeletes)
+	return m
+}
+
+// TestUncachedDeletesAreSummarizedPerChannel deletes messages Quack never
+// saw, as when a member clears old history: each channel gets one summary,
+// a lone deletion stays a plain one, and a message cached before the batch
+// is posted keeps its content.
+func TestUncachedDeletesAreSummarizedPerChannel(t *testing.T) {
+	ctx := context.Background()
+	rec := &recorder{}
+	service := NewService(newTestRegistry(t), rec, nil)
+	actor := modules.Actor{GuildID: testGuild.ID, CanManage: true}
+	if _, err := service.UpdateSettings(ctx, actor, true, Defaults().RouteAllTo("logs")); err != nil {
+		t.Fatal(err)
+	}
+	m := newTestModule(service)
+	m.pool.Start(ctx)
+	session := &discordgo.Session{State: discordgo.NewState()}
+	deleteMessage := func(id, channelID string) {
+		m.onMessageDelete(session, &discordgo.MessageDelete{Message: &discordgo.Message{ID: id, GuildID: "guild", ChannelID: channelID}})
+	}
+	deleteMessage("old-1", "chat")
+	deleteMessage("old-2", "chat")
+	deleteMessage("late", "chat")
+	deleteMessage("old-3", "chat")
+	deleteMessage("lone", "other")
+	// The gateway delivered this message's create after its delete.
+	m.onMessageCreate(session, &discordgo.MessageCreate{Message: &discordgo.Message{
+		ID: "late", GuildID: "guild", ChannelID: "chat", Author: &discordgo.User{ID: "member"}, Content: "hello",
+	}})
+	if len(rec.payloads) != 0 {
+		t.Fatalf("uncached deletions were posted before their window ended: %q", rec.payloads)
+	}
+	if err := m.Stop(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	all := strings.Join(rec.payloads, "\n---\n")
+	if len(rec.payloads) != 3 {
+		t.Fatalf("logs = %q, want a summary, a lone deletion, and the late message", rec.payloads)
+	}
+	for _, want := range []string{
+		"3 messages were deleted in <#chat>.",
+		"Messages: old-1, old-2, old-3",
+		"A message from A member was deleted in <#other>.",
+		"A message from <@member> was deleted in <#chat>.",
+		"> hello",
+	} {
+		if !strings.Contains(all, want) {
+			t.Fatalf("logs lack %q:\n%s", want, all)
+		}
+	}
+}
+
+// TestDeleteBatcherPostsFullAndExpiredBatches checks a full batch is posted
+// at once and a partial one when its window ends, never twice.
+func TestDeleteBatcherPostsFullAndExpiredBatches(t *testing.T) {
+	var mu sync.Mutex
+	var batches [][]string
+	posted := make(chan struct{}, 4)
+	b := newDeleteBatcher(20*time.Millisecond, func(_, _ string, ids []string) {
+		mu.Lock()
+		batches = append(batches, ids)
+		mu.Unlock()
+		posted <- struct{}{}
+	})
+	for i := range maxUncachedDeletes + 1 {
+		b.Add("guild", "chat", strconv.Itoa(i))
+	}
+	<-posted
+	<-posted
+	b.Flush()
+	time.Sleep(50 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	if len(batches) != 2 || len(batches[0]) != maxUncachedDeletes || len(batches[1]) != 1 {
+		t.Fatalf("batches = %v, want one full batch then the remainder", batches)
 	}
 }

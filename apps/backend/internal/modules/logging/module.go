@@ -31,6 +31,8 @@ type Module struct {
 	registry *modules.Registry
 	guilds   *modules.Guilds
 	pool     *modules.Pool[Event]
+	// deletes gathers deletions of uncached messages into summaries.
+	deletes *deleteBatcher
 }
 
 // New returns the logging module. Settings live in registry; bot delivers to
@@ -41,6 +43,7 @@ func New(registry *modules.Registry, guilds *modules.Guilds, bot *discord.Bot) *
 	client := delivery{bot: bot, guilds: guilds}
 	service := NewService(registry, client, NewMessageCache(defaultCacheLimit))
 	m := &Module{service: service, client: client, registry: registry, guilds: guilds, pool: NewPool(service)}
+	m.deletes = newDeleteBatcher(uncachedDeleteWindow, m.submitUncachedDeletes)
 	registry.SetEnablementCheck(modules.GeneralLogging, m.checkEnablement)
 	return m
 }
@@ -106,5 +109,17 @@ func (m *Module) Intents() discordgo.Intent {
 // Start starts the delivery workers.
 func (m *Module) Start(ctx context.Context) { m.pool.Start(ctx) }
 
-// Stop drains queued deliveries, giving up when ctx is done.
-func (m *Module) Stop(ctx context.Context) error { return m.pool.Stop(ctx) }
+// Stop posts waiting deletion summaries, then drains queued deliveries,
+// giving up when ctx is done.
+func (m *Module) Stop(ctx context.Context) error {
+	m.deletes.Flush()
+	return m.pool.Stop(ctx)
+}
+
+// submitUncachedDeletes queues the log events for a channel's batch of
+// uncached deletions.
+func (m *Module) submitUncachedDeletes(guildID, channelID string, messageIDs []string) {
+	for _, event := range uncachedDeleteEvents(m.service, guildID, channelID, messageIDs) {
+		m.pool.Submit(event)
+	}
+}

@@ -142,6 +142,13 @@ func (s *Service) CacheMessage(ctx context.Context, message CachedMessage) error
 	return nil
 }
 
+// Cached reports whether the guild's message is in the cache, so a deletion
+// can be logged with its content.
+func (s *Service) Cached(guildID, messageID string) bool {
+	_, ok := s.cache.Get(guildID, messageID)
+	return ok
+}
+
 // PrepareMessageEdit caches current and returns the edit event to queue,
 // with the message as it was before frozen into it, so a queued edit never
 // reads a newer cached copy. before is Discord's own copy, when it sent
@@ -354,6 +361,9 @@ func present(event Event, settings Settings) entry {
 			m.EmbedTypes = cached.EmbedTypes
 		}
 		e.Messages = append(e.Messages, m)
+	}
+	if event.Type == MessageDelete {
+		e.MessageIDs = event.MessageIDs
 	}
 	for key, value := range event.Metadata {
 		e.Metadata[key] = redact(value)

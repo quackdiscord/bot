@@ -102,9 +102,11 @@ type Event struct {
 	EmbedTypes                                                      []string
 	// Metadata carries event details: a channel's operation and name, a
 	// guild's name, a ban's target_id and reason, a leaving member's
-	// username, or a bulk deletion's message_count and cached_count.
+	// username, a bulk deletion's message_count and cached_count, or an
+	// uncached deletion summary's message_count.
 	Metadata map[string]string
-	// MessageIDs are the deleted messages of a MessageBulkDelete.
+	// MessageIDs are the deleted messages of a MessageBulkDelete, or of a
+	// MessageDelete summarizing deletions Quack had no copy of.
 	MessageIDs []string
 
 	// SnapshotComplete marks an edit captured by Service.PrepareMessageEdit,

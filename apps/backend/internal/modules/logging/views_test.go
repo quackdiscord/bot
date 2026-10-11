@@ -122,3 +122,13 @@ func TestDeletedAttachmentLinksSurvive(t *testing.T) {
 		}
 	}
 }
+
+func TestUncachedDeleteSummaryListsMessages(t *testing.T) {
+	summary := logMessage(entry{Type: MessageDelete, ChannelID: "chat", MessageIDs: []string{"1", "2"},
+		Metadata: map[string]string{"message_count": "2"}})
+	for _, want := range []string{"2 messages were deleted in <#chat>.", "authors and text are unknown", "Messages: 1, 2"} {
+		if !strings.Contains(summary.Content, want) {
+			t.Fatalf("summary lacks %q: %s", want, summary.Content)
+		}
+	}
+}

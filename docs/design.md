@@ -967,7 +967,11 @@ Per module:
   Posts message edits and deletes, joins and leaves, bans, and guild and
   channel changes as readable Quack messages. A leave names the member by
   username rather than a mention, which Discord often can't resolve once
-  they're gone. `/setup logging` routes every
+  they're gone. Discord reports a deletion with only the message ID, so a
+  deleted message Quack never cached (older than the cache, or sent before
+  it started) has no author or text. Those wait up to a minute per channel
+  and post as one summary listing up to 50 message IDs; a lone one still
+  posts as a normal deletion. `/setup logging` routes every
   event to one channel and needs View Audit Log to attribute bans. Recent
   messages are cached in memory only; no tables. Deleting a channel removes
   any routes to it, and leaves settings alone when none use it. Nothing the
