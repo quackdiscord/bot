@@ -310,7 +310,8 @@ still sign in to the dashboard.
 
 A case created from Discord posts a public receipt in the channel where it
 was invoked, except a case added from a member's message ("Add case"), whose
-receipt stays private to the moderator because that channel is likely public.
+receipt stays private to the moderator because that channel is likely public,
+and a `/case add` with `secret` set, which answers privately throughout.
 Validation and permission errors stay private to the moderator.
 Evidence is never copied into the channel.
 
@@ -508,6 +509,8 @@ Discord ──> discord.Router ──> /case add handler (live staff context, au
    context once from live Discord state, defers, and calls
    `CaseService.Create` with source `discord`, the interaction ID as
    idempotency key, and the optional `message_link` and `file` as evidence.
+   The optional `secret` flag defers privately instead, and is carried
+   through any context modal.
    Only templates with required context fields open a modal first (more than
    five fields span several pages, with the draft in memory); optional context
    is added afterwards with Edit context. The "Add case" message action and
@@ -530,12 +533,13 @@ Discord ──> discord.Router ──> /case add handler (live staff context, au
 5. **Scheduling.** After commit the case ID is submitted to the worker queue.
    This is only a latency shortcut: if the queue is full or stopped, the
    poller finds the case anyway.
-6. **Receipt** (`discord/case_receipt.go`). The command defers publicly and
-   the receipt replaces the placeholder: case number, target, rule, reason,
+6. **Receipt** (`discord/case_receipt.go`). The command defers publicly
+   (privately when `secret`) and the receipt replaces the placeholder: case number, target, rule, reason,
    action progress, moderator, and quoted context, never evidence. Its
    buttons (Edit context, View evidence, History, Void case) recheck
-   authority on every click. It is recorded as a case publication so it
-   tracks later changes. On error the placeholder is deleted and the
+   authority on every click. A public receipt is recorded as a case
+   publication so it tracks later changes; a secret one follows its actions
+   through the interaction like the "Add case" message action's. On error the placeholder is deleted and the
    moderator gets a private followup.
 
 Dashboard creation (`POST /guilds/{discordGuildID}/cases`) calls the same
@@ -734,8 +738,8 @@ publications, skips edits whose digest is unchanged, reports `Complete`, or
 rechecked in 2s, failed refreshes in 30s. Completion is fenced on `revision`,
 so a change committed during a refresh is never lost. Private receipts are
 not publications, since only the interaction can edit an ephemeral message:
-the "Add case" message action re-renders its receipt through the interaction
-every 2s while actions settle, for at most 30s.
+the "Add case" message action and a secret `/case add` re-render their
+receipt through the interaction every 2s while actions settle, for at most 30s.
 
 ### Discord messages and dashboard links
 

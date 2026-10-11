@@ -12,9 +12,10 @@ import (
 )
 
 // add handles /case add. It resolves and authorizes the moderator once, then
-// creates the case in a deferred task and publishes the receipt in place.
-// A template with required context fields first collects them in a modal;
-// optional context is added afterwards with Edit context.
+// creates the case in a deferred task and publishes the receipt in place, or
+// privately when the secret option is set. A template with required context
+// fields first collects them in a modal; optional context is added
+// afterwards with Edit context.
 func (c *cases) add(ctx context.Context, i *discordgo.InteractionCreate, add *discordgo.ApplicationCommandInteractionDataOption) Result {
 	if i.GuildID == "" {
 		return Immediate(Error(caseCreateErrorMessage(errNotInGuild)))
@@ -41,14 +42,18 @@ func (c *cases) add(ctx context.Context, i *discordgo.InteractionCreate, add *di
 		values = messageLinkValues(template, link)
 	}
 	files := interactionFiles(i, add.GetOption("file"))
+	var secret bool
+	if option := add.GetOption("secret"); option != nil {
+		secret, _ = option.Value.(bool)
+	}
 	if template != nil && !requiredContextFilled(template, values) {
-		modal, err := c.startContext(i, template, targetID, link, i.ChannelID, "", values, files)
+		modal, err := c.startContext(i, template, targetID, link, i.ChannelID, "", values, files, secret)
 		if err != nil {
 			return Immediate(Error(err.Error()))
 		}
 		return Immediate(modal)
 	}
-	return AsyncPublic(func(ctx context.Context, responder Responder) error {
+	return c.createAsync(secret, func(ctx context.Context, responder Responder) error {
 		created, err := c.services.Cases.Create(ctx, staff, quack.CaseInput{
 			TemplateID:              templateID,
 			TargetDiscordUserID:     targetID,
@@ -63,9 +68,28 @@ func (c *cases) add(ctx context.Context, i *discordgo.InteractionCreate, add *di
 			_, err := responder.EditOriginal(ErrorEdit(caseCreateErrorMessage(err)))
 			return err
 		}
-		c.publishInPlace(ctx, responder, i, created)
+		c.publishCreated(ctx, responder, i, created, secret)
 		return nil
 	})
+}
+
+// createAsync defers a /case add creation task: publicly, or privately for a
+// secret case so even the placeholder stays out of the channel.
+func (c *cases) createAsync(secret bool, task Task) Result {
+	if secret {
+		return Async(DeferEphemeral(), task)
+	}
+	return AsyncPublic(task)
+}
+
+// publishCreated shows the receipt of a case created with /case add, in
+// place of the public placeholder or, for a secret case, the private one.
+func (c *cases) publishCreated(ctx context.Context, responder Responder, i *discordgo.InteractionCreate, created *quack.CaseResponse, secret bool) {
+	if secret {
+		c.publishPrivately(ctx, responder, i, created)
+		return
+	}
+	c.publishInPlace(ctx, responder, i, created)
 }
 
 // messageCommand handles the "Add case" message action. It answers

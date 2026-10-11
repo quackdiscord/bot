@@ -102,6 +102,11 @@ func caseCommand() *discordgo.ApplicationCommand {
 				user("User to moderate."),
 				text("message_link", "Discord message link to capture as evidence.", false),
 				file("Screenshot or file to save as evidence."),
+				&discordgo.ApplicationCommandOption{
+					Type:        discordgo.ApplicationCommandOptionBoolean,
+					Name:        "secret",
+					Description: "Show the receipt only to you instead of the channel.",
+				},
 			),
 			subcommand("evidence", "View a case's evidence, or add a file or message link.",
 				text("case", "Case number or ID", true),

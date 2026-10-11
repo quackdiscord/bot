@@ -184,6 +184,18 @@ func caseAdd(templateID, targetID string, permissions uint64) *discordgo.Interac
 	))
 }
 
+// secretCaseAdd is caseAdd with the secret option set.
+func secretCaseAdd(templateID, targetID string, permissions uint64) *discordgo.InteractionCreate {
+	i := caseAdd(templateID, targetID, permissions)
+	data := i.ApplicationCommandData()
+	add := data.Options[0]
+	add.Options = append(add.Options, &discordgo.ApplicationCommandInteractionDataOption{
+		Name: "secret", Type: discordgo.ApplicationCommandOptionBoolean, Value: true,
+	})
+	i.Data = data
+	return i
+}
+
 func templateAutocomplete(query string) *discordgo.InteractionCreate {
 	permissions := uint64(discordgo.PermissionModerateMembers)
 	return interaction(discordgo.InteractionApplicationCommandAutocomplete, permissions, subcommand("add",
@@ -444,6 +456,52 @@ func TestCaseAddContextModalKeepsPublicSummaryLimited(t *testing.T) {
 	if strings.Contains(*responder.edit.Content, "View message") {
 		t.Fatal("public result leaked evidence")
 	}
+}
+
+// TestCaseAddSecretAnswersPrivately checks that a secret /case add keeps
+// both the placeholder and the receipt private, with or without a context
+// modal first, and records no publication since only the interaction can
+// edit an ephemeral message.
+func TestCaseAddSecretAnswersPrivately(t *testing.T) {
+	permissions := uint64(discordgo.PermissionModerateMembers)
+	private := func(t *testing.T, h *caseHarness, result discord.Result, target string) {
+		t.Helper()
+		if result.Response == nil || result.Response.Type != discordgo.InteractionResponseDeferredChannelMessageWithSource ||
+			result.Response.Data == nil || result.Response.Data.Flags&discordgo.MessageFlagsEphemeral == 0 {
+			t.Fatalf("expected private deferred acknowledgement, got %+v", result.Response)
+		}
+		responder := run(t, result)
+		if responder.deleted || responder.edit.Content == nil || !strings.Contains(*responder.edit.Content, "<@"+target+">") {
+			t.Fatalf("expected the private reply to become the receipt: %+v", responder)
+		}
+		if len(h.poster.sent) != 0 || len(h.publications(t)) != 0 {
+			t.Fatalf("secret receipt was posted or recorded: %+v", h.poster.sent)
+		}
+	}
+	t.Run("direct", func(t *testing.T) {
+		h := newCaseHarness(t, permissions)
+		private(t, h, h.cases.Command(context.Background(), secretCaseAdd(h.spamID, "target-1", permissions)), "target-1")
+	})
+	t.Run("context modal", func(t *testing.T) {
+		h := newCaseHarness(t, permissions)
+		template := h.template(t, quack.TemplateInput{
+			Slug: "abuse", Name: "Abuse", ReasonTemplate: "Abusive behavior",
+			ContextFields: []quack.TemplateContextFieldInput{{
+				Key: "details", Label: "What happened?", FieldType: quack.ContextFieldLongText, Position: 1, Required: true,
+			}},
+			Levels: []quack.TemplateLevelInput{{Name: "Default", Position: 1, IsDefault: true}},
+		})
+		result := h.cases.Command(context.Background(), secretCaseAdd(template.ID, "target-2", permissions))
+		if result.Response.Type != discordgo.InteractionResponseModal {
+			t.Fatalf("expected required context modal, got %+v", result.Response)
+		}
+		submit := interaction(discordgo.InteractionModalSubmit, 0, nil)
+		submit.ID = "modal-interaction-secret"
+		submit.Data = discordgo.ModalSubmitInteractionData{CustomID: result.Response.Data.CustomID, Components: []discordgo.MessageComponent{
+			discordgo.ActionsRow{Components: []discordgo.MessageComponent{discordgo.TextInput{CustomID: "context_details", Value: "Repeated abusive replies"}}},
+		}}
+		private(t, h, h.cases.ContextModal(context.Background(), submit), "target-2")
+	})
 }
 
 // TestCaseInteractionsMatchGolden replays the /case flows and compares

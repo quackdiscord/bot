@@ -16,7 +16,7 @@ import (
 // guild, so it must be deliberate.
 func TestCommandDefinitionsAreUnchanged(t *testing.T) {
 	want := map[string]string{
-		caseCommandName:        "4ce1fd9e27ae0625a993641f2210c0d883796be320e760fcf3b5e08dfaebf653",
+		caseCommandName:        "ef9f625127b34151a308a288d2e9c1576d3ac695592f2ce8e3f712c41f005a53",
 		messageCaseCommandName: "82ab876577883a8670e419e70302e1c1f37ce354b9f73b03aba0f0cc8cba7f42",
 		userCaseCommandName:    "e33c3c5c40865b954227986e9b21cbdb1ace42a47e70d7e235a216788684708e",
 		templateCommandName:    "e791dbe49f47a33bb1356b23db29185d8f7abc5382e9607fb9dbc1562342cb8a",
@@ -77,7 +77,7 @@ func TestUIPreviewIsSyncedOnlyInDev(t *testing.T) {
 func TestCaseCommandShape(t *testing.T) {
 	command := caseCommand()
 	add := command.Options[0]
-	if add.Name != "add" || len(add.Options) != 4 || !add.Options[0].Autocomplete {
+	if add.Name != "add" || len(add.Options) != 5 || !add.Options[0].Autocomplete {
 		t.Fatalf("unexpected add subcommand: %+v", add)
 	}
 	for position, option := range add.Options {

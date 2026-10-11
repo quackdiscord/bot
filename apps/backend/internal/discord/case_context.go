@@ -40,8 +40,10 @@ type contextDraft struct {
 	Values                  map[string]json.RawMessage
 	EvidenceLinks           []string
 	Attachments             []quack.DiscordAttachmentSnapshot
-	Page                    int
-	ExpiresAt               time.Time
+	// Secret keeps a creation's receipt private to the moderator.
+	Secret    bool
+	Page      int
+	ExpiresAt time.Time
 }
 
 // draftStore keeps context drafts in memory until they expire. Drafts are
@@ -102,7 +104,7 @@ func (c *cases) contextModal(ctx context.Context, i *discordgo.InteractionCreate
 	if draft.EditingCaseID != "" {
 		return c.saveContextEdit(i, draft.EditingCaseID, ordered)
 	}
-	return AsyncPublic(func(ctx context.Context, responder Responder) error {
+	return c.createAsync(draft.Secret, func(ctx context.Context, responder Responder) error {
 		staff, err := c.staff(ctx, i)
 		if err != nil {
 			return err
@@ -126,7 +128,7 @@ func (c *cases) contextModal(ctx context.Context, i *discordgo.InteractionCreate
 			_, err := responder.EditOriginal(ErrorEdit(caseCreateErrorMessage(err)))
 			return err
 		}
-		c.publishInPlace(ctx, responder, i, created)
+		c.publishCreated(ctx, responder, i, created, draft.Secret)
 		return nil
 	})
 }
@@ -151,7 +153,7 @@ func (c *cases) contextNext(_ context.Context, i *discordgo.InteractionCreate) R
 func (c *cases) startContext(
 	i *discordgo.InteractionCreate, template *quack.TemplateResponse,
 	targetID, evidenceLink, channelID, messageID string, prefilled []quack.CaseContextValueInput,
-	files []quack.DiscordAttachmentSnapshot,
+	files []quack.DiscordAttachmentSnapshot, secret bool,
 ) (*discordgo.InteractionResponse, error) {
 	if len(template.ContextFields) == 0 || strings.TrimSpace(i.ID) == "" {
 		return nil, errors.New("template context is empty")
@@ -172,6 +174,7 @@ func (c *cases) startContext(
 		Values:                  values,
 		EvidenceLinks:           appendUnique(nil, evidenceLink),
 		Attachments:             files,
+		Secret:                  secret,
 		ExpiresAt:               time.Now().UTC().Add(draftLifetime),
 	}
 	c.drafts.put(draft)

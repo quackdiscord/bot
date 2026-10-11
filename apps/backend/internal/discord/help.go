@@ -42,7 +42,7 @@ var helpTopics = map[string]string{
 		"`/template remove-level` removes a step by its count. Removing step 2 leaves the first step in effect until the next one.\n\n" +
 		"Use `/template edit` to change the name, reason, appeals, or counting window. A seven-day window counts only cases from the last week. Older cases stay in history. Voided cases and imported v4 cases never raise the punishment. Changes apply to new cases.\n\n" +
 		"`/template view` shows the current rule. Archive a rule to stop using it without deleting its history.",
-	"cases": "## Cases and evidence\nUse `/case add`, or right-click a message or member and choose **Apps → Add case** (or **Add case for member**). Pick the rule and the case is created immediately.\n\n" +
+	"cases": "## Cases and evidence\nUse `/case add`, or right-click a message or member and choose **Apps → Add case** (or **Add case for member**). Pick the rule and the case is created immediately. Set `secret` on `/case add` to keep the result private to you.\n\n" +
 		"Evidence is optional. Attach a file or message link when adding the case, or use `/case evidence` later. **Edit context** adds staff notes; **View evidence** opens saved copies. Those details stay private to staff. Check the copy result before deleting the source.\n\n" +
 		"Made a mistake? **Void case** keeps the record but stops it counting against the member. It also queues removal of that case’s ban or timeout when possible. `/case view` shows the result.\n\n" +
 		"Use `/case list` for recent cases, `/case user` for a member’s history, and `/case failures` when an action needs attention.",
